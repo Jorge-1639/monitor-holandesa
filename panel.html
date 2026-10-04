@@ -1,0 +1,387 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#1d5c3b"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><title>Ventas La Holandesa</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=Public+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one phone-width column, sticky date bar + tabs; summary first, detail below */
+:root{
+  --bg:#f3f6f2; --surface:#ffffff; --ink:#15231a; --muted:#5d6e62; --line:#dbe4dc;
+  --green:#1d5c3b; --green-2:#2f7d52; --green-soft:#e2efe5; --bar:#2f7d52; --bar-dim:#b9d3c1;
+  --good:#1f7a45; --good-bg:#e1f3e7; --warn:#a36a00; --warn-bg:#fdf1d8; --bad:#b3322a; --bad-bg:#fbe5e2;
+  --display:"Archivo","Arial Narrow",system-ui,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e1611; --surface:#16211a; --ink:#e6efe8; --muted:#97a99c; --line:#26352b;
+  --green:#7cc79a; --green-2:#5fb283; --green-soft:#1d3226; --bar:#5fb283; --bar-dim:#2b4a37;
+  --good:#7fd6a0; --good-bg:#183223; --warn:#f0bf5a; --warn-bg:#33280f; --bad:#f08b80; --bad-bg:#3a1a17; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1611; --surface:#16211a; --ink:#e6efe8; --muted:#97a99c; --line:#26352b;
+  --green:#7cc79a; --green-2:#5fb283; --green-soft:#1d3226; --bar:#5fb283; --bar-dim:#2b4a37;
+  --good:#7fd6a0; --good-bg:#183223; --warn:#f0bf5a; --warn-bg:#33280f; --bad:#f08b80; --bad-bg:#3a1a17; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font:15px/1.45 var(--body);margin:0}
+.wrap{max-width:720px;margin:0 auto;padding-inline:16px;padding-block:0 48px}
+.num{font-variant-numeric:tabular-nums}
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:12px 0;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand h1{font:800 22px/1.1 var(--display);font-stretch:85%;letter-spacing:.01em;margin:0;color:var(--green);text-transform:uppercase}
+.brand small{color:var(--muted);font-size:12px}
+.datebar{display:flex;align-items:center;gap:8px;margin-top:10px}
+.datebar button{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;width:38px;height:38px;font-size:18px;cursor:pointer}
+.datebar button:disabled{opacity:.35;cursor:default}
+.datebar select{flex:1;min-width:0;height:38px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:600 15px var(--body);padding-inline:10px}
+nav.tabs{display:flex;gap:4px;margin-top:10px;overflow-x:auto}
+nav.tabs button{flex:1;border:0;background:none;color:var(--muted);font:700 13px var(--display);font-stretch:85%;text-transform:uppercase;letter-spacing:.03em;padding:10px 2px;border-bottom:3px solid transparent;cursor:pointer;white-space:nowrap;position:relative}
+nav.tabs button[aria-selected="true"]{color:var(--green);border-bottom-color:var(--green)}
+nav.tabs .dot{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:var(--bad);color:var(--surface);font:700 11px/18px var(--body);margin-left:4px;letter-spacing:0}
+button:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--green-2);outline-offset:2px}
+.note{margin:14px 0 0;padding:10px 12px;border-radius:8px;background:var(--warn-bg);color:var(--ink);font-size:13px}
+section{display:flex;flex-direction:column;gap:14px;margin-top:16px}
+.hero{background:var(--green);color:var(--surface);border-radius:14px;padding:18px}
+.hero .lbl{font:700 12px var(--display);text-transform:uppercase;letter-spacing:.1em;opacity:.85}
+.hero .big{font:800 44px/1.05 var(--display);font-stretch:80%;margin:4px 0 10px}
+.hero .cmp{display:flex;gap:8px;flex-wrap:wrap;font-size:13px}
+.hero .cmp span{background:rgba(255,255,255,.16);border-radius:20px;padding:3px 10px}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.kpi b{display:block;font:800 22px/1.1 var(--display);font-stretch:85%}
+.kpi span{color:var(--muted);font-size:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;min-width:0}
+.card h2{font:800 15px var(--display);text-transform:uppercase;letter-spacing:.06em;margin:0 0 10px;color:var(--green);display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.card h2 small{font:500 12px var(--body);color:var(--muted);text-transform:none;letter-spacing:0}
+.rows{display:flex;flex-direction:column;gap:9px}
+.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;align-items:baseline}
+.row .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .v{font-weight:600}
+.row .track{grid-column:1/-1;height:7px;background:var(--green-soft);border-radius:4px;overflow:hidden}
+.row .track i{display:block;height:100%;background:var(--bar);border-radius:4px}
+.row .sub{grid-column:1/-1;color:var(--muted);font-size:12px;margin-top:-2px}
+.chart{width:100%;height:auto;display:block}
+.chart text{fill:var(--muted);font:11px var(--body)}
+.chart .lab{fill:var(--ink);font-weight:600}
+.list{display:flex;flex-direction:column}
+.item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:9px 0;border-top:1px solid var(--line)}
+.item:first-child{border-top:0;padding-top:0}
+.item .meta{grid-column:1/-1;color:var(--muted);font-size:12px}
+.pill{display:inline-block;font:700 11px var(--body);padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:.04em}
+.pill.good{background:var(--good-bg);color:var(--good)} .pill.warn{background:var(--warn-bg);color:var(--warn)} .pill.bad{background:var(--bad-bg);color:var(--bad)}
+.empty{color:var(--muted);font-size:14px;padding:4px 0}
+.alerts{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.alert{border-radius:10px;padding:10px 12px;border:1px solid var(--line);background:var(--surface)}
+.alert b{display:block;font:800 22px var(--display);font-stretch:85%}
+.alert span{font-size:12px;color:var(--muted)}
+.alert.hot{border-color:var(--bad);background:var(--bad-bg)} .alert.hot b{color:var(--bad)}
+.ledger{width:100%;border-collapse:collapse;font-size:14px}
+.ledger td{padding:6px 0;border-top:1px solid var(--line)}
+.ledger td:last-child{text-align:right;font-weight:600}
+.ledger tr.tot td{border-top:2px solid var(--ink);font-weight:800}
+.ledger tr:first-child td{border-top:0}
+details summary{cursor:pointer;color:var(--green-2);font-weight:600;font-size:14px;margin-top:8px}
+.seg{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.seg button{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:16px;padding:4px 12px;font:600 13px var(--body);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--green);border-color:var(--green);color:var(--surface)}
+.tscroll{overflow-x:auto}
+table.tk{border-collapse:collapse;width:100%;font-size:13px;min-width:460px}
+table.tk th{text-align:left;color:var(--muted);font-weight:600;padding:4px 6px;border-bottom:1px solid var(--line)}
+table.tk td{padding:6px;border-bottom:1px solid var(--line)}
+table.tk td.r,table.tk th.r{text-align:right}
+table.prodrep{min-width:0;font-size:12.5px}table.prodrep td,table.prodrep th{padding:5px 3px}table.prodrep td:first-child{word-break:break-word}
+.tkt{padding:12px 14px}
+.tkt summary{list-style:none;cursor:pointer;display:flex;flex-direction:column;gap:2px;color:var(--ink);font-size:14px;margin:0}
+.tkt summary::-webkit-details-marker{display:none}
+.tk-top{display:flex;justify-content:space-between;gap:8px;font-size:15px}
+.tk-meta{color:var(--muted);font-size:12.5px}
+.tk-meta b{color:var(--ink);font-weight:600}
+.tk-items{margin-top:8px;font-size:13.5px}
+.tk-items tr.pg td{color:var(--muted);font-weight:500}
+.corte-h{font:800 17px var(--display);text-transform:uppercase;letter-spacing:.05em;color:var(--green);margin:10px 0 0;display:flex;gap:8px;align-items:baseline}
+.corte-h small{font:500 12px var(--body);color:var(--muted);letter-spacing:0;text-transform:none}
+.corte-tot{border-color:var(--green);background:var(--green-soft)}
+.corte-tot.dia{border-width:2px}
+.audit{font:12.5px/1.45 ui-monospace,"Cascadia Mono","Consolas","Menlo",monospace;margin:0;white-space:pre;color:var(--ink)}
+.sep{font:12.5px ui-monospace,"Consolas",monospace;color:var(--muted);margin:8px 0;white-space:pre;overflow:hidden}
+footer{color:var(--muted);font-size:12px;margin-top:24px}
+@media (max-width:420px){.kpis{grid-template-columns:repeat(3,1fr)}.kpi b{font-size:19px}.hero .big{font-size:38px}}
+@media (prefers-reduced-motion:no-preference){.row .track i{transition:width .4s ease}}
+</style>
+
+</head><body><div class="wrap">
+  <header class="top">
+    <div class="brand"><h1>La Holandesa · Ventas</h1><small id="gen"></small></div>
+    <div class="datebar">
+      <button id="prev" aria-label="Día anterior">‹</button>
+      <select id="day" aria-label="Elegir día"></select>
+      <button id="next" aria-label="Día siguiente">›</button>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="hoy" aria-selected="true">Ventas</button>
+      <button role="tab" data-tab="tickets">Tickets</button>
+      <button role="tab" data-tab="control">Control<span class="dot" id="ctlDot" hidden></span></button>
+      <button role="tab" data-tab="caja">Caja</button>
+      <button role="tab" data-tab="corte">Corte</button>
+      <button role="tab" data-tab="hist">Historial</button>
+    </nav>
+  </header>
+  <p class="note" id="note"></p>
+  <main id="view"></main>
+  <footer>Se actualiza cada 2 minutos. Datos leídos de MrTienda (solo lectura). Venta = lo cobrado en tickets, sin contar propinas ni entradas de caja. Dólares convertidos al tipo de cambio que registró la caja.</footer>
+</div>
+
+<script>
+let DATA=null, byDate={}, days=[];
+const $=s=>document.querySelector(s);
+const fmt=n=>'$'+(Math.round(n)).toLocaleString('es-MX');
+const fmt2=n=>'$'+n.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const DIAS=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+const MESES=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+const pd=s=>{const [y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)};
+const lbl=s=>{const d=pd(s);return `${DIAS[d.getDay()]} ${d.getDate()} ${MESES[d.getMonth()]} ${d.getFullYear()}`};
+let cur=null, tab='hoy', prodAll=false;
+try{const t=localStorage.getItem('hol_tab');if(t)tab=t}catch(e){}
+
+const sel=$('#day');
+
+
+function bars(items,max){
+  max=max||Math.max(1,...items.map(i=>i.v));
+  return `<div class="rows">${items.map(i=>`<div class="row"><span class="n">${esc(i.n)}</span><span class="v num">${i.vs??fmt(i.v)}</span><span class="track"><i style="width:${Math.max(1.5,100*i.v/max)}%"></i></span>${i.sub?`<span class="sub">${i.sub}</span>`:''}</div>`).join('')}</div>`;
+}
+function colChart(vals,labels,{h=150,hl=-1,every=1,fmtTop=null}={}){
+  const n=vals.length,W=340,pad=24,R=16,bw=(W-pad-R)/n,max=Math.max(1,...vals);
+  const nice=niceMax(max),ticks=[0,nice/2,nice];
+  let s=`<svg class="chart" viewBox="0 0 ${W} ${h+22}" role="img">`;
+  ticks.forEach(t=>{const y=h-(t/nice)*(h-14);s+=`<line x1="${pad}" x2="${W-R}" y1="${y}" y2="${y}" stroke="var(--line)" stroke-width="1"/><text x="0" y="${y+4}">${t>=1000?(t/1000)+'k':t}</text>`});
+  vals.forEach((v,i)=>{const bh=(v/nice)*(h-14),x=pad+i*bw+bw*.15,w=bw*.7;
+    s+=`<rect x="${x}" y="${h-bh}" width="${w}" height="${Math.max(bh,0)}" rx="2" fill="${i===hl?'var(--green)':'var(--bar-dim)'}"><title>${labels[i]}: ${fmt(v)}</title></rect>`;
+    if(i%every===0||i===hl) s+=`<text x="${x+w/2}" y="${h+15}" text-anchor="middle" ${i===hl?'class="lab"':''}>${labels[i]}</text>`;
+    if(fmtTop&&i===hl) s+=`<text class="lab" x="${Math.min(x+w/2,W-30)}" y="${h-bh-5}" text-anchor="middle">${fmtTop(v)}</text>`;
+  });
+  return s+'</svg>';
+}
+function niceMax(m){const p=Math.pow(10,Math.floor(Math.log10(m)));for(const k of[1,2,2.5,5,10])if(k*p>=m)return k*p;return 10*p}
+function shift(s,n){const d=pd(s);d.setDate(d.getDate()+n);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+function delta(a,b,txt){if(!b||!b.total)return '';const p=Math.round(100*(a-b.total)/b.total);return `<span>${p>=0?'▲':'▼'} ${Math.abs(p)}% vs ${txt}</span>`}
+
+const pct=(a,b)=>b?(100*a/b).toFixed(1)+'%':'0%';
+function groupFam(ps){const m=new Map();ps.forEach(p=>{const f=p.f||'Otros';if(!m.has(f))m.set(f,[]);m.get(f).push(p)});return [...m.entries()].sort((a,b)=>b[1].reduce((x,p)=>x+p.imp,0)-a[1].reduce((x,p)=>x+p.imp,0)).map(([f,ps])=>[f,ps.sort((a,b)=>b.q-a.q||b.imp-a.imp)])}
+function vHoy(D){
+  const prom=D.tickets?D.total/D.tickets:0;
+  const prev=byDate[shift(cur,-1)], wk=byDate[shift(cur,-7)];
+  const hrs=[];for(let h=7;h<=21;h++)hrs.push(h);
+  const hv=hrs.map(h=>D.hora[h]||0), peak=hv.indexOf(Math.max(...hv));
+  const prods=prodAll?D.productos:D.productos.slice(0,10);
+  const totF=Object.values(D.formas).reduce((a,b)=>a+b,0)||1;
+  return `<section>
+  <div class="hero"><div class="lbl">Venta del día</div><div class="big num">${fmt2(D.total)}</div>
+    <div class="cmp">${delta(D.total,prev,'día anterior')}${delta(D.total,wk,DIAS[pd(cur).getDay()]+' pasado')}</div></div>
+  <div class="kpis"><div class="kpi"><b class="num">${D.tickets}</b><span>tickets</span></div><div class="kpi"><b class="num">${fmt(prom)}</b><span>ticket promedio</span></div><div class="kpi"><b class="num">${D.personas}</b><span>comensales</span></div></div>
+  <div class="card"><h2>Ventas por hora <small>${hv[peak]?'Hora pico '+hrs[peak]+':00':''}</small></h2>${colChart(hv,hrs.map(String),{hl:peak,every:2,fmtTop:fmt})}</div>
+  <div class="card"><h2>Formas de pago</h2>${bars(Object.entries(D.formas).map(([n,v])=>({n,v,sub:Math.round(100*v/totF)+'% del total'})))}</div>
+  <div class="card"><h2>Por mesero <small>venta · tickets</small></h2>${bars(D.meseros.map(m=>({n:m.n,v:m.total,sub:m.tk+' tickets · promedio '+fmt(m.total/m.tk)})))}</div>
+  <div class="card"><h2>Por categoría</h2>${bars(Object.entries(D.familias).map(([n,v])=>({n,v,sub:pct(v,D.total)+' de la venta'})))}</div>
+  <div class="card"><h2>Productos más vendidos <small>${D.productos.length} productos</small></h2>
+    <div class="seg"><button data-p="0" aria-pressed="${!prodAll}">Top 10</button><button data-p="1" aria-pressed="${prodAll}">Todos</button></div>
+    ${bars(prods.map(p=>({n:p.n,v:p.imp,sub:`${p.q} vendidos · <b>${pct(p.imp,D.total)}</b> de la venta`})))}</div>
+  <div class="card"><h2>Reporte de productos vendidos <small>${D.productos.reduce((a,p)=>a+p.q,0)} piezas</small></h2>
+    <div class="tscroll"><table class="tk num prodrep"><thead><tr><th>Producto</th><th class="r">Cant.</th><th class="r">Venta</th><th class="r">%</th></tr></thead>
+    ${groupFam(D.productos).map(([f,ps])=>`<tbody><tr><td colspan="4" style="padding-top:12px;font-weight:700;color:var(--green)">${esc(f)} <span style="color:var(--muted);font-weight:500">· ${ps.reduce((a,p)=>a+p.q,0)} pzas · ${fmt(ps.reduce((a,p)=>a+p.imp,0))} · ${pct(ps.reduce((a,p)=>a+p.imp,0),D.total)}</span></td></tr>
+    ${ps.map(p=>`<tr><td>${esc(p.n)}</td><td class="r">${p.q}</td><td class="r">${fmt(p.imp)}</td><td class="r">${pct(p.imp,D.total)}</td></tr>`).join('')}</tbody>`).join('')}
+    <tbody><tr><td style="font-weight:800;border-top:2px solid var(--ink)">Total</td><td class="r" style="font-weight:800;border-top:2px solid var(--ink)">${D.productos.reduce((a,p)=>a+p.q,0)}</td><td class="r" style="font-weight:800;border-top:2px solid var(--ink)">${fmt(D.productos.reduce((a,p)=>a+p.imp,0))}</td><td class="r" style="font-weight:800;border-top:2px solid var(--ink)">100%</td></tr></tbody></table></div></div>
+  <div class="card"><h2>Recoger aquí <small>precio de lista 02</small></h2>
+    <div class="row"><span class="n">${D.llevar.tickets} tickets</span><span class="v num">${fmt2(D.llevar.total)}</span></div></div>
+  <div class="card"><h2>Tickets del día <small>${D.lista.length}</small></h2>
+    <details><summary>Ver todos los tickets</summary><div class="tscroll"><table class="tk num"><thead><tr><th>Folio</th><th>Hora</th><th>Mesa</th><th>Mesero</th><th>Pago</th><th class="r">Total</th></tr></thead><tbody>
+    ${D.lista.map(t=>`<tr><td>${esc(t.folio)}</td><td>${esc(t.hora)}</td><td>${esc(t.mesa||'—')}</td><td>${esc(t.mesero)}</td><td>${esc(t.pago)}</td><td class="r">${fmt2(t.total)}</td></tr>`).join('')}
+    </tbody></table></div></details></div>
+  </section>`;
+}
+function itemList(arr,render,emptyTxt){return arr.length?`<div class="list">${arr.map(render).join('')}</div>`:`<p class="empty">${emptyTxt}</p>`}
+function vControl(D){
+  const bt=D.borrados.reduce((a,b)=>a+(b.importe||0)*(b.cant||1),0), dt=D.descuentos.reduce((a,b)=>a+b.monto,0);
+  const st=D.salidas.reduce((a,b)=>a+b.importe,0), didiT=D.didi.reduce((a,b)=>a+b.importe,0);
+  return `<section>
+  <div class="alerts">
+    <div class="alert ${D.borrados.length?'hot':''}"><b class="num">${D.borrados.length}</b><span>artículos borrados de cuentas · ${fmt(bt)}</span></div>
+    <div class="alert ${D.cancelados.length?'hot':''}"><b class="num">${D.cancelados.length}</b><span>tickets cancelados</span></div>
+    <div class="alert"><b class="num">${D.descuentos.length}</b><span>descuentos · ${fmt(dt)}</span></div>
+    <div class="alert ${D.precios.length?'hot':''}"><b class="num">${D.precios.length}</b><span>cambios de precio</span></div>
+  </div>
+  <div class="note" style="margin:0">MrTienda dejó de registrar los artículos borrados el ${lbl(DATA.bitacora_hasta)}, el mismo día que se actualizó el sistema. Tampoco guarda los cambios de mesa ni cuando se juntan o separan cuentas. Pídele a tu proveedor que vuelva a activar la bitácora de artículos eliminados.</div>
+  <div class="card"><h2>Cambios de precio</h2>
+    ${itemList(D.precios,p=>`<div class="item"><span>${esc(p.prod)} <span class="pill warn">${esc(p.lista)}</span></span><span class="num">${p.antes==null?'':fmt2(p.antes)+' → '}${fmt2(p.ahora)}</span><span class="meta">${esc(p.hora)} · ${esc(p.quien)}${p.antes==null?' · precio nuevo':''}</span></div>`,'Nadie cambió precios este día.')}</div>
+  <div class="card"><h2>Artículos borrados <small>quitados de una cuenta abierta</small></h2>
+    ${itemList(D.borrados,b=>`<div class="item"><span>${esc(b.cant>1?b.cant+' × ':'')}${esc(b.prod)}</span><span class="num">${fmt2((b.importe||0)*(b.cant||1))}</span><span class="meta">${esc(b.hora)} · ${esc(b.mesa||'sin mesa')} · borró ${esc(b.quien)}${b.motivo?' · '+esc(b.motivo):''}</span></div>`,'Nadie borró artículos este día.')}</div>
+  <div class="card"><h2>Descuentos y precios cambiados</h2>
+    ${itemList(D.descuentos,d=>`<div class="item"><span>${esc(d.prod)} <span class="pill warn">-${Math.round(d.pct)}%</span></span><span class="num">-${fmt2(d.monto)}</span><span class="meta">${esc(d.hora)} · ticket ${esc(d.ticket)} · de ${fmt(d.orig)} a ${fmt2(d.cobrado)} · ${esc(d.quien)}</span></div>`,'Sin descuentos este día.')}</div>
+  <div class="card"><h2>Tickets cancelados</h2>
+    ${itemList(D.cancelados,c=>`<div class="item"><span>Ticket ${esc(c.folio)}</span><span class="num">${fmt2(c.importe)}</span><span class="meta">${esc(c.hora)} · ${esc(c.quien)}</span></div>`,'No hubo tickets cancelados.')}</div>
+  </section>`;
+}
+let ctipo='resumen', cturno='dia';
+function vCorte(D){
+  const turnos=[...new Set([...D.lista.map(t=>t.turno),...D.cortes.map(c=>c.turno)])].sort();
+  if(cturno!=='dia'&&!turnos.includes(cturno)) cturno='dia';
+  const nomT=t=>t==='1'?'Corte 1 · mañana':t==='2'?'Corte 2 · tarde':'Corte '+t;
+  const TIPOS=[['resumen','Resumen'],['categoria','Por categoría'],['producto','Por producto'],['auditoria','Auditoría']];
+  const head=`<section style="gap:8px"><p class="empty" style="margin:0">¿Qué corte quieres?</p>
+    <div class="seg" style="margin:0">${TIPOS.map(([k,l])=>`<button data-ct="${k}" aria-pressed="${ctipo===k}">${l}</button>`).join('')}</div>
+    ${ctipo==='resumen'?'':`<div class="seg" style="margin:0">${turnos.map(t=>`<button data-cu="${t}" aria-pressed="${cturno===t}">${nomT(t)}</button>`).join('')}<button data-cu="dia" aria-pressed="${cturno==='dia'}">Día completo</button></div>`}</section>`;
+  if(ctipo==='resumen') return head+vResumen(D);
+  const L=D.lista.filter(t=>cturno==='dia'||t.turno===cturno);
+  const titulo=(cturno==='dia'?'Día completo':nomT(cturno))+' · '+lbl(cur);
+  const total=L.reduce((a,t)=>a+t.total,0), piezas=L.reduce((a,t)=>a+t.items.reduce((b,i)=>b+i.q,0),0);
+  const formas={};L.forEach(t=>t.pagos.forEach(([f,a])=>formas[f]=(formas[f]||0)+a));
+  const pie=`<table class="ledger num"><tbody>${Object.entries(formas).map(([f,a])=>`<tr><td>${esc(f)}</td><td>${fmt2(a)}</td></tr>`).join('')}<tr class="tot"><td>Total · ${L.length} tickets · ${piezas} piezas</td><td>${fmt2(total)}</td></tr></tbody></table>`;
+  if(!L.length) return head+'<section><p class="empty">No hay tickets en este corte.</p></section>';
+  if(ctipo==='categoria'||ctipo==='producto'){
+    const m=new Map();
+    L.forEach(t=>t.items.forEach(i=>{const k=ctipo==='categoria'?(i.f||'Otros'):i.n;const o=m.get(k)||{q:0,imp:0,f:i.f||'Otros'};o.q+=i.q;o.imp+=i.imp;m.set(k,o)}));
+    const rows=[...m.entries()].sort((a,b)=>b[1].imp-a[1].imp);
+    return head+`<section><div class="card"><h2>Corte por ${ctipo==='categoria'?'categoría':'producto'} <small>${esc(titulo)}</small></h2>
+      <div class="tscroll"><table class="tk num prodrep"><thead><tr><th>${ctipo==='categoria'?'Categoría':'Producto'}</th><th class="r">Cant.</th><th class="r">Importe</th><th class="r">%</th></tr></thead><tbody>
+      ${rows.map(([k,o])=>`<tr><td>${esc(k)}</td><td class="r">${o.q}</td><td class="r">${fmt2(o.imp)}</td><td class="r">${pct(o.imp,total)}</td></tr>`).join('')}</tbody></table></div></div>
+      <div class="card corte-tot"><h2>Suma</h2>${pie}</div></section>`;
+  }
+  // auditoría: ticket por ticket
+  const pad=(s,n)=>String(s).slice(0,n).padEnd(n,' '), rp=(s,n)=>String(s).padStart(n,' ');
+  const mon=n=>'$'+n.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const sep='- - - - - - - - - - - - - - - - - - -';
+  const tks=L.map(t=>{
+    const lines=[`TICKET ${t.folio}${rp(t.hora,24)}`, `${t.mesa?'Mesa: '+t.mesa:(t.llevar?'Para llevar':'Sin mesa')}   Personas: ${t.pers||1}`, `Capturó: ${t.capturo}`, `Cobró:   ${t.cobro}`, ''];
+    t.items.forEach(i=>{lines.push(`${rp(i.q,2)} ${pad(i.n+(i.llevar?' (LL)':''),23)}${rp(mon(i.imp),11)}`); if(i.dcto>0) lines.push(`   descuento${rp('-'+mon(i.dcto),24)}`)});
+    lines.push(`${rp('TOTAL',26)}${rp(mon(t.total),11)}`);
+    (t.raw&&t.raw.length?t.raw:t.pagos.map(([f,a])=>[f,a,0])).forEach(([f,rec,cam])=>{lines.push(`${f}`);lines.push(`  Recibido ${rp(mon(rec),12)}  Cambio ${rp(mon(cam),9)}`)});
+    return `<pre class="audit">${esc(lines.join('\n'))}</pre>`;
+  }).join(`<div class="sep">${sep}</div>`);
+  return head+`<section><div class="card"><h2>Corte de auditoría <small>${esc(titulo)}</small></h2>
+    <div class="tscroll">${tks}</div></div>
+    <div class="card corte-tot"><h2>Suma del corte</h2>${pie}</div></section>`;
+}
+function vResumen(D){
+  if(!D.cortes.length)return '<section><p class="empty">Sin cortes este día.</p></section>';
+  const ORD=['Efectivo','Efectivo (dólares)','Tarjeta crédito','Tarjeta débito','Tarjeta crédito/débito','Transferencia'];
+  const ordF=o=>Object.entries(o).sort((a,b)=>{const i=ORD.indexOf(a[0]),j=ORD.indexOf(b[0]);return (i<0?99:i)-(j<0?99:j)});
+  const formTable=(o,total,tk)=>`<table class="ledger num"><tbody>${ordF(o).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${fmt2(v)}</td></tr>`).join('')}<tr class="tot"><td>Venta total${tk!=null?' · '+tk+' tickets':''}</td><td>${fmt2(total)}</td></tr></tbody></table>`;
+  return `<section>
+  <div class="card"><h2>Ventas del día por forma de pago</h2>${formTable(D.formas,D.total,D.tickets)}</div>
+  ${D.cortes.map(c=>{
+    const st=c.dif==null?'<span class="pill warn">Sin conteo</span>':Math.abs(c.dif)<=20?'<span class="pill good">Cuadra</span>':c.dif>0?`<span class="pill warn">Sobran ${fmt2(c.dif)}</span>`:`<span class="pill bad">Faltan ${fmt2(-c.dif)}</span>`;
+    return `<div class="card"><h2>Turno ${c.turno==='1'?'mañana':c.turno==='2'?'tarde':c.turno} ${st}</h2>
+    <h3 style="font:700 13px var(--display);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:4px 0 6px">Ventas por forma de pago</h3>
+    ${formTable(c.formas,c.venta,c.tickets)}
+    <h3 style="font:700 13px var(--display);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:16px 0 6px">Efectivo en caja</h3>
+    <table class="ledger num"><tbody>
+      <tr><td>Ventas en efectivo (pesos y dólares)</td><td>${fmt2(c.ventas_efe)}</td></tr>
+      <tr><td>+ Entradas de caja</td><td>${fmt2(c.entradas)}</td></tr>
+      <tr><td>− Salidas de caja</td><td>${fmt2(c.salidas)}</td></tr>
+      <tr class="tot"><td>Efectivo que debe haber</td><td>${fmt2(c.esperado)}</td></tr>
+      <tr><td>Efectivo contado</td><td>${c.contado==null?'—':fmt2(c.contado)}</td></tr>
+      <tr><td>Diferencia</td><td>${c.dif==null?'—':(c.dif>=0?'+':'−')+fmt2(Math.abs(c.dif))}</td></tr>
+    </tbody></table>
+    <p class="empty">Fondo de caja aparte: ${fmt2(c.fondo)} · Cajera: ${esc(c.cajero)}</p></div>`}).join('')}
+    <p class="empty">Se considera que cuadra si la diferencia es de $20 o menos.</p></section>`;
+}
+function vHist(){
+  const last=DATA.diario.filter(x=>x.fecha<=cur).slice(-30);
+  const ms=DATA.mensual.slice(-13);
+  const wd=[0,0,0,0,0,0,0],wc=[0,0,0,0,0,0,0];
+  DATA.diario.filter(x=>x.fecha<=cur).slice(-84).forEach(x=>{const g=pd(x.fecha).getDay();wd[g]+=x.total;wc[g]++});
+  const order=[1,2,3,4,5,6,0];
+  const best=last.slice().sort((a,b)=>b.total-a.total);
+  const mesTxt=m=>{const [y,mm]=m.split('-');return MESES[+mm-1]+' '+y.slice(2)};
+  return `<section>
+  <div class="card"><h2>Últimos 30 días <small>total ${fmt(last.reduce((a,b)=>a+b.total,0))}</small></h2>
+    ${colChart(last.map(x=>x.total),last.map(x=>String(pd(x.fecha).getDate())),{hl:last.length-1,every:3,fmtTop:fmt})}</div>
+  <div class="card"><h2>Promedio por día de la semana <small>últimas 12 semanas</small></h2>
+    ${bars(order.map(i=>({n:DIAS[i][0].toUpperCase()+DIAS[i].slice(1),v:wc[i]?wd[i]/wc[i]:0})))}</div>
+  <div class="card"><h2>Ventas por mes</h2>
+    ${colChart(ms.map(x=>x.total),ms.map(x=>mesTxt(x.mes)),{hl:ms.length-1,every:2,fmtTop:fmt})}
+    <p class="empty">El mes actual puede estar incompleto.</p></div>
+  <div class="card"><h2>Mejores y peores días <small>últimos 30</small></h2>
+    <div class="list">${[...best.slice(0,3).map(x=>[x,'good','Mejor']),...best.slice(-3).reverse().map(x=>[x,'bad','Bajo'])].map(([x,c,t])=>`<div class="item"><span>${lbl(x.fecha)} <span class="pill ${c}">${t}</span></span><span class="num">${fmt2(x.total)}</span><span class="meta">${x.tickets} tickets</span></div>`).join('')}</div></div>
+  </section>`;
+}
+let per='dia';
+const IN_CATS=['Didi','Reingresos','Cambio entre turnos','Otros ingresos'], OUT_CATS=['Gastos y compras','Pagos a personal','Propinas','Vales','Retiros'];
+function vCaja(){
+  let ds;
+  if(per==='dia') ds=[cur];
+  else if(per==='semana') ds=days.filter(d=>d<=cur&&d>shift(cur,-7));
+  else ds=days.filter(d=>d<=cur&&d.slice(0,7)===cur.slice(0,7));
+  const ent=[],sal=[];
+  ds.forEach(d=>{const D=DATA.detalle[d];D.entradas.forEach(e=>ent.push({...e,d}));D.salidas.forEach(e=>sal.push({...e,d}))});
+  const sum=a=>a.reduce((x,y)=>x+y.importe,0);
+  const by=(a,cats)=>cats.map(c=>({n:c,items:a.filter(x=>x.cat===c)})).filter(g=>g.items.length);
+  const rng=per==='dia'?lbl(cur):per==='semana'?`${lbl(ds[0])} al ${lbl(cur)}`:`${MESES[+cur.slice(5,7)-1]} ${cur.slice(0,4)} hasta el ${pd(cur).getDate()}`;
+  const grp=(g,sign)=>`<details class="card"><summary style="margin:0;display:flex;justify-content:space-between;gap:8px;color:var(--ink)"><span>${esc(g.n)} <small style="color:var(--muted);font-weight:400">(${g.items.length})</small></span><span class="num">${sign}${fmt2(sum(g.items))}</span></summary>
+    <div class="list" style="margin-top:10px">${g.items.map(e=>`<div class="item"><span>${esc(e.ref)}</span><span class="num">${fmt2(e.importe)}</span><span class="meta">${per==='dia'?'':pd(e.d).getDate()+' '+MESES[pd(e.d).getMonth()]+' · '}${esc(e.hora)} · turno ${esc(e.turno)}</span></div>`).join('')}</div></details>`;
+  const gi=by(ent,IN_CATS), go=by(sal,OUT_CATS);
+  return `<section>
+  <div class="seg" style="margin:0">${[['dia','Día'],['semana','7 días'],['mes','Mes']].map(([k,l])=>`<button data-per="${k}" aria-pressed="${per===k}">${l}</button>`).join('')}</div>
+  <p class="empty" style="margin:0">${rng}</p>
+  <div class="kpis" style="grid-template-columns:1fr 1fr"><div class="kpi"><b class="num" style="color:var(--good)">${fmt2(sum(ent))}</b><span>ingresos a caja (${ent.length})</span></div><div class="kpi"><b class="num" style="color:var(--bad)">${fmt2(sum(sal))}</b><span>salidas de caja (${sal.length})</span></div></div>
+  <div class="card"><h2>Salidas por tipo</h2>${go.length?bars(go.map(g=>({n:g.n,v:sum(g.items),sub:g.items.length+' movimientos'}))):'<p class="empty">Sin salidas.</p>'}</div>
+  <div class="card"><h2>Ingresos por tipo</h2>${gi.length?bars(gi.map(g=>({n:g.n,v:sum(g.items),sub:g.items.length+' movimientos'}))):'<p class="empty">Sin ingresos.</p>'}</div>
+  <h2 style="font:800 15px var(--display);text-transform:uppercase;letter-spacing:.06em;margin:6px 0 0;color:var(--green)">Detalle de salidas</h2>
+  ${go.map(g=>grp(g,'−')).join('')||'<p class="empty">Sin salidas.</p>'}
+  <h2 style="font:800 15px var(--display);text-transform:uppercase;letter-spacing:.06em;margin:6px 0 0;color:var(--green)">Detalle de ingresos</h2>
+  ${gi.map(g=>grp(g,'+')).join('')||'<p class="empty">Sin ingresos.</p>'}
+  <p class="empty">Las categorías se asignan por el texto que escriben en la caja (por ejemplo "DIDI", "PROPINA", "VALE", "PAGO DE…"). Si algo quedó en la categoría equivocada, dime y ajusto la regla.</p>
+  </section>`;
+}
+function vTickets(D){
+  const turnos=[...new Set(D.lista.map(t=>t.turno))].sort();
+  const nomT=t=>t==='1'?'Turno mañana':t==='2'?'Turno tarde':'Turno '+t;
+  const cz=t=>(D.cortes.find(c=>c.turno===t)||{});
+  if(!D.lista.length) return '<section><p class="empty">No hay tickets este día.</p></section>';
+  const tk=t=>`<details class="card tkt"><summary><span class="tk-top"><b>Ticket ${esc(t.folio)}</b><span class="num">${fmt2(t.total)}</span></span>
+      <span class="tk-meta">${esc(t.hora)} · ${t.mesa?esc(t.mesa):(t.llevar?'Para llevar':'Sin mesa')} · ${esc(t.pago)}</span>
+      <span class="tk-meta">Capturó <b>${esc(t.capturo)}</b> · Cobró <b>${esc(t.cobro)}</b></span></summary>
+    <table class="ledger num tk-items"><tbody>${t.items.map(i=>`<tr><td>${i.q} × ${esc(i.n)}${i.llevar?' <span class="pill warn">Llevar</span>':''}${i.dcto>0?` <span class="pill bad">-${fmt(i.dcto)}</span>`:''}</td><td>${fmt2(i.imp)}</td></tr>`).join('')}
+    ${t.pagos.map(([f,a])=>`<tr class="pg"><td>Pagó con ${esc(f)}</td><td>${fmt2(a)}</td></tr>`).join('')}
+    <tr class="tot"><td>Total</td><td>${fmt2(t.total)}</td></tr></tbody></table></details>`;
+  let html='<section><div class="seg" style="margin:0"><button data-tk="abrir">Abrir todos</button><button data-tk="cerrar">Cerrar todos</button></div>';
+  turnos.forEach((tn,i)=>{const ts=D.lista.filter(t=>t.turno===tn),sum=ts.reduce((a,t)=>a+t.total,0),c=cz(tn);
+    html+=`<h2 class="corte-h">Corte ${i+1} · ${nomT(tn)}${c.folz?` <small>Z ${esc(c.folz)}</small>`:''}</h2>${ts.map(tk).join('')}
+      <div class="card corte-tot"><h2>Total corte ${i+1} <small>${ts.length} tickets · cajera ${esc(c.cajero||'')}</small></h2>
+      <table class="ledger num"><tbody>${Object.entries(c.formas||{}).map(([f,a])=>`<tr><td>${esc(f)}</td><td>${fmt2(a)}</td></tr>`).join('')}<tr class="tot"><td>Venta corte ${i+1}</td><td>${fmt2(sum)}</td></tr></tbody></table></div>`});
+  html+=`<div class="card corte-tot dia"><h2>Total del día</h2><table class="ledger num"><tbody>${turnos.map((tn,i)=>{const s=D.lista.filter(t=>t.turno===tn).reduce((a,t)=>a+t.total,0);return `<tr><td>Corte ${i+1} · ${nomT(tn)}</td><td>${fmt2(s)}</td></tr>`}).join('')}<tr class="tot"><td>Total · ${D.lista.length} tickets</td><td>${fmt2(D.total)}</td></tr></tbody></table></div></section>`;
+  return html;
+}
+function render(){
+  const D=DATA.detalle[cur]; sel.value=cur;
+  const i=days.indexOf(cur); $('#prev').disabled=i<=0; $('#next').disabled=i>=days.length-1;
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===tab));
+  const n=D.borrados.length+D.cancelados.length+D.precios.length; const dot=$('#ctlDot'); dot.hidden=!n; dot.textContent=n;
+  $('#view').innerHTML= tab==='hoy'?vHoy(D):tab==='control'?vControl(D):tab==='tickets'?vTickets(D):tab==='caja'?vCaja():tab==='corte'?vCorte(D):vHist();
+}
+sel.onchange=()=>{cur=sel.value;render()};
+$('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()}};
+$('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
+document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(!b)return;tab=b.dataset.tab;try{localStorage.setItem('hol_tab',tab)}catch(e){};render();window.scrollTo(0,0)};
+$('#view').onclick=e=>{const b=e.target.closest('[data-p]');if(b){prodAll=b.dataset.p==='1';render();return}const ct=e.target.closest('[data-ct]');if(ct){ctipo=ct.dataset.ct;return render()}const cu=e.target.closest('[data-cu]');if(cu){cturno=cu.dataset.cu;return render()}const k=e.target.closest('[data-tk]');if(k){document.querySelectorAll('details.tkt').forEach(d=>d.open=k.dataset.tk==='abrir');return}const q=e.target.closest('[data-per]');if(q){per=q.dataset.per;render()}};
+function hm(iso){const d=new Date(iso);return d.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}
+async function cargar(){
+  try{
+    const r=await fetch('data.json?'+Date.now(),{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const nd=await r.json(); if(!nd.diario) throw new Error('sin datos');
+    const wasLatest=!cur||cur===days[days.length-1];
+    DATA=nd; byDate=Object.fromEntries(DATA.diario.map(x=>[x.fecha,x])); days=Object.keys(DATA.detalle).sort();
+    if(wasLatest||!DATA.detalle[cur]) cur=days[days.length-1];
+    sel.innerHTML=days.slice().reverse().map(d=>`<option value="${d}">${lbl(d)}</option>`).join('');
+    const ab=DATA.detalle[DATA.hasta].abierto;
+    $('#gen').textContent='Actualizado '+hm(DATA.generado);
+    $('#note').hidden=true;
+    const mins=(Date.now()-new Date(DATA.generado))/60000;
+    if(mins>15){$('#note').hidden=false;$('#note').textContent='La última actualización fue hace '+Math.round(mins)+' minutos. Revisa que la computadora de la caja esté encendida y con internet.'}
+    render();
+  }catch(e){ $('#note').hidden=false; $('#note').textContent='No pude conectarme con la computadora de la caja. Revisa que esté encendida, con internet y con Tailscale activo. ('+e.message+')'; }
+}
+$('#note').textContent='Cargando ventas…';
+cargar(); setInterval(cargar,120000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)cargar()});
+</script>
+</body></html>

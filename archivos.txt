@@ -1,0 +1,6 @@
+holandesa_monitor.py
+panel.html
+detener_monitor.bat
+iniciar_monitor.vbs
+probar.bat
+actualizar.bat
