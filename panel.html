@@ -275,7 +275,8 @@ function vResumen(D){
     <table class="ledger num"><tbody>
       <tr><td>Ventas en efectivo (pesos y dólares)</td><td>${fmt2(c.ventas_efe)}</td></tr>
       <tr><td>+ Entradas de caja</td><td>${fmt2(c.entradas)}</td></tr>
-      <tr><td>− Salidas de caja</td><td>${fmt2(c.salidas)}</td></tr>
+      <tr><td>− Retiros de dinero</td><td>${fmt2(c.salidas)}</td></tr>
+      <tr><td>− Vales de dinero</td><td>${fmt2(c.vales||0)}</td></tr>
       <tr class="tot"><td>Efectivo que debe haber</td><td>${fmt2(c.esperado)}</td></tr>
       <tr><td>Efectivo contado</td><td>${c.contado==null?'—':fmt2(c.contado)}</td></tr>
       <tr><td>Diferencia</td><td>${c.dif==null?'—':(c.dif>=0?'+':'−')+fmt2(Math.abs(c.dif))}</td></tr>
