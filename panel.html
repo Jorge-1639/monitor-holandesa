@@ -249,7 +249,7 @@ function vCorte(D){
   const mon=n=>'$'+n.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
   const sep='- - - - - - - - - - - - - - - - - - -';
   const tks=L.map(t=>{
-    const lines=[`TICKET ${t.folio}${rp(t.hora,24)}`, `${t.mesa?'Mesa: '+t.mesa:(t.llevar?'Para llevar':'Sin mesa')}   Personas: ${t.pers||1}`, `Capturó: ${t.capturo}`, `Cobró:   ${t.cobro}`, ''];
+    const lines=[`TICKET ${t.folio}`, `${t.mesa?'Mesa: '+t.mesa:(t.llevar?'Para llevar':'Sin mesa')}   Personas: ${t.pers||1}`, `Abrió: ${t.abrio||t.hora}   Cobró: ${t.hora}${t.min!=null?'   ('+t.min+' min)':''}`, `Capturó: ${t.capturo}`, `Cobró:   ${t.cobro}`, ''];
     t.items.forEach(i=>{lines.push(`${rp(i.q,2)} ${pad(i.n+(i.llevar?' (LL)':''),23)}${rp(mon(i.imp),11)}`); if(i.dcto>0) lines.push(`   descuento${rp('-'+mon(i.dcto),24)}`)});
     lines.push(`${rp('TOTAL',26)}${rp(mon(t.total),11)}`);
     (t.raw&&t.raw.length?t.raw:t.pagos.map(([f,a])=>[f,a,0])).forEach(([f,rec,cam])=>{lines.push(`${f}`);lines.push(`  Recibido ${rp(mon(rec),12)}  Cambio ${rp(mon(cam),9)}`)});
@@ -335,10 +335,13 @@ function vCaja(){
 function vTickets(D){
   const turnos=[...new Set(D.lista.map(t=>t.turno))].sort();
   const nomT=t=>t==='1'?'Turno mañana':t==='2'?'Turno tarde':'Turno '+t;
+  const dur=m=>m==null?'':m<60?m+' min':Math.floor(m/60)+' h '+String(m%60).padStart(2,'0')+' min';
+  const prom=ts=>{const v=ts.map(t=>t.min).filter(m=>m!=null);return v.length?Math.round(v.reduce((a,b)=>a+b,0)/v.length):null};
   const cz=t=>(D.cortes.find(c=>c.turno===t)||{});
   if(!D.lista.length) return '<section><p class="empty">No hay tickets este día.</p></section>';
   const tk=t=>`<details class="card tkt"><summary><span class="tk-top"><b>Ticket ${esc(t.folio)}</b><span class="num">${fmt2(t.total)}</span></span>
-      <span class="tk-meta">${esc(t.hora)} · ${t.mesa?esc(t.mesa):(t.llevar?'Para llevar':'Sin mesa')} · ${esc(t.pago)}</span>
+      <span class="tk-meta">${t.mesa?'Mesa <b>'+esc(t.mesa)+'</b>':(t.llevar?'Para llevar':'Sin mesa')} · ${t.pers||1} pers. · ${esc(t.pago)}</span>
+      <span class="tk-meta">Abrió <b>${esc(t.abrio||t.hora)}</b> · Cobró <b>${esc(t.hora)}</b>${t.min!=null?` · <span class="pill ${t.min>=90?'warn':'good'}">${dur(t.min)}</span>`:''}</span>
       <span class="tk-meta">Capturó <b>${esc(t.capturo)}</b> · Cobró <b>${esc(t.cobro)}</b></span></summary>
     <table class="ledger num tk-items"><tbody>${t.items.map(i=>`<tr><td>${i.q} × ${esc(i.n)}${i.llevar?' <span class="pill warn">Llevar</span>':''}${i.dcto>0?` <span class="pill bad">-${fmt(i.dcto)}</span>`:''}</td><td>${fmt2(i.imp)}</td></tr>`).join('')}
     ${t.pagos.map(([f,a])=>`<tr class="pg"><td>Pagó con ${esc(f)}</td><td>${fmt2(a)}</td></tr>`).join('')}
@@ -346,7 +349,7 @@ function vTickets(D){
   let html='<section><div class="seg" style="margin:0"><button data-tk="abrir">Abrir todos</button><button data-tk="cerrar">Cerrar todos</button></div>';
   turnos.forEach((tn,i)=>{const ts=D.lista.filter(t=>t.turno===tn),sum=ts.reduce((a,t)=>a+t.total,0),c=cz(tn);
     html+=`<h2 class="corte-h">Corte ${i+1} · ${nomT(tn)}${c.folz?` <small>Z ${esc(c.folz)}</small>`:''}</h2>${ts.map(tk).join('')}
-      <div class="card corte-tot"><h2>Total corte ${i+1} <small>${ts.length} tickets · cajera ${esc(c.cajero||'')}</small></h2>
+      <div class="card corte-tot"><h2>Total corte ${i+1} <small>${ts.length} tickets · cajera ${esc(c.cajero||'')}${prom(ts)!=null?' · tiempo promedio '+dur(prom(ts)):''}</small></h2>
       <table class="ledger num"><tbody>${Object.entries(c.formas||{}).map(([f,a])=>`<tr><td>${esc(f)}</td><td>${fmt2(a)}</td></tr>`).join('')}<tr class="tot"><td>Venta corte ${i+1}</td><td>${fmt2(sum)}</td></tr></tbody></table></div>`});
   html+=`<div class="card corte-tot dia"><h2>Total del día</h2><table class="ledger num"><tbody>${turnos.map((tn,i)=>{const s=D.lista.filter(t=>t.turno===tn).reduce((a,t)=>a+t.total,0);return `<tr><td>Corte ${i+1} · ${nomT(tn)}</td><td>${fmt2(s)}</td></tr>`}).join('')}<tr class="tot"><td>Total · ${D.lista.length} tickets</td><td>${fmt2(D.total)}</td></tr></tbody></table></div></section>`;
   return html;
