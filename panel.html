@@ -104,6 +104,8 @@ table.prodrep{min-width:0;font-size:12.5px}table.prodrep td,table.prodrep th{pad
 footer{color:var(--muted);font-size:12px;margin-top:24px}
 @media (max-width:420px){.kpis{grid-template-columns:repeat(3,1fr)}.kpi b{font-size:19px}.hero .big{font-size:38px}}
 @media (prefers-reduced-motion:no-preference){.row .track i{transition:width .4s ease}}
+.dot-a,.dot-c{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:1px}
+.dot-a{background:#2563eb}.dot-c{background:#16a34a}
 </style>
 
 </head><body><div class="wrap">
@@ -341,7 +343,7 @@ function vTickets(D){
   if(!D.lista.length) return '<section><p class="empty">No hay tickets este día.</p></section>';
   const tk=t=>`<details class="card tkt"><summary><span class="tk-top"><b>Ticket ${esc(t.folio)}</b><span class="num">${fmt2(t.total)}</span></span>
       <span class="tk-meta">${t.mesa?'Mesa <b>'+esc(t.mesa)+'</b>':(t.llevar?'Para llevar':'Sin mesa')} · ${t.pers||1} pers. · ${esc(t.pago)}</span>
-      <span class="tk-meta">Abrió <b>${esc(t.abrio||t.hora)}</b> · Cobró <b>${esc(t.hora)}</b>${t.min!=null?` · <span class="pill ${t.min>=90?'warn':'good'}">${dur(t.min)}</span>`:''}</span>
+      <span class="tk-meta"><i class="dot-a"></i>Abrió <b>${esc(t.abrio||t.hora)}</b> · <i class="dot-c"></i>Cobró <b>${esc(t.hora)}</b>${t.min!=null?` · <span class="pill ${t.min>=90?'warn':'good'}">${dur(t.min)}</span>`:''}</span>
       <span class="tk-meta">Capturó <b>${esc(t.capturo)}</b> · Cobró <b>${esc(t.cobro)}</b></span></summary>
     <table class="ledger num tk-items"><tbody>${t.items.map(i=>`<tr><td>${i.q} × ${esc(i.n)}${i.llevar?' <span class="pill warn">Llevar</span>':''}${i.dcto>0?` <span class="pill bad">-${fmt(i.dcto)}</span>`:''}</td><td>${fmt2(i.imp)}</td></tr>`).join('')}
     ${t.pagos.map(([f,a])=>`<tr class="pg"><td>Pagó con ${esc(f)}</td><td>${fmt2(a)}</td></tr>`).join('')}
