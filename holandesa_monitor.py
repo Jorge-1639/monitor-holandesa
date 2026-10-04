@@ -11,7 +11,7 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 12
+VERSION = 13
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -292,8 +292,12 @@ class Monitor:
                         for v in self.rows(ruta):
                             if v.get('DES_PROD') is None: break
                             q = v.get('CANTIDAD') or 0
+                            fv = (v.get('FECHA') or '').strip()
                             items.append({'n': (v.get('DES_PROD') or '').strip(), 'q': q, 'imp': round((v.get('PRECIO') or 0) * q, 2),
-                                          'h': (v.get('HORACAPTUR') or '')[:5], 'llevar': v.get('COD_ESCALA') == '02'})
+                                          'orig': round((v.get('PRECIO_O') or 0) * q, 2), 'h': (v.get('HORACAPTUR') or '')[:5],
+                                          'f': f'{fv[:4]}-{fv[4:6]}-{fv[6:8]}' if len(fv) == 8 else '',
+                                          'quien': self.name(v.get('COD_VENDED')) if v.get('COD_VENDED') else '',
+                                          'llevar': v.get('COD_ESCALA') == '02'})
                         break
             out.append({'mesa': (x.get('REF') or '').strip() or 'Sin nombre', 'fecha': f'{fa[:4]}-{fa[4:6]}-{fa[6:8]}' if len(fa) == 8 else '',
                         'abrio': (x.get('HORA_AP') or x.get('HORA') or '')[:5], 'mesero': (x.get('DES_VENDED') or '').strip().title() or self.name(x.get('COD_VENDED')),
