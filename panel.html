@@ -373,7 +373,7 @@ async function cargar(){
     if(wasLatest||!DATA.detalle[cur]) cur=days[days.length-1];
     sel.innerHTML=days.slice().reverse().map(d=>`<option value="${d}">${lbl(d)}</option>`).join('');
     const ab=DATA.detalle[DATA.hasta].abierto;
-    $('#gen').textContent='Actualizado '+hm(DATA.generado);
+    $('#gen').textContent='Actualizado '+hm(DATA.generado)+(DATA.version?' · versión '+DATA.version:'');
     $('#note').hidden=true;
     const mins=(Date.now()-new Date(DATA.generado))/60000;
     if(mins>15){$('#note').hidden=false;$('#note').textContent='La última actualización fue hace '+Math.round(mins)+' minutos. Revisa que la computadora de la caja esté encendida y con internet.'}
