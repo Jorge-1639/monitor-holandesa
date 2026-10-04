@@ -11,7 +11,7 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 11
+VERSION = 12
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -276,6 +276,31 @@ class Monitor:
                   'abierto': any(os.path.dirname(f) == os.path.join(self.base, 'REGISTRO') for tn, f in idx.get(('P', d), []))})
         return s
 
+    def abiertas(self):
+        # cuentas abiertas (sin cobrar): COMUNES\PENDIENT.DBF, renglones vigentes con PAGADO = falso. Solo lectura.
+        com = os.path.join(self.base, 'COMUNES')
+        out = []
+        for x in self.rows(os.path.join(com, 'PENDIENT.DBF')):
+            if x.get('PAGADO'): continue
+            fa = x.get('FECHA_AP') or x.get('FECHA') or ''
+            items = []
+            arch = (x.get('FILE') or '').strip()
+            if arch:
+                for nombre in (arch + '.DBF', arch, arch + '.001'):
+                    ruta = os.path.join(com, nombre)
+                    if os.path.isfile(ruta):
+                        for v in self.rows(ruta):
+                            if v.get('DES_PROD') is None: break
+                            q = v.get('CANTIDAD') or 0
+                            items.append({'n': (v.get('DES_PROD') or '').strip(), 'q': q, 'imp': round((v.get('PRECIO') or 0) * q, 2),
+                                          'h': (v.get('HORACAPTUR') or '')[:5], 'llevar': v.get('COD_ESCALA') == '02'})
+                        break
+            out.append({'mesa': (x.get('REF') or '').strip() or 'Sin nombre', 'fecha': f'{fa[:4]}-{fa[4:6]}-{fa[6:8]}' if len(fa) == 8 else '',
+                        'abrio': (x.get('HORA_AP') or x.get('HORA') or '')[:5], 'mesero': (x.get('DES_VENDED') or '').strip().title() or self.name(x.get('COD_VENDED')),
+                        'pers': int(x.get('COMENSALES') or 1), 'arts': int(x.get('ARTS') or 0), 'total': round(x.get('IMPORTE_MN') or 0, 2),
+                        'llevar': x.get('COD_ESCALA') == '02', 'items': items})
+        return sorted(out, key=lambda a: (a['fecha'], a['abrio']))
+
     def refresh(self):
         t0 = time.time()
         self.catalogs()
@@ -284,6 +309,8 @@ class Monitor:
         if not days: raise RuntimeError('No encontré tickets en ' + self.base)
         out = {'version': VERSION, 'generado': datetime.datetime.now().isoformat(timespec='seconds'), 'desde': days[0].isoformat(), 'hasta': days[-1].isoformat(),
                'bitacora_hasta': self.cfg.get('bitacora_borrados_hasta')}
+        try: out['abiertas'] = self.abiertas()
+        except Exception as e: log('No pude leer cuentas abiertas: ' + str(e)); out['abiertas'] = []
         out['diario'] = [self.day(idx, d, False) for d in days]
         out['detalle'] = {d.isoformat(): self.day(idx, d, True) for d in days[-int(self.cfg['dias_detalle']):]}
         mon = collections.defaultdict(lambda: [0, 0])

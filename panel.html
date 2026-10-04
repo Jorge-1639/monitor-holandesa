@@ -105,7 +105,7 @@ footer{color:var(--muted);font-size:12px;margin-top:24px}
 @media (max-width:420px){.kpis{grid-template-columns:repeat(3,1fr)}.kpi b{font-size:19px}.hero .big{font-size:38px}}
 @media (prefers-reduced-motion:no-preference){.row .track i{transition:width .4s ease}}
 .dot-a,.dot-c{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:1px}
-.dot-a{background:#2563eb}.dot-c{background:#16a34a}
+.dot-a{background:#2563eb}.tkt.abierta{border-left:4px solid #2563eb}.dot-c{background:#16a34a}
 </style>
 
 </head><body><div class="wrap">
@@ -340,7 +340,15 @@ function vTickets(D){
   const dur=m=>m==null?'':m<60?m+' min':Math.floor(m/60)+' h '+String(m%60).padStart(2,'0')+' min';
   const prom=ts=>{const v=ts.map(t=>t.min).filter(m=>m!=null);return v.length?Math.round(v.reduce((a,b)=>a+b,0)/v.length):null};
   const cz=t=>(D.cortes.find(c=>c.turno===t)||{});
-  if(!D.lista.length) return '<section><p class="empty">No hay tickets este día.</p></section>';
+  const hoyISO=new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);
+  const AB=(cur===hoyISO||cur===days[days.length-1])?(DATA.abiertas||[]):[];
+  const lleva=a=>{if(!a.fecha||!a.abrio)return null;const t=new Date(a.fecha+'T'+a.abrio+':00');return Math.max(0,Math.round((Date.now()-t)/6e4))};
+  const abHTML=AB.length?`<h2 class="corte-h">Mesas abiertas ahora <small>${AB.length} · ${fmt2(AB.reduce((x,a)=>x+a.total,0))}</small></h2>${AB.map(a=>{const m=lleva(a),vieja=a.fecha&&a.fecha<cur;
+    return `<details class="card tkt abierta"><summary><span class="tk-top"><b>${esc(a.mesa)}</b><span class="num">${fmt2(a.total)}</span></span>
+      <span class="tk-meta">${a.llevar?'Para llevar':'Comedor'} · ${a.pers} pers. · ${a.arts} artículos · Atiende <b>${esc(a.mesero)}</b></span>
+      <span class="tk-meta"><i class="dot-a"></i>Abrió <b>${vieja?pd(a.fecha).getDate()+' '+MESES[pd(a.fecha).getMonth()]+' ':''}${esc(a.abrio)}</b> · <span class="pill ${vieja||m>=90?'bad':'warn'}">${vieja?'Abierta desde otro día':'Sin cobrar · '+dur(m)}</span></span></summary>
+      ${a.items.length?`<table class="ledger num tk-items"><tbody>${a.items.map(i=>`<tr><td>${i.q} × ${esc(i.n)}${i.llevar?' <span class="pill warn">Llevar</span>':''}${i.h?` <small style="color:var(--muted)">${esc(i.h)}</small>`:''}</td><td>${fmt2(i.imp)}</td></tr>`).join('')}<tr class="tot"><td>Total</td><td>${fmt2(a.total)}</td></tr></tbody></table>`:'<p class="empty" style="margin:8px 0 0">El detalle de platillos de esta cuenta aún no está disponible.</p>'}</details>`}).join('')}`:'';
+  if(!D.lista.length) return '<section>'+abHTML+'<p class="empty">No hay tickets cobrados este día.</p></section>';
   const tk=t=>`<details class="card tkt"><summary><span class="tk-top"><b>Ticket ${esc(t.folio)}</b><span class="num">${fmt2(t.total)}</span></span>
       <span class="tk-meta">${t.mesa?'Mesa <b>'+esc(t.mesa)+'</b>':(t.llevar?'Para llevar':'Sin mesa')} · ${t.pers||1} pers. · ${esc(t.pago)}</span>
       <span class="tk-meta"><i class="dot-a"></i>Abrió <b>${esc(t.abrio||t.hora)}</b> · <i class="dot-c"></i>Cobró <b>${esc(t.hora)}</b>${t.min!=null?` · <span class="pill ${t.min>=90?'warn':'good'}">${dur(t.min)}</span>`:''}</span>
@@ -348,7 +356,7 @@ function vTickets(D){
     <table class="ledger num tk-items"><tbody>${t.items.map(i=>`<tr><td>${i.q} × ${esc(i.n)}${i.llevar?' <span class="pill warn">Llevar</span>':''}${i.dcto>0?` <span class="pill bad">-${fmt(i.dcto)}</span>`:''}</td><td>${fmt2(i.imp)}</td></tr>`).join('')}
     ${t.pagos.map(([f,a])=>`<tr class="pg"><td>Pagó con ${esc(f)}</td><td>${fmt2(a)}</td></tr>`).join('')}
     <tr class="tot"><td>Total</td><td>${fmt2(t.total)}</td></tr></tbody></table></details>`;
-  let html='<section><div class="seg" style="margin:0"><button data-tk="abrir">Abrir todos</button><button data-tk="cerrar">Cerrar todos</button></div>';
+  let html='<section>'+abHTML+(AB.length?'<h2 class="corte-h" style="margin-top:8px">Cobrados</h2>':'')+'<div class="seg" style="margin:0"><button data-tk="abrir">Abrir todos</button><button data-tk="cerrar">Cerrar todos</button></div>';
   turnos.forEach((tn,i)=>{const ts=D.lista.filter(t=>t.turno===tn),sum=ts.reduce((a,t)=>a+t.total,0),c=cz(tn);
     html+=`<h2 class="corte-h">Corte ${i+1} · ${nomT(tn)}${c.folz?` <small>Z ${esc(c.folz)}</small>`:''}</h2>${ts.map(tk).join('')}
       <div class="card corte-tot"><h2>Total corte ${i+1} <small>${ts.length} tickets · cajera ${esc(c.cajero||'')}${prom(ts)!=null?' · tiempo promedio '+dur(prom(ts)):''}</small></h2>
