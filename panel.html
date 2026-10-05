@@ -106,6 +106,20 @@ footer{color:var(--muted);font-size:12px;margin-top:24px}
 @media (prefers-reduced-motion:no-preference){.row .track i{transition:width .4s ease}}
 .dot-a,.dot-c{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:1px}
 .dot-a{background:#2563eb}.tkt.abierta{border-left:4px solid #2563eb}.dot-c{background:#16a34a}
+.dtab{display:flex;flex-direction:column}
+.drow{border-top:1px solid var(--line)}.dtab>:first-child{border-top:0}
+.drow>summary{list-style:none;display:flex;justify-content:space-between;gap:10px;padding:9px 0;margin:0;color:var(--ink);font-weight:500;font-size:14px}
+.drow>summary::-webkit-details-marker{display:none}
+.drow>summary>span:first-child::before{content:'▸';display:inline-block;width:14px;color:var(--green-2);transition:transform .15s}
+.drow[open]>summary>span:first-child::before{transform:rotate(90deg)}
+.drow>summary .num{font-weight:600}.drow small,.dgrp small{color:var(--muted);font-weight:400}
+.dlist{padding:2px 0 10px 14px;border-left:2px solid var(--line);margin:0 0 8px 6px}
+.ditem,.dgrp,.dfix{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:5px 0}
+.ditem small{display:block;color:var(--muted);font-size:12px}
+.dgrp{font-weight:700;color:var(--green-2);padding-top:8px}
+.dfix{font-size:14px;border-top:1px solid var(--line);padding:9px 0 9px 14px}.dfix .num{font-weight:600}
+.dfix.tot{border-top:2px solid var(--ink);font-weight:800}.dfix.tot .num{font-weight:800}
+.dh3{font:700 13px var(--display);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:14px 0 4px}
 </style>
 
 </head><body><div class="wrap">
@@ -265,24 +279,45 @@ function vResumen(D){
   if(!D.cortes.length)return '<section><p class="empty">Sin cortes este día.</p></section>';
   const ORD=['Efectivo','Efectivo (dólares)','Tarjeta crédito','Tarjeta débito','Tarjeta crédito/débito','Transferencia'];
   const ordF=o=>Object.entries(o).sort((a,b)=>{const i=ORD.indexOf(a[0]),j=ORD.indexOf(b[0]);return (i<0?99:i)-(j<0?99:j)});
-  const formTable=(o,total,tk)=>`<table class="ledger num"><tbody>${ordF(o).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${fmt2(v)}</td></tr>`).join('')}<tr class="tot"><td>Venta total${tk!=null?' · '+tk+' tickets':''}</td><td>${fmt2(total)}</td></tr></tbody></table>`;
+  const sum=a=>a.reduce((x,y)=>x+y.importe,0);
+  const nomT=t=>t==='1'?'Turno mañana':t==='2'?'Turno tarde':'Turno '+t;
+  // renglón que se abre con un toque
+  const fila=(label,monto,det,n)=>`<details class="drow"><summary><span>${label}${n!=null?` <small>(${n})</small>`:''}</span><span class="num">${monto}</span></summary><div class="dlist">${det||'<p class="empty" style="margin:0">Sin movimientos.</p>'}</div></details>`;
+  const fijo=(label,monto,cls)=>`<div class="dfix ${cls||''}"><span>${label}</span><span class="num">${monto}</span></div>`;
+  const linea=(a,b,c)=>`<div class="ditem"><span>${a}${c?`<small>${c}</small>`:''}</span><span class="num">${b}</span></div>`;
+  const tkPorForma=(ts,f)=>{const L=[];ts.forEach(t=>t.pagos.forEach(([ff,a])=>{if(ff===f)L.push([t,a])}));return L};
+  const formas=(o,total,tk,ts,multi)=>`<div class="dtab">${ordF(o).map(([f,v])=>{const L=tkPorForma(ts,f);
+      return fila(esc(f),fmt2(v),L.map(([t,a])=>linea(`Ticket ${esc(t.folio)} · ${esc(t.hora)}`,fmt2(a),`${multi?nomT(t.turno)+' · ':''}${t.mesa?'Mesa '+esc(t.mesa):(t.llevar?'Para llevar':'Sin mesa')} · Cobró ${esc(t.cobro)}`)).join(''),L.length)}).join('')}
+    ${fijo('Venta total'+(tk!=null?' · '+tk+' tickets':''),fmt2(total),'tot')}</div>`;
+  const movs=(L,agrupar)=>{if(!L.length)return '';
+    if(!agrupar)return L.map(e=>linea(esc(e.ref),fmt2(e.importe),esc(e.hora||'')+(e.cat?' · '+esc(e.cat):''))).join('');
+    const g={};L.forEach(e=>(g[e.cat]=g[e.cat]||[]).push(e));
+    return Object.entries(g).sort((a,b)=>sum(b[1])-sum(a[1])).map(([k,v])=>`<div class="dgrp"><span>${esc(k)} <small>(${v.length})</small></span><span class="num">${fmt2(sum(v))}</span></div>`+v.map(e=>linea(esc(e.ref),fmt2(e.importe),esc(e.hora||''))).join('')).join('')};
+  const H3=t=>`<h3 class="dh3">${t}</h3>`;
+  const bloque=(ent,ret,val)=>`${fila('+ Entradas / reingresos',fmt2(sum(ent)),movs(ent,true),ent.length)}
+      ${fila('− Retiros y gastos',fmt2(sum(ret)),movs(ret,true),ret.length)}
+      ${fila('− Vales de dinero',fmt2(sum(val)),movs(val,false),val.length)}`;
+  const esVale=e=>e.cat==='Vales';
+  const entD=D.entradas||[], salD=D.salidas||[];
   return `<section>
-  <div class="card"><h2>Ventas del día por forma de pago</h2>${formTable(D.formas,D.total,D.tickets)}</div>
-  ${D.cortes.map(c=>{
+  <div class="card"><h2>Día completo <small>ambos cortes</small></h2>
+    ${H3('Ventas por forma de pago')}${formas(D.formas,D.total,D.tickets,D.lista,true)}
+    ${H3('Movimientos de caja')}<div class="dtab">${bloque(entD,salD.filter(e=>!esVale(e)),salD.filter(esVale))}</div>
+    <p class="empty" style="margin:8px 0 0">Toca cualquier renglón para ver el detalle; tócalo otra vez para cerrarlo.</p></div>
+  ${D.cortes.map((c,i)=>{
     const st=c.dif==null?'<span class="pill warn">Sin conteo</span>':Math.abs(c.dif)<=20?'<span class="pill good">Cuadra</span>':c.dif>0?`<span class="pill warn">Sobran ${fmt2(c.dif)}</span>`:`<span class="pill bad">Faltan ${fmt2(-c.dif)}</span>`;
-    return `<div class="card"><h2>Turno ${c.turno==='1'?'mañana':c.turno==='2'?'tarde':c.turno} ${st}</h2>
-    <h3 style="font:700 13px var(--display);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:4px 0 6px">Ventas por forma de pago</h3>
-    ${formTable(c.formas,c.venta,c.tickets)}
-    <h3 style="font:700 13px var(--display);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:16px 0 6px">Efectivo en caja</h3>
-    <table class="ledger num"><tbody>
-      <tr><td>Ventas en efectivo (pesos y dólares)</td><td>${fmt2(c.ventas_efe)}</td></tr>
-      <tr><td>+ Entradas de caja</td><td>${fmt2(c.entradas)}</td></tr>
-      <tr><td>− Retiros de dinero</td><td>${fmt2(c.salidas)}</td></tr>
-      <tr><td>− Vales de dinero</td><td>${fmt2(c.vales||0)}</td></tr>
-      <tr class="tot"><td>Efectivo que debe haber</td><td>${fmt2(c.esperado)}</td></tr>
-      <tr><td>Efectivo contado</td><td>${c.contado==null?'—':fmt2(c.contado)}</td></tr>
-      <tr><td>Diferencia</td><td>${c.dif==null?'—':(c.dif>=0?'+':'−')+fmt2(Math.abs(c.dif))}</td></tr>
-    </tbody></table>
+    const ts=D.lista.filter(t=>t.turno===c.turno);
+    const ent=entD.filter(e=>e.turno===c.turno), sal=salD.filter(e=>e.turno===c.turno);
+    const ret=sal.filter(e=>!esVale(e)), val=sal.filter(esVale);
+    const efe=tkPorForma(ts,'Efectivo').concat(tkPorForma(ts,'Efectivo (dólares)'));
+    return `<div class="card"><h2>Corte ${i+1} · ${nomT(c.turno)} ${st}</h2>
+    ${H3('Ventas por forma de pago')}${formas(c.formas,c.venta,c.tickets,ts,false)}
+    ${H3('Efectivo en caja')}<div class="dtab">
+      ${fila('Ventas en efectivo (pesos y dólares)',fmt2(c.ventas_efe),efe.map(([t,a])=>linea(`Ticket ${esc(t.folio)} · ${esc(t.hora)}`,fmt2(a),t.mesa?'Mesa '+esc(t.mesa):(t.llevar?'Para llevar':''))).join(''),efe.length)}
+      ${bloque(ent,ret,val)}
+      ${fijo('Efectivo que debe haber',fmt2(c.esperado),'tot')}
+      ${fijo('Efectivo contado',c.contado==null?'—':fmt2(c.contado))}
+      ${fijo('Diferencia',c.dif==null?'—':(c.dif>=0?'+':'−')+fmt2(Math.abs(c.dif)))}</div>
     <p class="empty">Fondo de caja aparte: ${fmt2(c.fondo)} · Cajera: ${esc(c.cajero)}</p></div>`}).join('')}
     <p class="empty">Se considera que cuadra si la diferencia es de $20 o menos.</p></section>`;
 }
@@ -306,7 +341,7 @@ function vHist(){
     <div class="list">${[...best.slice(0,3).map(x=>[x,'good','Mejor']),...best.slice(-3).reverse().map(x=>[x,'bad','Bajo'])].map(([x,c,t])=>`<div class="item"><span>${lbl(x.fecha)} <span class="pill ${c}">${t}</span></span><span class="num">${fmt2(x.total)}</span><span class="meta">${x.tickets} tickets</span></div>`).join('')}</div></div>
   </section>`;
 }
-let per='dia';
+let per='dia', cajaT='todo';
 const IN_CATS=['Didi','Reingresos','Cambio entre turnos','Otros ingresos'], OUT_CATS=['Gastos y compras','Pagos a personal','Propinas','Vales','Retiros'];
 function vCaja(){
   let ds;
@@ -314,7 +349,8 @@ function vCaja(){
   else if(per==='semana') ds=days.filter(d=>d<=cur&&d>shift(cur,-7));
   else ds=days.filter(d=>d<=cur&&d.slice(0,7)===cur.slice(0,7));
   const ent=[],sal=[];
-  ds.forEach(d=>{const D=DATA.detalle[d];D.entradas.forEach(e=>ent.push({...e,d}));D.salidas.forEach(e=>sal.push({...e,d}))});
+  const okT=e=>cajaT==='todo'||e.turno===cajaT;
+  ds.forEach(d=>{const D=DATA.detalle[d];D.entradas.filter(okT).forEach(e=>ent.push({...e,d}));D.salidas.filter(okT).forEach(e=>sal.push({...e,d}))});
   const sum=a=>a.reduce((x,y)=>x+y.importe,0);
   const by=(a,cats)=>cats.map(c=>({n:c,items:a.filter(x=>x.cat===c)})).filter(g=>g.items.length);
   const rng=per==='dia'?lbl(cur):per==='semana'?`${lbl(ds[0])} al ${lbl(cur)}`:`${MESES[+cur.slice(5,7)-1]} ${cur.slice(0,4)} hasta el ${pd(cur).getDate()}`;
@@ -323,7 +359,8 @@ function vCaja(){
   const gi=by(ent,IN_CATS), go=by(sal,OUT_CATS);
   return `<section>
   <div class="seg" style="margin:0">${[['dia','Día'],['semana','7 días'],['mes','Mes']].map(([k,l])=>`<button data-per="${k}" aria-pressed="${per===k}">${l}</button>`).join('')}</div>
-  <p class="empty" style="margin:0">${rng}</p>
+  <div class="seg" style="margin:0">${[['todo','Ambos cortes'],['1','Corte 1 · mañana'],['2','Corte 2 · tarde']].map(([k,l])=>`<button data-cjt="${k}" aria-pressed="${cajaT===k}">${l}</button>`).join('')}</div>
+  <p class="empty" style="margin:0">${rng}${cajaT==='todo'?'':' · solo corte '+cajaT}</p>
   <div class="kpis" style="grid-template-columns:1fr 1fr"><div class="kpi"><b class="num" style="color:var(--good)">${fmt2(sum(ent))}</b><span>ingresos a caja (${ent.length})</span></div><div class="kpi"><b class="num" style="color:var(--bad)">${fmt2(sum(sal))}</b><span>salidas de caja (${sal.length})</span></div></div>
   <div class="card"><h2>Salidas por tipo</h2>${go.length?bars(go.map(g=>({n:g.n,v:sum(g.items),sub:g.items.length+' movimientos'}))):'<p class="empty">Sin salidas.</p>'}</div>
   <div class="card"><h2>Ingresos por tipo</h2>${gi.length?bars(gi.map(g=>({n:g.n,v:sum(g.items),sub:g.items.length+' movimientos'}))):'<p class="empty">Sin ingresos.</p>'}</div>
@@ -375,7 +412,7 @@ sel.onchange=()=>{cur=sel.value;render()};
 $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()}};
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(!b)return;tab=b.dataset.tab;try{localStorage.setItem('hol_tab',tab)}catch(e){};render();window.scrollTo(0,0)};
-$('#view').onclick=e=>{const b=e.target.closest('[data-p]');if(b){prodAll=b.dataset.p==='1';render();return}const ct=e.target.closest('[data-ct]');if(ct){ctipo=ct.dataset.ct;return render()}const cu=e.target.closest('[data-cu]');if(cu){cturno=cu.dataset.cu;return render()}const k=e.target.closest('[data-tk]');if(k){document.querySelectorAll('details.tkt').forEach(d=>d.open=k.dataset.tk==='abrir');return}const q=e.target.closest('[data-per]');if(q){per=q.dataset.per;render()}};
+$('#view').onclick=e=>{const b=e.target.closest('[data-p]');if(b){prodAll=b.dataset.p==='1';render();return}const ct=e.target.closest('[data-ct]');if(ct){ctipo=ct.dataset.ct;return render()}const cu=e.target.closest('[data-cu]');if(cu){cturno=cu.dataset.cu;return render()}const k=e.target.closest('[data-tk]');if(k){document.querySelectorAll('details.tkt').forEach(d=>d.open=k.dataset.tk==='abrir');return}const cj=e.target.closest('[data-cjt]');if(cj){cajaT=cj.dataset.cjt;return render()}const q=e.target.closest('[data-per]');if(q){per=q.dataset.per;render()}};
 function hm(iso){const d=new Date(iso);return d.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}
 async function cargar(){
   try{

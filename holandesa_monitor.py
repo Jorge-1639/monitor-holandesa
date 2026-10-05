@@ -11,7 +11,7 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 13
+VERSION = 14
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -393,11 +393,42 @@ def buscar_actualizacion():
     finally:
         shutil.rmtree(nuevo, ignore_errors=True)
 
-def reiniciar():
+def _pythonw():
     exe = sys.executable
     if exe.lower().endswith('python.exe') and os.path.exists(exe[:-10] + 'pythonw.exe'): exe = exe[:-10] + 'pythonw.exe'
-    subprocess.Popen([exe, os.path.join(AQUI, 'holandesa_monitor.py'), '--esperar'], cwd=AQUI, close_fds=True)
+    return exe
+
+def _lanzar(args):
+    # arranca un proceso independiente (que no muera cuando este termine)
+    kw = {'cwd': AQUI, 'close_fds': True}
+    if os.name == 'nt':
+        DET, GRP, BRK = 0x00000008, 0x00000200, 0x01000000
+        for fl in (DET | GRP | BRK, DET | GRP, 0):
+            try: return subprocess.Popen(args, creationflags=fl, **kw)
+            except OSError: continue
+    return subprocess.Popen(args, **kw)
+
+def reiniciar():
+    log('Reiniciando con la versión nueva…')
+    _lanzar([_pythonw(), os.path.join(AQUI, 'holandesa_monitor.py'), '--esperar'])
     os._exit(0)
+
+def responde(puerto):
+    import socket
+    try:
+        with socket.create_connection(('127.0.0.1', int(puerto)), timeout=3): return True
+    except OSError: return False
+
+def instalar_vigilante():
+    # tarea de Windows que cada 10 minutos revisa que el monitor esté prendido y, si no, lo arranca
+    if os.name != 'nt': return
+    try:
+        tr = f'"{_pythonw()}" "{os.path.join(AQUI, "holandesa_monitor.py")}" --vigilar'
+        r = subprocess.run(['schtasks', '/Create', '/F', '/TN', 'Monitor La Holandesa', '/SC', 'MINUTE', '/MO', '10', '/TR', tr],
+                           capture_output=True, text=True, creationflags=0x08000000)
+        log('Vigilante instalado (revisa cada 10 min)' if r.returncode == 0 else 'No pude instalar el vigilante: ' + (r.stderr or r.stdout).strip())
+    except Exception as e:
+        log('No pude instalar el vigilante: ' + str(e))
 
 def ciclo_actualizacion():
     time.sleep(90)
@@ -419,16 +450,24 @@ def main():
     srv = None
     for intento in range(30):
         try:
+            ThreadingHTTPServer.allow_reuse_address = (os.name != 'nt')
             srv = ThreadingHTTPServer(('0.0.0.0', int(cfg['puerto'])), make_handler(mon, cfg)); break
         except OSError:
             time.sleep(2)
     if srv is None: log('El puerto sigue ocupado; no pude arrancar.'); sys.exit(1)
     log(f"Monitor versión {VERSION} listo en el puerto {cfg['puerto']} (usuario: {cfg['usuario']})")
+    threading.Thread(target=instalar_vigilante, daemon=True).start()
     srv.serve_forever()
 
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == '--esperar':
         time.sleep(4); main()
+    elif len(sys.argv) > 1 and sys.argv[1] == '--vigilar':
+        try:
+            with open(CONFIG_FILE, encoding='utf-8') as f: puerto = json.load(f).get('puerto', 8765)
+        except Exception: puerto = 8765
+        if not responde(puerto):
+            log('El vigilante no encontró el monitor prendido; lo arranco.'); main()
     elif len(sys.argv) > 1 and sys.argv[1] == '--actualizar':
         print('Versión actual:', VERSION); print('Instalé versión nueva' if buscar_actualizacion() else 'No hay versión nueva')
     elif len(sys.argv) > 1 and sys.argv[1] == '--prueba':
