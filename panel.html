@@ -235,16 +235,17 @@ function vControl(D){
     ${itemList(D.cancelados,c=>`<div class="item"><span>Ticket ${esc(c.folio)}</span><span class="num">${fmt2(c.importe)}</span><span class="meta">${esc(c.hora)} · ${esc(c.quien)}</span></div>`,'No hubo tickets cancelados.')}</div>
   </section>`;
 }
-let ctipo='resumen', cturno='dia';
+let ctipo='resumen', cturno='dia', pDesde=null, pHasta=null;
 function vCorte(D){
   const turnos=[...new Set([...D.lista.map(t=>t.turno),...D.cortes.map(c=>c.turno)])].sort();
   if(cturno!=='dia'&&!turnos.includes(cturno)) cturno='dia';
   const nomT=t=>t==='1'?'Corte 1 · mañana':t==='2'?'Corte 2 · tarde':'Corte '+t;
-  const TIPOS=[['resumen','Resumen'],['categoria','Por categoría'],['producto','Por producto'],['auditoria','Auditoría']];
+  const TIPOS=[['resumen','Resumen'],['periodo','Por fechas'],['categoria','Por categoría'],['producto','Por producto'],['auditoria','Auditoría']];
   const head=`<section style="gap:8px"><p class="empty" style="margin:0">¿Qué corte quieres?</p>
     <div class="seg" style="margin:0">${TIPOS.map(([k,l])=>`<button data-ct="${k}" aria-pressed="${ctipo===k}">${l}</button>`).join('')}</div>
-    ${ctipo==='resumen'?'':`<div class="seg" style="margin:0">${turnos.map(t=>`<button data-cu="${t}" aria-pressed="${cturno===t}">${nomT(t)}</button>`).join('')}<button data-cu="dia" aria-pressed="${cturno==='dia'}">Día completo</button></div>`}</section>`;
+    ${ctipo==='resumen'||ctipo==='periodo'?'':`<div class="seg" style="margin:0">${turnos.map(t=>`<button data-cu="${t}" aria-pressed="${cturno===t}">${nomT(t)}</button>`).join('')}<button data-cu="dia" aria-pressed="${cturno==='dia'}">Día completo</button></div>`}</section>`;
   if(ctipo==='resumen') return head+vResumen(D);
+  if(ctipo==='periodo') return head+vPeriodo();
   const L=D.lista.filter(t=>cturno==='dia'||t.turno===cturno);
   const titulo=(cturno==='dia'?'Día completo':nomT(cturno))+' · '+lbl(cur);
   const total=L.reduce((a,t)=>a+t.total,0), piezas=L.reduce((a,t)=>a+t.items.reduce((b,i)=>b+i.q,0),0);
@@ -320,6 +321,65 @@ function vResumen(D){
       ${fijo('Diferencia',c.dif==null?'—':(c.dif>=0?'+':'−')+fmt2(Math.abs(c.dif)))}</div>
     <p class="empty">Fondo de caja aparte: ${fmt2(c.fondo)} · Cajera: ${esc(c.cajero)}</p></div>`}).join('')}
     <p class="empty">Se considera que cuadra si la diferencia es de $20 o menos.</p></section>`;
+}
+function vPeriodo(){
+  const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const lunes=x=>{const d=pd(x);const w=(d.getDay()+6)%7;d.setDate(d.getDate()-w);return iso(d)};
+  const ult=days[days.length-1];
+  if(!pDesde){pDesde=lunes(ult);pHasta=ult}
+  if(pDesde>pHasta){const t=pDesde;pDesde=pHasta;pHasta=t}
+  const ds=days.filter(d=>d>=pDesde&&d<=pHasta);
+  const ORD=['Efectivo','Efectivo (dólares)','Tarjeta crédito','Tarjeta débito','Tarjeta crédito/débito','Transferencia'];
+  const sum=a=>a.reduce((x,y)=>x+y.importe,0);
+  const corto=d=>{const x=pd(d);return ['dom','lun','mar','mié','jue','vie','sáb'][x.getDay()]+' '+x.getDate()+' '+MESES[x.getMonth()]};
+  const fila=(label,monto,det,n)=>`<details class="drow"><summary><span>${label}${n!=null?` <small>(${n})</small>`:''}</span><span class="num">${monto}</span></summary><div class="dlist">${det||'<p class="empty" style="margin:0">Sin movimientos.</p>'}</div></details>`;
+  const fijo=(label,monto,cls)=>`<div class="dfix ${cls||''}"><span>${label}</span><span class="num">${monto}</span></div>`;
+  const linea=(a,b,c)=>`<div class="ditem"><span>${a}${c?`<small>${c}</small>`:''}</span><span class="num">${b}</span></div>`;
+  const grupo=(L,porDia)=>{const g={};L.forEach(e=>(g[e.cat]=g[e.cat]||[]).push(e));
+    return Object.entries(g).sort((a,b)=>sum(b[1])-sum(a[1])).map(([k,v])=>`<div class="dgrp"><span>${esc(k)} <small>(${v.length})</small></span><span class="num">${fmt2(sum(v))}</span></div>`+v.map(e=>linea(esc(e.ref),fmt2(e.importe),corto(e.d)+' · '+esc(e.hora||'')+' · corte '+esc(e.turno))).join('')).join('')};
+  // juntar todo el periodo
+  const formas={},tks=[],ent=[],sal=[],dia=[];let tot=0,ntk=0,efe=0,esp=0,cont=0,dif=0,conteos=0,sinConteo=0;
+  ds.forEach(d=>{const D=DATA.detalle[d];if(!D)return;
+    Object.entries(D.formas||{}).forEach(([f,v])=>formas[f]=(formas[f]||0)+v);
+    D.lista.forEach(t=>tks.push({...t,d}));
+    (D.entradas||[]).forEach(e=>ent.push({...e,d}));(D.salidas||[]).forEach(e=>sal.push({...e,d}));
+    tot+=D.total;ntk+=D.tickets;
+    let dd=0,hayDif=false;
+    D.cortes.forEach(c=>{efe+=c.ventas_efe;esp+=c.esperado;if(c.contado!=null){cont+=c.contado;dif+=c.dif;dd+=c.dif;hayDif=true;conteos++}else sinConteo++});
+    dia.push({d,D,dif:hayDif?dd:null})});
+  const ret=sal.filter(e=>e.cat!=='Vales'), val=sal.filter(e=>e.cat==='Vales');
+  const ordF=Object.entries(formas).sort((a,b)=>{const i=ORD.indexOf(a[0]),j=ORD.indexOf(b[0]);return (i<0?99:i)-(j<0?99:j)});
+  const tkF=f=>{const L=[];tks.forEach(t=>t.pagos.forEach(([ff,a])=>{if(ff===f)L.push([t,a])}));return L};
+  const quick=[['semana','Esta semana'],['semana_ant','Semana pasada'],['mes','Este mes'],['mes_ant','Mes pasado']];
+  const rango=`${corto(pDesde)} al ${corto(pHasta)}`;
+  const aviso=pDesde<days[0]?`<p class="note" style="margin:0">El detalle está disponible desde el ${corto(days[0])}. Los días anteriores no se incluyen.</p>`:'';
+  return `<section>
+  <div class="card"><h2>Periodo <small>de lunes a domingo, o las fechas que quieras</small></h2>
+    <div class="seg" style="margin:6px 0 10px">${quick.map(([k,l])=>`<button data-pr="${k}">${l}</button>`).join('')}</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <label style="font-size:14px">Del <input type="date" id="pDesde" value="${pDesde}" min="${days[0]}" max="${ult}"></label>
+      <label style="font-size:14px">al <input type="date" id="pHasta" value="${pHasta}" min="${days[0]}" max="${ult}"></label>
+    </div>${aviso}</div>
+  ${!ds.length?'<p class="empty">No hay ventas en esas fechas.</p>':`
+  <div class="card"><h2>Corte del periodo <small>${esc(rango)} · ${ds.length} días</small></h2>
+    <h3 class="dh3">Ventas por forma de pago</h3><div class="dtab">
+      ${ordF.map(([f,v])=>{const L=tkF(f);return fila(esc(f),fmt2(v),L.map(([t,a])=>linea(`Ticket ${esc(t.folio)} · ${corto(t.d)} ${esc(t.hora)}`,fmt2(a),`Corte ${esc(t.turno)} · ${t.mesa?'Mesa '+esc(t.mesa):(t.llevar?'Para llevar':'Sin mesa')} · Cobró ${esc(t.cobro)}`)).join(''),L.length)}).join('')}
+      ${fijo('Venta total · '+ntk+' tickets',fmt2(tot),'tot')}</div>
+    <h3 class="dh3">Movimientos de caja</h3><div class="dtab">
+      ${fila('+ Entradas / reingresos',fmt2(sum(ent)),grupo(ent),ent.length)}
+      ${fila('− Retiros y gastos',fmt2(sum(ret)),grupo(ret),ret.length)}
+      ${fila('− Vales de dinero',fmt2(sum(val)),grupo(val),val.length)}</div>
+    <h3 class="dh3">Efectivo</h3><div class="dtab">
+      ${fijo('Ventas en efectivo (pesos y dólares)',fmt2(efe))}
+      ${(()=>{const n=sum(ent)-sum(ret)-sum(val);return fijo('+ Entradas − retiros − vales',(n<0?'−':'+')+fmt2(Math.abs(n)))})()}
+      ${fijo('Efectivo que debió quedar en caja',fmt2(esp),'tot')}
+      ${fijo('Diferencias de los cortes',(dif>=0?'+':'−')+fmt2(Math.abs(dif))+(sinConteo?` <small>(${sinConteo} sin conteo)</small>`:''))}</div>
+    <h3 class="dh3">Día por día</h3><div class="dtab">
+      ${dia.map(({d,D,dif})=>{const st=dif==null?'':Math.abs(dif)<=20?' <span class="pill good">Cuadra</span>':dif>0?` <span class="pill warn">+${fmt(dif)}</span>`:` <span class="pill bad">−${fmt(-dif)}</span>`;
+        return fila(corto(d)+st,fmt2(D.total),Object.entries(D.formas||{}).map(([f,v])=>linea(esc(f),fmt2(v))).join('')+D.cortes.map((c,i)=>linea(`Corte ${i+1} · cajera ${esc(c.cajero)}`,fmt2(c.venta),`Efectivo esperado ${fmt2(c.esperado)}${c.contado!=null?' · contado '+fmt2(c.contado):' · sin conteo'}`)).join(''),D.tickets)}).join('')}
+      ${fijo('Total del periodo',fmt2(tot),'tot')}</div>
+    <p class="empty" style="margin:8px 0 0">Toca cualquier renglón para ver el detalle.</p></div>`}
+  </section>`;
 }
 function vHist(){
   const last=DATA.diario.filter(x=>x.fecha<=cur).slice(-30);
@@ -412,7 +472,13 @@ sel.onchange=()=>{cur=sel.value;render()};
 $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()}};
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(!b)return;tab=b.dataset.tab;try{localStorage.setItem('hol_tab',tab)}catch(e){};render();window.scrollTo(0,0)};
-$('#view').onclick=e=>{const b=e.target.closest('[data-p]');if(b){prodAll=b.dataset.p==='1';render();return}const ct=e.target.closest('[data-ct]');if(ct){ctipo=ct.dataset.ct;return render()}const cu=e.target.closest('[data-cu]');if(cu){cturno=cu.dataset.cu;return render()}const k=e.target.closest('[data-tk]');if(k){document.querySelectorAll('details.tkt').forEach(d=>d.open=k.dataset.tk==='abrir');return}const cj=e.target.closest('[data-cjt]');if(cj){cajaT=cj.dataset.cjt;return render()}const q=e.target.closest('[data-per]');if(q){per=q.dataset.per;render()}};
+$('#view').onclick=e=>{const b=e.target.closest('[data-p]');if(b){prodAll=b.dataset.p==='1';render();return}const ct=e.target.closest('[data-ct]');if(ct){ctipo=ct.dataset.ct;return render()}const cu=e.target.closest('[data-cu]');if(cu){cturno=cu.dataset.cu;return render()}const k=e.target.closest('[data-tk]');if(k){document.querySelectorAll('details.tkt').forEach(d=>d.open=k.dataset.tk==='abrir');return}const cj=e.target.closest('[data-cjt]');if(cj){cajaT=cj.dataset.cjt;return render()}const pr=e.target.closest('[data-pr]');if(pr){const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');const u=pd(days[days.length-1]);const w=(u.getDay()+6)%7;const k=pr.dataset.pr;
+  if(k==='semana'){const a=new Date(u);a.setDate(u.getDate()-w);pDesde=iso(a);pHasta=iso(u)}
+  else if(k==='semana_ant'){const a=new Date(u);a.setDate(u.getDate()-w-7);const b=new Date(a);b.setDate(a.getDate()+6);pDesde=iso(a);pHasta=iso(b)}
+  else if(k==='mes'){pDesde=iso(new Date(u.getFullYear(),u.getMonth(),1));pHasta=iso(u)}
+  else {pDesde=iso(new Date(u.getFullYear(),u.getMonth()-1,1));pHasta=iso(new Date(u.getFullYear(),u.getMonth(),0))}
+  return render()}const q=e.target.closest('[data-per]');if(q){per=q.dataset.per;render()}};
+$('#view').addEventListener('change',e=>{if(e.target.id==='pDesde'){pDesde=e.target.value;render()}else if(e.target.id==='pHasta'){pHasta=e.target.value;render()}});
 function hm(iso){const d=new Date(iso);return d.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}
 async function cargar(){
   try{
