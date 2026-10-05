@@ -11,7 +11,7 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 14
+VERSION = 15
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -325,9 +325,45 @@ class Monitor:
         with self.lock: self.json = data; self.jsongz = gz; self.error = None
         log(f'Actualizado: {len(days)} días, hoy {out["detalle"][days[-1].isoformat()]["total"]:.2f}, {time.time()-t0:.1f}s')
 
+    # ------------------------------------------------ copia automática en Google Drive
+    def carpeta_copia(self):
+        c = self.cfg.get('carpeta_copia')
+        if c: return c if os.path.isdir(os.path.dirname(c.rstrip('\\/')) or c) else None
+        if os.name != 'nt': return None
+        cands = []
+        for L in 'GHIJKLMNOPQRSTUVWXYZDEF':
+            for n in ('Mi unidad', 'My Drive'): cands.append(f'{L}:\\{n}')
+        home = os.path.expanduser('~')
+        for n in ('Google Drive\\Mi unidad', 'Google Drive\\My Drive', 'Google Drive', 'Mi unidad', 'My Drive'): cands.append(os.path.join(home, n))
+        for c in cands:
+            if os.path.isdir(c): return os.path.join(c, 'La Holandesa reportes')
+        return None
+
+    def guardar_copia(self, forzar=False):
+        dest = self.carpeta_copia()
+        if not dest:
+            if not getattr(self, '_aviso_drive', False): log('No encontré Google Drive en esta computadora; no se guarda copia.'); self._aviso_drive = True
+            return
+        firma = hashlib.md5(self.json).hexdigest()
+        ncortes = self.json.count(b'"folz":"') - self.json.count(b'"folz":""')
+        ahora = time.time()
+        if not forzar and firma == getattr(self, '_firma', None): return
+        if not forzar and ahora - getattr(self, '_ult_copia', 0) < 600 and ncortes == getattr(self, '_ncortes', -1): return
+        try:
+            os.makedirs(dest, exist_ok=True)
+            with open(os.path.join(AQUI, 'panel.html'), 'r', encoding='utf-8') as f: page = f.read()
+            datos = self.json.decode('utf-8').replace('</', '<\\/')
+            page = page.replace('</head>', '<script>window.__COPIA__=' + datos + ';</script></head>', 1)
+            final = os.path.join(dest, 'La Holandesa - reportes.html'); tmp = final + '.tmp'
+            with open(tmp, 'w', encoding='utf-8') as f: f.write(page)
+            os.replace(tmp, final)
+            self._firma, self._ult_copia, self._ncortes = firma, ahora, ncortes
+        except Exception as e:
+            log('No pude guardar la copia en Drive: ' + str(e))
+
     def loop(self):
         while True:
-            try: self.refresh()
+            try: self.refresh(); self.guardar_copia()
             except Exception as e:
                 self.error = str(e); log('ERROR ' + traceback.format_exc())
             time.sleep(max(30, float(self.cfg['minutos_actualizacion']) * 60))

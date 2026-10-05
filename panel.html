@@ -416,9 +416,12 @@ $('#view').onclick=e=>{const b=e.target.closest('[data-p]');if(b){prodAll=b.data
 function hm(iso){const d=new Date(iso);return d.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}
 async function cargar(){
   try{
-    const r=await fetch('data.json?'+Date.now(),{cache:'no-store'});
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    const nd=await r.json(); if(!nd.diario) throw new Error('sin datos');
+    let nd;
+    if(window.__COPIA__){ nd=window.__COPIA__; }
+    else { const r=await fetch('data.json?'+Date.now(),{cache:'no-store'});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      nd=await r.json(); }
+    if(!nd.diario) throw new Error('sin datos');
     const wasLatest=!cur||cur===days[days.length-1];
     DATA=nd; byDate=Object.fromEntries(DATA.diario.map(x=>[x.fecha,x])); days=Object.keys(DATA.detalle).sort();
     if(wasLatest||!DATA.detalle[cur]) cur=days[days.length-1];
@@ -426,13 +429,15 @@ async function cargar(){
     const ab=DATA.detalle[DATA.hasta].abierto;
     $('#gen').textContent='Actualizado '+hm(DATA.generado)+(DATA.version?' · versión '+DATA.version:'');
     $('#note').hidden=true;
+    if(window.__COPIA__){const g=new Date(DATA.generado);$('#gen').textContent='Copia guardada el '+g.toLocaleDateString('es-MX',{day:'numeric',month:'short'})+' a las '+hm(DATA.generado)+' · versión '+DATA.version;
+      $('#note').hidden=false;$('#note').textContent='Estás viendo la copia guardada en tu Google Drive. Tiene todo hasta la hora de arriba. Para ver en vivo, abre la app normal cuando la caja esté prendida.';render();return}
     const mins=(Date.now()-new Date(DATA.generado))/60000;
     if(mins>15){$('#note').hidden=false;$('#note').textContent='La última actualización fue hace '+Math.round(mins)+' minutos. Revisa que la computadora de la caja esté encendida y con internet.'}
     render();
   }catch(e){ $('#note').hidden=false; $('#note').textContent='No pude conectarme con la computadora de la caja. Revisa que esté encendida, con internet y con Tailscale activo. ('+e.message+')'; }
 }
 $('#note').textContent='Cargando ventas…';
-cargar(); setInterval(cargar,120000);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)cargar()});
+cargar(); if(!window.__COPIA__) setInterval(cargar,120000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!window.__COPIA__)cargar()});
 </script>
 </body></html>
