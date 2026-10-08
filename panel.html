@@ -185,6 +185,17 @@ table.tk tr.tt td{font-weight:800;border-top:2px solid var(--ink);border-bottom:
 .heat .c{height:26px;border-radius:5px;background:var(--surface-2)}
 .heat .h{text-align:center;align-self:end}
 .heat .d{align-self:center;font-weight:600;color:var(--ink);font-size:11.5px}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal .w{text-align:center;font:700 11px var(--display);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding-bottom:2px}
+.cal .x{border-radius:9px;padding:5px 4px;min-height:48px;background:var(--surface-2);display:flex;flex-direction:column;justify-content:space-between;font-size:11px;line-height:1.15}
+.cal .x b{font-size:11.5px;color:var(--ink)} .cal .x span{font-weight:700;font-variant-numeric:tabular-nums;color:var(--ink)}
+.cal .x.hi{outline:2px solid var(--green-3)} .cal .x.lo{outline:2px solid var(--bad)}
+.cal .x.vacio{background:none}
+select.msel{height:40px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:600 14px var(--body);padding:0 10px;max-width:100%}
+.vs{display:grid;grid-template-columns:1fr auto auto auto;gap:0 10px;font-size:13.5px}
+.vs>div{padding:7px 0;border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
+.vs>div:nth-child(-n+4){border-top:0;color:var(--muted);font-size:12px;font-weight:600}
+.vs .r{text-align:right;white-space:nowrap}
 
 /* hoja para quitar cuenta */
 .sheet-bg{position:fixed;inset:0;z-index:40;background:rgba(5,15,10,.55);display:flex;align-items:flex-end;justify-content:center}
@@ -492,12 +503,12 @@ function vControl(D){
 }
 
 // ---------- REPORTES
-const REPS=[['historial','Historial'],['quitadas','Cuentas quitadas'],['cajeras','Cajeras'],['meseros','Meseros'],['calor','Horas y días'],['compara','Comparativos']];
+const REPS=[['historial','Historial'],['quitadas','Cuentas quitadas'],['cajeras','Cajeras'],['meseros','Meseros'],['mes','Por mes'],['calor','Horas y días'],['compara','Comparativos']];
 function vReportes(){
   if(!rDesde){[rDesde,rHasta]=rangoRapido('mes')}
   if(rDesde>rHasta){const t=rDesde;rDesde=rHasta;rHasta=t}
   const head=segBtns('rp',REPS,repModo);
-  const fn={historial:rHist,quitadas:rQuitadas,cajeras:rCajeras,meseros:rMeseros,calor:rCalor,compara:rCompara}[repModo]||rHist;
+  const fn={historial:rHist,quitadas:rQuitadas,cajeras:rCajeras,meseros:rMeseros,calor:rCalor,compara:rCompara,mes:rMes}[repModo]||rHist;
   return '<section>'+head+fn()+'</section>';
 }
 const conFechas=()=>`<div class="card">${selectorFechas('r',rDesde,rHasta)}</div>`;
@@ -573,6 +584,57 @@ function rCalor(){
     <p class="empty" style="margin-top:12px">Lo más fuerte: <b style="color:var(--ink)">${DIAS[best[0]]} a las ${best[1]}:00</b>, con ${fmt(best[2])} en promedio por esa hora. Úsalo para decidir cuánto personal poner.</p></div>
   <div class="card"><h2>Promedio por hora <small>todos los días</small></h2>${bars(H.map(h=>{const v=[0,1,2,3,4,5,6].reduce((a,w)=>a+(M[w+'-'+h]||0),0)/(ds.length||1);return {n:h+':00',v}}))}</div>`;
 }
+// ---- ventas por mes, día por día
+const MESL=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const mesTxtL=m=>{const [y,mm]=m.split('-');return MESL[+mm-1]+' '+y};
+let mesSel=null, cmpA=null, cmpB=null;
+const diasMes=m=>DATA.diario.filter(x=>x.fecha.slice(0,7)===m);
+function porDiaSemana(L){const s=[0,0,0,0,0,0,0],c=[0,0,0,0,0,0,0];L.forEach(x=>{const g=pd(x.fecha).getDay();s[g]+=x.total;c[g]++});return [0,1,2,3,4,5,6].map(g=>({g,v:c[g]?s[g]/c[g]:0,n:c[g]}))}
+const mesOpts=(v,id)=>`<select class="msel" id="${id}" aria-label="Elegir mes">${DATA.mensual.slice().reverse().map(x=>`<option value="${x.mes}" ${x.mes===v?'selected':''}>${mesTxtL(x.mes)}</option>`).join('')}</select>`;
+function rMes(){
+  const ms=DATA.mensual.map(x=>x.mes); if(!mesSel||!ms.includes(mesSel)) mesSel=ms[ms.length-1];
+  const L=diasMes(mesSel), tot=L.reduce((a,x)=>a+x.total,0), tk=L.reduce((a,x)=>a+x.tickets,0), prom=L.length?tot/L.length:0;
+  const ws=porDiaSemana(L).filter(w=>w.n), lo=ws.length?ws.reduce((a,b)=>b.v<a.v?b:a):null, hi=ws.length?ws.reduce((a,b)=>b.v>a.v?b:a):null;
+  const [y,m]=mesSel.split('-').map(Number), first=new Date(y,m-1,1), nd=new Date(y,m,0).getDate(), off=(first.getDay()+6)%7;
+  const by=Object.fromEntries(L.map(x=>[x.fecha,x])), mx=Math.max(1,...L.map(x=>x.total));
+  const dLo=L.length?L.reduce((a,b)=>b.total<a.total?b:a):null, dHi=L.length?L.reduce((a,b)=>b.total>a.total?b:a):null;
+  let cal='<div class="cal">'+['lun','mar','mié','jue','vie','sáb','dom'].map(w=>`<div class="w">${w}</div>`).join('')+'<div class="x vacio"></div>'.repeat(off);
+  for(let d=1;d<=nd;d++){const f=iso(new Date(y,m-1,d)),x=by[f];
+    cal+=x?`<div class="x ${x===dHi?'hi':x===dLo?'lo':''}" style="background:rgba(47,138,91,${(0.1+0.6*x.total/mx).toFixed(2)})" title="${lbl(f)} · ${fmt(x.total)}"><b>${d}</b><span>${x.total>=1000?(x.total/1000).toFixed(1)+'k':fmt(x.total)}</span></div>`:`<div class="x"><b style="color:var(--muted)">${d}</b><span style="color:var(--muted);font-weight:400">—</span></div>`}
+  cal+='</div>';
+  const filas=[...ms].reverse().map(k=>{const D=diasMes(k),t=D.reduce((a,x)=>a+x.total,0),pr=D.length?t/D.length:0;const [yy,mm]=k.split('-');const ya=DATA.mensual.find(x=>x.mes===(+yy-1)+'-'+mm);
+    const dy=ya&&ya.total&&k!==ms[ms.length-1]?Math.round(100*(t-ya.total)/ya.total):null;
+    return `<tr${k===mesSel?' style="background:var(--green-soft)"':''}><td><a href="#" data-mes="${k}" style="color:var(--green-2);font-weight:600">${MESES[+mm-1]} ${yy}</a></td><td class="r">${fmt(t)}</td><td class="r">${fmt(pr)}</td><td class="r">${dy==null?'—':`<span style="color:${dy>=0?'var(--good)':'var(--bad)'}">${dy>=0?'+':''}${dy}%</span>`}</td></tr>`}).join('');
+  return `<div class="card">${mesOpts(mesSel,'rMes')}</div>
+  <div class="kpis"><div class="kpi"><b class="num">${fmt(tot)}</b><span>venta de ${MESL[m-1]}</span></div><div class="kpi"><b class="num">${fmt(prom)}</b><span>promedio por día · ${L.length} días</span></div>
+    <div class="kpi"><b class="num">${tk}</b><span>tickets</span></div><div class="kpi"><b class="num">${fmt(tk?tot/tk:0)}</b><span>ticket promedio</span></div></div>
+  <div class="card"><h2>Día por día <small>${dLo?'más bajo: '+corto(dLo.fecha):''}</small></h2>${cal}
+    <p class="empty" style="margin-top:10px">Más verde = más venta. Marco verde: el mejor día; marco rojo: el más bajo.</p></div>
+  <div class="card"><h2>Promedio por día de la semana <small>${MESL[m-1]}</small></h2>
+    ${bars([1,2,3,4,5,6,0].map(g=>ws.find(w=>w.g===g)).filter(Boolean).map(w=>({nh:esc(DIAS[w.g][0].toUpperCase()+DIAS[w.g].slice(1))+(w===lo?' <span class="pill bad">Más bajo</span>':w===hi?' <span class="pill good">Más alto</span>':''),v:w.v,sub:`${w.n} ${DIAS[w.g]}${w.n===1||!/o$/.test(DIAS[w.g])?'':'s'} · ${prom?(w.v>=prom?'+':'')+Math.round(100*(w.v-prom)/prom)+'% vs el promedio':''}`})))}
+    ${lo&&prom&&lo.v<prom*0.85?`<p class="note" style="margin-top:12px">Los ${DIAS[lo.g]} venden ${Math.round(100*(1-lo.v/prom))}% menos que un día normal de este mes. Puede ser buen día para una promoción.</p>`:''}</div>
+  <div class="card"><h2>Todos los meses <small>toca uno para verlo</small></h2><div class="tscroll"><table class="tk num"><thead><tr><th>Mes</th><th class="r">Venta</th><th class="r">Prom. día</th><th class="r">vs año ant.</th></tr></thead><tbody>${filas}</tbody></table></div>
+    <p class="empty" style="margin-top:10px">El mes actual puede estar incompleto.</p></div>`;
+}
+function rMesVsMes(){
+  const ms=DATA.mensual.map(x=>x.mes), ul=ms[ms.length-1];
+  if(!cmpA||!ms.includes(cmpA)) cmpA=ul;
+  if(!cmpB||!ms.includes(cmpB)){const [y,m]=cmpA.split('-');const ya=(+y-1)+'-'+m;cmpB=ms.includes(ya)?ya:(ms[ms.length-2]||ul)}
+  const A=diasMes(cmpA),B=diasMes(cmpB);
+  const r=L=>{const t=L.reduce((a,x)=>a+x.total,0),k=L.reduce((a,x)=>a+x.tickets,0);return {t,k,n:L.length,pd:L.length?t/L.length:0,tp:k?t/k:0}};
+  const a=r(A),b=r(B);
+  const dl=(x,y)=>y?Math.round(100*(x-y)/y):null;
+  const cel=d=>d==null?'—':`<span style="color:${d>=0?'var(--good)':'var(--bad)'}">${d>=0?'+':''}${d}%</span>`;
+  const wa=porDiaSemana(A), wb=porDiaSemana(B);
+  const ren=(l,x,y,f)=>`<div>${l}</div><div class="r">${f(x)}</div><div class="r">${f(y)}</div><div class="r">${cel(dl(x,y))}</div>`;
+  const inc=cmpA===ul||cmpB===ul;
+  return `<div class="card"><h2>Mes contra mes <small>cualquier mes de cualquier año</small></h2>
+    <div class="dates" style="margin-top:0">${mesOpts(cmpA,'cA')}<span>contra</span>${mesOpts(cmpB,'cB')}</div>
+    <div class="vs" style="margin-top:14px"><div></div><div class="r">${MESES[+cmpA.slice(5)-1]} ${cmpA.slice(2,4)}</div><div class="r">${MESES[+cmpB.slice(5)-1]} ${cmpB.slice(2,4)}</div><div class="r">Cambio</div>
+      ${ren('<b>Venta</b>',a.t,b.t,fmt)}${ren('Promedio por día',a.pd,b.pd,fmt)}${ren('Tickets',a.k,b.k,v=>v)}${ren('Ticket promedio',a.tp,b.tp,fmt)}${ren('Días con venta',a.n,b.n,v=>v)}
+      ${[1,2,3,4,5,6,0].filter(g=>wa[g].n||wb[g].n).map(g=>ren(DIAS[g][0].toUpperCase()+DIAS[g].slice(1)+' <small style="color:var(--muted)">prom.</small>',wa[g].v,wb[g].v,fmt)).join('')}</div>
+    ${inc?`<p class="note" style="margin-top:12px">${mesTxtL(ul)} va en curso. Para comparar parejo fíjate en el promedio por día y en los días de la semana, no en la venta total.</p>`:''}</div>`;
+}
 function rCompara(){
   const u=days[days.length-1], ud=pd(u), wd=(ud.getDay()+6)%7;
   const sumD=(a,b)=>{const L=DATA.diario.filter(x=>x.fecha>=a&&x.fecha<=b);return {t:L.reduce((s,x)=>s+x.total,0),k:L.reduce((s,x)=>s+x.tickets,0),n:L.length}};
@@ -584,7 +646,7 @@ function rCompara(){
     return `<div class="card"><h2>${t}${d!=null?` <span class="pill ${d>=0?'good':'bad'}">${d>=0?'▲':'▼'} ${Math.abs(d)}%</span>`:''}</h2>
       <table class="ledger num"><tbody><tr><td><b>${la}</b></td><td>${fmt2(a.t)}</td></tr><tr><td style="color:var(--muted)">${a.k} tickets · promedio ${fmt(a.k?a.t/a.k:0)}</td><td></td></tr>
       <tr><td><b>${lb}</b></td><td>${b.n?fmt2(b.t):'Sin datos'}</td></tr>${b.n?`<tr><td style="color:var(--muted)">${b.k} tickets · promedio ${fmt(b.k?b.t/b.k:0)}</td><td></td></tr>`:''}</tbody></table></div>`};
-  return `<p class="empty">Se compara el mismo tramo: por ejemplo, de lunes a ${DIAS[ud.getDay()]} contra de lunes a ${DIAS[ud.getDay()]} de la semana pasada.</p>
+  return rMesVsMes()+`<h2 class="corte-h">Mismo tramo</h2><p class="empty">Se compara el mismo tramo: por ejemplo, de lunes a ${DIAS[ud.getDay()]} contra de lunes a ${DIAS[ud.getDay()]} de la semana pasada.</p>
     ${fila3('Esta semana vs la pasada',sumD(sem,u),sumD(semA,semAh),`${corto(sem)} al ${corto(u)}`,`${corto(semA)} al ${corto(semAh)}`)}
     ${fila3('Este mes vs el mes pasado',sumD(mes,u),sumD(iso(mA),iso(mAh)),`1 al ${ud.getDate()} de ${MESES[ud.getMonth()]}`,`1 al ${mAh.getDate()} de ${MESES[mA.getMonth()]}`)}
     ${fila3('Este mes vs hace un año',sumD(mes,u),sumD(iso(yA),iso(yAh)),`${MESES[ud.getMonth()]} ${ud.getFullYear()}`,`${MESES[yA.getMonth()]} ${yA.getFullYear()}`)}`;
@@ -650,7 +712,7 @@ $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(b)irA(b.dataset.tab)};
 $('#view').addEventListener('click',e=>{
-  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv]');if(!t)return;
+  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes]');if(!t)return;
   const d=t.dataset;
   if(d.go) return irA(d.go);
   if(d.pm){prodModo=d.pm;return render()} if(d.pt){prodT=d.pt;return render()}
@@ -661,11 +723,12 @@ $('#view').addEventListener('click',e=>{
   if(d.pq){[pDesde,pHasta]=rangoRapido(d.pq);return render()}
   if(d.rq){[rDesde,rHasta]=rangoRapido(d.rq);return render()}
   if(d.csv) return csvQuitadas(d.csv);
+  if(d.mes){e.preventDefault();mesSel=d.mes;render();window.scrollTo(0,0);return}
   if(d.quitar!=null){e.preventDefault();const a=(DATA.abiertas||[])[+d.quitar];if(a)abrirHoja({modo:'quitar',archivo:a.archivo,ref:a.ref??a.mesa,cuenta:a.mesa,total:a.total});return}
   if(d.motivo){e.preventDefault();const r=(DATA.quitadas||[]).find(x=>x.id===d.motivo);if(r)abrirHoja({modo:'motivo',id:r.id,cuenta:r.cuenta,total:r.total,motivo:r.motivo==='Sin clasificar'?null:r.motivo,nota:r.nota});return}
 });
 $('#view').addEventListener('change',e=>{const id=e.target.id,v=e.target.value;if(!v)return;
-  if(id==='pD'){pDesde=v;render()}else if(id==='pH'){pHasta=v;render()}else if(id==='rD'){rDesde=v;render()}else if(id==='rH'){rHasta=v;render()}});
+  if(id==='pD'){pDesde=v;render()}else if(id==='pH'){pHasta=v;render()}else if(id==='rD'){rDesde=v;render()}else if(id==='rH'){rHasta=v;render()}else if(id==='rMes'){mesSel=v;render()}else if(id==='cA'){cmpA=v;render()}else if(id==='cB'){cmpB=v;render()}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')cerrarHoja()});
 
 function hm(s){return new Date(s).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}
