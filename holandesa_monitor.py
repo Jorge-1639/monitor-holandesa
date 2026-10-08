@@ -1,17 +1,19 @@
 # -*- coding: utf-8 -*-
 """
 Monitor de ventas - Restaurante La Holandesa
-Lee la base de datos de MrTienda (SOLO LECTURA) y muestra el tablero de ventas
+Lee la base de datos de MrTienda y muestra el tablero de ventas
 en http://<esta-computadora>:8765  (protegido con usuario y contraseña).
 
-No modifica ningún archivo de MrTienda: abre cada archivo solo para leerlo.
+La consulta de ventas es de solo lectura. La única escritura en MrTienda es quitar, con confirmación y motivo,
+una cuenta pendiente NO pagada (comida de la familia, pedidos Didi/Uber, errores). Antes respalda los archivos
+y deja el registro en cuentas_quitadas.json (fuera de MrTienda), que alimenta los reportes y el Excel.
 Requiere Python 3.9 o superior. No necesita instalar paquetes adicionales.
 """
 import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, threading, datetime, collections, traceback
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 16
+VERSION = 20
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -22,8 +24,13 @@ DEFAULT_CONFIG = {
     "contrasena": "",
     "minutos_actualizacion": 2,
     "dias_detalle": 70,
-    "bitacora_borrados_hasta": "2025-02-21"
+    "bitacora_borrados_hasta": "2025-02-21",
+    "segundos_revision_actualizacion": 300
 }
+QUITADAS_FILE = os.path.join(AQUI, 'cuentas_quitadas.json')
+RESPALDO_CUENTAS = os.path.join(AQUI, 'respaldos_cuentas')   # fuera de _respaldo: las actualizaciones no lo borran
+MOTIVOS = ['Familia', 'Didi · efectivo', 'Didi · tarjeta', 'Uber · efectivo', 'Uber · tarjeta', 'Error de captura', 'Otro', 'Sin clasificar']
+
 
 def log(msg):
     line = time.strftime('%Y-%m-%d %H:%M:%S ') + str(msg)
@@ -32,6 +39,13 @@ def log(msg):
     except Exception: pass
     try: print(line)
     except Exception: pass
+
+def load_config_ro():
+    cfg = dict(DEFAULT_CONFIG)
+    try:
+        with open(CONFIG_FILE, encoding='utf-8') as f: cfg.update(json.load(f))
+    except Exception: pass
+    return cfg
 
 def load_config():
     cfg = dict(DEFAULT_CONFIG)
@@ -122,6 +136,50 @@ def denom(ref, q, tc):
     try: return float(m.group(1)) * q if m else 0
     except ValueError: return 0
 
+# ---------------------------------------------------------------- Excel (.xlsx) sin paquetes extra
+def xlsx(rows, sheet='Hoja1', widths=None, money_cols=()):
+    import zipfile, io
+    from xml.sax.saxutils import escape as x
+    def col(i):
+        s = ''
+        i += 1
+        while i: i, r = divmod(i - 1, 26); s = chr(65 + r) + s
+        return s
+    sd = []
+    for ri, row in enumerate(rows, 1):
+        cells = []
+        for ci, v in enumerate(row):
+            ref = col(ci) + str(ri)
+            st = 1 if ri == 1 else (2 if ci in money_cols else 0)
+            if ri == len(rows) and ri > 1: st = 3 if ci in money_cols else 1
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                cells.append(f'<c r="{ref}" s="{st}"><v>{v}</v></c>')
+            elif v not in (None, ''):
+                cells.append(f'<c r="{ref}" s="{st}" t="inlineStr"><is><t xml:space="preserve">{x(str(v))}</t></is></c>')
+        sd.append(f'<row r="{ri}">{"".join(cells)}</row>')
+    cols = ''.join(f'<col min="{i+1}" max="{i+1}" width="{w}" customWidth="1"/>' for i, w in enumerate(widths or []))
+    ws = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+          '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+          + (f'<cols>{cols}</cols>' if cols else '') + f'<sheetData>{"".join(sd)}</sheetData></worksheet>')
+    styles = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+              '<numFmts count="1"><numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0.00"/></numFmts>'
+              '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>'
+              '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
+              '<borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs>'
+              '<cellXfs count="4"><xf/><xf fontId="1" applyFont="1"/><xf numFmtId="164" applyNumberFormat="1"/><xf numFmtId="164" fontId="1" applyNumberFormat="1" applyFont="1"/></cellXfs>'
+              '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+              '</styleSheet>')
+    files = {
+        '[Content_Types].xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>',
+        '_rels/.rels': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
+        'xl/workbook.xml': f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="{x(sheet[:31])}" sheetId="1" r:id="rId1"/></sheets></workbook>',
+        'xl/_rels/workbook.xml.rels': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>',
+        'xl/worksheets/sheet1.xml': ws, 'xl/styles.xml': styles}
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+        for n, c in files.items(): z.writestr(n, c)
+    return buf.getvalue()
+
 class Monitor:
     def __init__(self, cfg):
         self.cfg = cfg
@@ -131,11 +189,15 @@ class Monitor:
         self.jsongz = gzip.compress(b'{}')
         self.error = None
         self.lock = threading.Lock()
+        self.write_lock = threading.Lock()
+        self.q_lock = threading.Lock()
+        self._touched = set()
 
     def rows(self, path):
         try: st = os.stat(path)
         except OSError: return []
         key = (path, st.st_size, int(st.st_mtime))
+        self._touched.add(path)
         if key not in self.cache:
             for k in [k for k in self.cache if k[0] == path]: del self.cache[k]
             self.cache[key] = [x for x in safe_rows(path) if not x['_del']]
@@ -299,14 +361,140 @@ class Monitor:
                                           'quien': self.name(v.get('COD_VENDED')) if v.get('COD_VENDED') else '',
                                           'llevar': v.get('COD_ESCALA') == '02'})
                         break
-            out.append({'mesa': (x.get('REF') or '').strip() or 'Sin nombre', 'fecha': f'{fa[:4]}-{fa[4:6]}-{fa[6:8]}' if len(fa) == 8 else '',
+            turno_raw = next((str(x.get(k) or '').strip() for k in ('TURNO','COD_TURNO','NUM_TURNO','CORTE') if str(x.get(k) or '').strip()), '')
+            out.append({'ref': (x.get('REF') or '').strip(), 'mesa': (x.get('REF') or '').strip() or 'Sin nombre', 'fecha': f'{fa[:4]}-{fa[4:6]}-{fa[6:8]}' if len(fa) == 8 else '',
                         'abrio': (x.get('HORA_AP') or x.get('HORA') or '')[:5], 'mesero': (x.get('DES_VENDED') or '').strip().title() or self.name(x.get('COD_VENDED')),
                         'pers': int(x.get('COMENSALES') or 1), 'arts': int(x.get('ARTS') or 0), 'total': round(x.get('IMPORTE_MN') or 0, 2),
-                        'llevar': x.get('COD_ESCALA') == '02', 'items': items})
+                        'llevar': x.get('COD_ESCALA') == '02', 'archivo': arch, 'items': items, 'turno': turno_raw})
         return sorted(out, key=lambda a: (a['fecha'], a['abrio']))
+
+    def eliminar_abierta(self, archivo, referencia, motivo='Sin clasificar', nota=''):
+        """Replica la baja observada en MrTienda para una cuenta abierta y NO pagada.
+        Respalda PENDIENT.DBF y el DBF de la cuenta, marca el renglón de PENDIENT como eliminado
+        y retira el DBF activo. No toca DATABASE ni archivos .ENC/.BAK de MrTienda.
+        """
+        archivo = re.sub(r'[^A-Za-z0-9_-]', '', str(archivo or '').strip())
+        referencia = str(referencia or '').strip()
+        if not archivo: raise ValueError('Faltan datos de la cuenta.')
+        if motivo not in MOTIVOS: raise ValueError('Elige un motivo válido.')
+        nota = str(nota or '').strip()[:120]
+        foto = next((a for a in self.abiertas() if a['archivo'].upper() == archivo.upper() and a['ref'] == referencia), None)
+        if foto is None: raise RuntimeError('La cuenta ya no está abierta o cambió. Actualiza la pantalla.')
+        com = os.path.join(self.base, 'COMUNES')
+        pend = os.path.join(com, 'PENDIENT.DBF')
+        cuenta = os.path.join(com, archivo + '.DBF')
+        with self.write_lock:
+            with open(pend, 'rb') as f: b = bytearray(f.read())
+            if len(b) < 32: raise RuntimeError('PENDIENT.DBF no es válido.')
+            n, hl, rl = struct.unpack('<IHH', b[4:12])
+            flds=[]; i=32; off=1
+            while i < hl and b[i] != 0x0D:
+                name=b[i:i+11].split(b'\0')[0].decode('latin-1'); typ=chr(b[i+11]); ln=b[i+16]
+                flds.append((name,typ,ln,off)); off += ln; i += 32
+            fm={x[0]:x for x in flds}
+            if 'FILE' not in fm or 'REF' not in fm or 'PAGADO' not in fm: raise RuntimeError('PENDIENT.DBF no tiene la estructura esperada.')
+            def txt(rec, name):
+                _,typ,ln,o=fm[name]; return rec[o:o+ln].decode('latin-1','ignore').strip()
+            target=None
+            for r in range(n):
+                s=hl+r*rl; rec=b[s:s+rl]
+                if len(rec)<rl: break
+                if rec[0:1] == b'*': continue
+                if txt(rec,'FILE').upper()==archivo.upper() and txt(rec,'REF')==referencia:
+                    _,_,ln,o=fm['PAGADO']; pag=rec[o:o+ln] in (b'T',b't',b'Y',b'y')
+                    if pag: raise RuntimeError('La cuenta ya está pagada. No se eliminó nada.')
+                    target=s; break
+            if target is None: raise RuntimeError('La cuenta ya no está abierta o cambió. Actualiza la pantalla.')
+            # La prueba controlada mostró que al vaciar la cuenta MrTienda marca PENDIENT con * y desaparece FILE.DBF.
+            sello=datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+            bdir=os.path.join(RESPALDO_CUENTAS,sello+'_'+archivo)
+            os.makedirs(bdir, exist_ok=False)
+            shutil.copy2(pend, os.path.join(bdir,'PENDIENT_ANTES.DBF'))
+            if os.path.isfile(cuenta): shutil.copy2(cuenta, os.path.join(bdir,archivo+'.DBF'))
+            b[target]=0x2A
+            tmp=pend+'.holtmp'
+            try:
+                with open(tmp,'wb') as f: f.write(b); f.flush(); os.fsync(f.fileno())
+                os.replace(tmp, pend)
+                if os.path.isfile(cuenta): os.remove(cuenta)
+            except Exception:
+                try:
+                    if os.path.exists(tmp): os.remove(tmp)
+                    shutil.copy2(os.path.join(bdir,'PENDIENT_ANTES.DBF'), pend)
+                except Exception: pass
+                raise
+            self.cache = {k:v for k,v in self.cache.items() if k[0] not in (pend,cuenta)}
+            log(f'CUENTA QUITADA remotamente: {referencia} / {archivo} · {motivo}. Respaldo: {bdir}')
+        ahora = datetime.datetime.now()
+        try:
+            self.anotar_quitada({'id': sello + '_' + archivo, 'quitada': ahora.isoformat(timespec='seconds'),
+                                 'fecha': foto['fecha'] or ahora.date().isoformat(), 'abrio': foto['abrio'], 'cuenta': foto['mesa'],
+                                 'mesero': foto['mesero'], 'pers': foto['pers'], 'arts': foto['arts'], 'total': foto['total'],
+                                 'llevar': foto['llevar'], 'items': [{'n': i['n'], 'q': i['q'], 'imp': i['imp']} for i in foto['items']],
+                                 'motivo': motivo, 'nota': nota, 'respaldo': os.path.basename(bdir)})
+        except Exception as e:
+            log('La cuenta se quitó pero no pude anotarla en la bitácora: ' + str(e))
+        self.refresh()
+        return {'ok':True,'mensaje':'Cuenta quitada','respaldo':os.path.basename(bdir)}
+
+    def excel_quitadas(self, desde, hasta, grupo):
+        q = [r for r in self.quitadas() if (not desde or r.get('fecha', '') >= desde) and (not hasta or r.get('fecha', '') <= hasta)]
+        if grupo == 'didi': q = [r for r in q if r.get('motivo', '').startswith('Didi')]
+        elif grupo == 'uber': q = [r for r in q if r.get('motivo', '').startswith('Uber')]
+        elif grupo == 'plataformas': q = [r for r in q if r.get('motivo', '').startswith(('Didi', 'Uber'))]
+        elif grupo == 'familia': q = [r for r in q if r.get('motivo') == 'Familia']
+        q.sort(key=lambda r: (r.get('fecha', ''), r.get('abrio', '')))
+        head = ['Fecha', 'Abrió', 'Quitada', 'Cuenta', 'Motivo', 'Plataforma', 'Pago', 'Nota', 'Mesero', 'Artículos', 'Importe MrTienda', 'Detalle']
+        rows = []
+        for r in q:
+            m = r.get('motivo', ''); plat, _, pago = m.partition(' · ')
+            rows.append([r.get('fecha', ''), r.get('abrio', ''), (r.get('quitada') or '')[11:16], r.get('cuenta', ''), m,
+                         plat if pago else '', pago, r.get('nota', ''), r.get('mesero', ''), r.get('arts') or len(r.get('items') or []),
+                         float(r.get('total') or 0), ', '.join(f"{int(i['q']) if float(i['q']).is_integer() else i['q']} {i['n']}" for i in r.get('items') or [])])
+        tot = round(sum(x[10] for x in rows), 2)
+        titulo = {'didi': 'Didi', 'uber': 'Uber', 'plataformas': 'Didi y Uber', 'familia': 'Familia'}.get(grupo, 'Cuentas quitadas')
+        return xlsx([head] + rows + [[], ['', '', '', 'TOTAL · ' + str(len(rows)) + ' cuentas', '', '', '', '', '', '', tot, '']], titulo,
+                    widths=[11, 7, 8, 22, 17, 10, 9, 22, 14, 9, 15, 60], money_cols={10})
+
+    # ------------------------------------------------ bitácora de cuentas quitadas (archivo propio, no de MrTienda)
+    def quitadas(self):
+        with self.q_lock:
+            try:
+                with open(QUITADAS_FILE, encoding='utf-8') as f: q = json.load(f)
+                return q if isinstance(q, list) else []
+            except (OSError, ValueError): return []
+
+    def _guardar_quitadas(self, q):
+        tmp = QUITADAS_FILE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f: json.dump(q, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, QUITADAS_FILE)
+
+    def anotar_quitada(self, reg):
+        with self.q_lock:
+            try:
+                with open(QUITADAS_FILE, encoding='utf-8') as f: q = json.load(f)
+                if not isinstance(q, list): q = []
+            except (OSError, ValueError): q = []
+            q.append(reg); self._guardar_quitadas(q)
+
+    def cambiar_motivo(self, rid, motivo, nota):
+        if motivo not in MOTIVOS: raise ValueError('Motivo no válido.')
+        with self.q_lock:
+            try:
+                with open(QUITADAS_FILE, encoding='utf-8') as f: q = json.load(f)
+            except (OSError, ValueError): q = []
+            for r in q:
+                if r.get('id') == rid:
+                    r['motivo'] = motivo; r['nota'] = str(nota or '').strip()[:120]
+                    r['editado'] = datetime.datetime.now().isoformat(timespec='seconds')
+                    self._guardar_quitadas(q); break
+            else: raise RuntimeError('No encontré ese registro.')
+        self.refresh()
+        return {'ok': True}
 
     def refresh(self):
         t0 = time.time()
+        self._touched = set()
         self.catalogs()
         idx = self.index_files()
         days = sorted({d for (pre, d) in idx if pre == 'P'})
@@ -320,6 +508,10 @@ class Monitor:
         mon = collections.defaultdict(lambda: [0, 0])
         for x in out['diario']: m = mon[x['fecha'][:7]]; m[0] += x['total']; m[1] += x['tickets']
         out['mensual'] = [{'mes': k, 'total': round(v[0], 2), 'tickets': v[1]} for k, v in sorted(mon.items())]
+        out['quitadas'] = self.quitadas(); out['motivos'] = MOTIVOS
+        # suelta de la memoria los archivos que ya no se leyeron en esta vuelta
+        vivos = self._touched
+        self.cache = {k: v for k, v in list(self.cache.items()) if k[0] in vivos}
         data = json.dumps(out, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
         gz = gzip.compress(data, 6)
         with self.lock: self.json = data; self.jsongz = gz; self.error = None
@@ -372,6 +564,12 @@ class Monitor:
 def make_handler(mon, cfg):
     token = base64.b64encode(f"{cfg['usuario']}:{cfg['contrasena']}".encode()).decode()
     with open(os.path.join(AQUI, 'panel.html'), 'rb') as f: page = f.read()
+    icon_path = os.path.join(AQUI, 'icon.png')
+    try:
+        with open(icon_path, 'rb') as f: icon_png = f.read()
+    except OSError:
+        icon_png = b''
+    manifest = json.dumps({'name':'Control Holandesa','short_name':'Control Holandesa','start_url':'/','display':'standalone','background_color':'#f7f7f4','theme_color':'#ffffff','icons':[{'src':'/icon.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a): pass
         def _auth(self):
@@ -382,8 +580,43 @@ def make_handler(mon, cfg):
             self.send_response(200); self.send_header('Content-Type', ctype); self.send_header('Cache-Control', 'no-store')
             if gz: self.send_header('Content-Encoding', 'gzip')
             self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
+        def do_POST(self):
+            if not self._auth(): return
+            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo'): self.send_response(404); self.end_headers(); return
+            if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
+                self.send_response(403); self.end_headers(); return
+            try:
+                n=min(int(self.headers.get('Content-Length','0') or 0),4096)
+                d=json.loads(self.rfile.read(n).decode('utf-8'))
+                if self.path == '/api/quitada-motivo': out=mon.cambiar_motivo(d.get('id'),d.get('motivo'),d.get('nota'))
+                else: out=mon.eliminar_abierta(d.get('archivo'),d.get('referencia'),d.get('motivo') or 'Sin clasificar',d.get('nota'))
+                body=json.dumps(out,ensure_ascii=False).encode('utf-8')
+                return self._send(body,'application/json; charset=utf-8')
+            except Exception as e:
+                log('No se pudo completar '+self.path+': '+str(e))
+                body=json.dumps({'ok':False,'error':str(e)},ensure_ascii=False).encode('utf-8')
+                self.send_response(409); self.send_header('Content-Type','application/json; charset=utf-8'); self.send_header('Cache-Control','no-store'); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)
         def do_GET(self):
             if not self._auth(): return
+            if self.path.startswith('/api/abiertas'):
+                try:
+                    body=json.dumps({'ok':True,'abiertas':mon.abiertas(),'generado':datetime.datetime.now().isoformat(timespec='seconds')},ensure_ascii=False).encode('utf-8')
+                    return self._send(body,'application/json; charset=utf-8')
+                except Exception as e:
+                    body=json.dumps({'ok':False,'error':str(e)},ensure_ascii=False).encode('utf-8')
+                    self.send_response(500); self.send_header('Content-Type','application/json; charset=utf-8'); self.send_header('Cache-Control','no-store'); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body); return
+            if self.path.startswith('/api/quitadas.xlsx'):
+                from urllib.parse import urlparse, parse_qs
+                qs = parse_qs(urlparse(self.path).query); g = lambda k: (qs.get(k) or [''])[0]
+                body = mon.excel_quitadas(g('desde'), g('hasta'), g('grupo') or 'todas')
+                nom = 'Cuentas quitadas ' + (g('grupo') or 'todas') + ' ' + g('desde') + ' a ' + g('hasta') + '.xlsx'
+                self.send_response(200); self.send_header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                self.send_header('Content-Disposition', "attachment; filename=\"cuentas_quitadas.xlsx\"; filename*=UTF-8''" + __import__('urllib.parse').parse.quote(nom))
+                self.send_header('Cache-Control', 'no-store'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
+            if self.path.startswith('/manifest.webmanifest'):
+                return self._send(manifest, 'application/manifest+json; charset=utf-8')
+            if self.path.startswith('/icon.png') and icon_png:
+                return self._send(icon_png, 'image/png')
             if self.path.startswith('/data.json'):
                 usegz = 'gzip' in self.headers.get('Accept-Encoding', '')
                 with mon.lock: body = mon.jsongz if usegz else mon.json
@@ -408,11 +641,11 @@ def buscar_actualizacion():
         log('No pude revisar actualizaciones: ' + str(e)); return False
     if remota <= VERSION: return False
     log(f'Hay versión nueva {remota} (tengo {VERSION}). Descargando…')
-    nuevo = os.path.join(AQUI, '_nuevo'); resp = os.path.join(AQUI, '_respaldo')
+    nuevo = os.path.join(AQUI, '_nuevo'); resp = os.path.join(AQUI, '_respaldo', 'programa')
     shutil.rmtree(nuevo, ignore_errors=True); os.makedirs(nuevo, exist_ok=True)
     try:
         archivos = [a.strip() for a in _bajar('archivos.txt').decode().splitlines() if a.strip()]
-        permitidos = {'holandesa_monitor.py', 'panel.html', 'detener_monitor.bat', 'iniciar_monitor.vbs', 'probar.bat', 'actualizar.bat'}
+        permitidos = {'holandesa_monitor.py', 'panel.html', 'detener_monitor.bat', 'iniciar_monitor.vbs', 'probar.bat', 'actualizar.bat', 'icon.png'}
         archivos = [a for a in archivos if a in permitidos]
         if 'holandesa_monitor.py' not in archivos: raise RuntimeError('archivos.txt incompleto')
         for a in archivos:
@@ -422,7 +655,7 @@ def buscar_actualizacion():
         for a in archivos:
             if os.path.exists(os.path.join(AQUI, a)): shutil.copy2(os.path.join(AQUI, a), os.path.join(resp, a))
         for a in archivos: shutil.copy2(os.path.join(nuevo, a), os.path.join(AQUI, a))
-        log(f'Versión {remota} instalada. Respaldo de la anterior en _respaldo')
+        log(f'Versión {remota} instalada. Respaldo de la anterior en _respaldo\\programa')
         return True
     except Exception as e:
         log('La actualización falló y se conserva la versión actual: ' + str(e)); return False
@@ -467,14 +700,17 @@ def instalar_vigilante():
         log('No pude instalar el vigilante: ' + str(e))
 
 def ciclo_actualizacion():
-    time.sleep(90)
+    # Revisa GitHub cada 5 minutos (ajustable en config.json); solo reinicia si hay una versión nueva válida.
+    try: espera = max(60, int(load_config_ro().get('segundos_revision_actualizacion', 300)))
+    except Exception: espera = 300
+    time.sleep(15)
     while True:
-        if buscar_actualizacion(): reiniciar()
-        ahora = datetime.datetime.now()
-        siguiente = (ahora + datetime.timedelta(days=1)).replace(hour=3, minute=30, second=0, microsecond=0)
-        if ahora.hour < 3 or (ahora.hour == 3 and ahora.minute < 30):
-            siguiente = ahora.replace(hour=3, minute=30, second=0, microsecond=0)
-        time.sleep(max(60, (siguiente - ahora).total_seconds()))
+        try:
+            if buscar_actualizacion():
+                reiniciar()
+        except Exception as e:
+            log('Error en ciclo de actualización: ' + str(e))
+        time.sleep(espera)
 
 def main():
     cfg = load_config()
