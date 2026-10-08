@@ -13,7 +13,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 24
+VERSION = 25            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '24.1'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -590,7 +591,7 @@ class Monitor:
         hoy = datetime.date.today().isoformat()
         g = self.gastos()
         provs = collections.Counter(m.get('proveedor') for m in g['movs'] if m.get('proveedor'))
-        return {'ok': True, 'version': VERSION, 'hoy': hoy, 'categorias': CATEGORIAS_GASTO, 'negocios': NEGOCIOS, 'pagos': PAGOS,
+        return {'ok': True, 'version': VERSION_TXT, 'hoy': hoy, 'categorias': CATEGORIAS_GASTO, 'negocios': NEGOCIOS, 'pagos': PAGOS,
                 'personas': sorted(set(v for v in getattr(self, 'EMP', {}).values() if v)),
                 'proveedores': [p for p, _ in provs.most_common(60)],
                 'hoy_lista': [{k: m.get(k) for k in ('fecha', 'proveedor', 'concepto', 'monto', 'negocio', 'quien', 'capturado', 'ticket')}
@@ -666,7 +667,7 @@ class Monitor:
         idx = self.index_files()
         days = sorted({d for (pre, d) in idx if pre == 'P'})
         if not days: raise RuntimeError('No encontré tickets en ' + self.base)
-        out = {'version': VERSION, 'generado': datetime.datetime.now().isoformat(timespec='seconds'), 'desde': days[0].isoformat(), 'hasta': days[-1].isoformat(),
+        out = {'version': VERSION_TXT, 'build': VERSION, 'generado': datetime.datetime.now().isoformat(timespec='seconds'), 'desde': days[0].isoformat(), 'hasta': days[-1].isoformat(),
                'bitacora_hasta': self.cfg.get('bitacora_borrados_hasta')}
         try: out['abiertas'] = self.abiertas()
         except Exception as e: log('No pude leer cuentas abiertas: ' + str(e)); out['abiertas'] = []
@@ -937,7 +938,7 @@ def main():
         except OSError:
             time.sleep(2)
     if srv is None: log('El puerto sigue ocupado; no pude arrancar.'); sys.exit(1)
-    log(f"Monitor versión {VERSION} listo en el puerto {cfg['puerto']} (usuario: {cfg['usuario']})")
+    log(f"Monitor versión {VERSION_TXT} (#{VERSION}) listo en el puerto {cfg['puerto']} (usuario: {cfg['usuario']})")
     threading.Thread(target=instalar_vigilante, daemon=True).start()
     srv.serve_forever()
 
@@ -951,7 +952,7 @@ if __name__ == '__main__':
         if not responde(puerto):
             log('El vigilante no encontró el monitor prendido; lo arranco.'); main()
     elif len(sys.argv) > 1 and sys.argv[1] == '--actualizar':
-        print('Versión actual:', VERSION); print('Instalé versión nueva' if buscar_actualizacion() else 'No hay versión nueva')
+        print('Versión actual:', VERSION_TXT); print('Instalé versión nueva' if buscar_actualizacion() else 'No hay versión nueva')
     elif len(sys.argv) > 1 and sys.argv[1] == '--prueba':
         cfg = load_config(); m = Monitor(cfg); m.refresh()
         d = json.loads(m.json); h = d['detalle'][d['hasta']]
