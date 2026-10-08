@@ -587,7 +587,7 @@ function rCalor(){
 // ---- ventas por mes, día por día
 const MESL=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 const mesTxtL=m=>{const [y,mm]=m.split('-');return MESL[+mm-1]+' '+y};
-let mesSel=null, cmpA=null, cmpB=null;
+let mesSel=null, cmpA=null, cmpB=null, cmpVista='cat', cmpTodos=false;
 const diasMes=m=>DATA.diario.filter(x=>x.fecha.slice(0,7)===m);
 function porDiaSemana(L){const s=[0,0,0,0,0,0,0],c=[0,0,0,0,0,0,0];L.forEach(x=>{const g=pd(x.fecha).getDay();s[g]+=x.total;c[g]++});return [0,1,2,3,4,5,6].map(g=>({g,v:c[g]?s[g]/c[g]:0,n:c[g]}))}
 const mesOpts=(v,id)=>`<select class="msel" id="${id}" aria-label="Elegir mes">${DATA.mensual.slice().reverse().map(x=>`<option value="${x.mes}" ${x.mes===v?'selected':''}>${mesTxtL(x.mes)}</option>`).join('')}</select>`;
@@ -633,7 +633,41 @@ function rMesVsMes(){
     <div class="vs" style="margin-top:14px"><div></div><div class="r">${MESES[+cmpA.slice(5)-1]} ${cmpA.slice(2,4)}</div><div class="r">${MESES[+cmpB.slice(5)-1]} ${cmpB.slice(2,4)}</div><div class="r">Cambio</div>
       ${ren('<b>Venta</b>',a.t,b.t,fmt)}${ren('Promedio por día',a.pd,b.pd,fmt)}${ren('Tickets',a.k,b.k,v=>v)}${ren('Ticket promedio',a.tp,b.tp,fmt)}${ren('Días con venta',a.n,b.n,v=>v)}
       ${[1,2,3,4,5,6,0].filter(g=>wa[g].n||wb[g].n).map(g=>ren(DIAS[g][0].toUpperCase()+DIAS[g].slice(1)+' <small style="color:var(--muted)">prom.</small>',wa[g].v,wb[g].v,fmt)).join('')}</div>
-    ${inc?`<p class="note" style="margin-top:12px">${mesTxtL(ul)} va en curso. Para comparar parejo fíjate en el promedio por día y en los días de la semana, no en la venta total.</p>`:''}</div>`;
+    ${inc?`<p class="note" style="margin-top:12px">${mesTxtL(ul)} va en curso. Para comparar parejo fíjate en el promedio por día y en los días de la semana, no en la venta total.</p>`:''}</div>
+  ${unidades(a,b)}`;
+}
+function unidades(a,b){
+  const MP=DATA.mensual_prod||{}, PA=MP[cmpA]||[], PB=MP[cmpB]||[];
+  const ca=MESES[+cmpA.slice(5)-1]+' '+cmpA.slice(2,4), cb=MESES[+cmpB.slice(5)-1]+' '+cmpB.slice(2,4);
+  if(!PA.length||!PB.length) return `<div class="card"><h2>Por unidades</h2><p class="empty">No hay detalle de productos de ${!PA.length?ca:cb}.</p></div>`;
+  const key=x=>cmpVista==='cat'?x[1]:x[0];
+  const m=new Map();
+  const add=(L,i)=>L.forEach(x=>{const k=key(x);const o=m.get(k)||{n:k,f:x[1],q:[0,0],imp:[0,0]};o.q[i]+=x[2];o.imp[i]+=x[3];m.set(k,o)});
+  add(PA,0);add(PB,1);
+  const L=[...m.values()].sort((x,y)=>(y.q[0]+y.q[1])-(x.q[0]+x.q[1]));
+  const qa=L.reduce((s,o)=>s+o.q[0],0), qb=L.reduce((s,o)=>s+o.q[1],0);
+  const ia=L.reduce((s,o)=>s+o.imp[0],0), ib=L.reduce((s,o)=>s+o.imp[1],0);
+  const dl=(x,y)=>y?Math.round(100*(x-y)/y):null;
+  const cel=d=>d==null?'—':`<span style="color:${d>=0?'var(--good)':'var(--bad)'}">${d>=0?'+':''}${d}%</span>`;
+  const pa=qa?ia/qa:0, pb=qb?ib/qb:0;
+  const mA=DATA.mensual.find(x=>x.mes===cmpA)||{}, mB=DATA.mensual.find(x=>x.mes===cmpB)||{};
+  const dv=dl(ia,ib), dq=dl(qa,qb), dp=dl(pa,pb);
+  const conclusion=dv!=null&&dq!=null?`La venta ${dv>=0?'subió':'bajó'} ${Math.abs(dv)}%, pero las piezas vendidas ${dq>=0?'subieron':'bajaron'} ${Math.abs(dq)}%. ${Math.abs(dv-dq)>=2?`La diferencia se explica sobre todo por precio: cada pieza salió ${dp>=0?'en promedio '+dp+'% más cara':'en promedio '+Math.abs(dp)+'% más barata'}.`:'Precio y volumen se movieron casi igual.'}`:'';
+  const vis=cmpVista==='prod'&&!cmpTodos?L.slice(0,25):L;
+  const pu=(o,i)=>o.q[i]?fmt(o.imp[i]/o.q[i]):'—';
+  return `<div class="card"><h2>Por unidades <small>${ca} contra ${cb}</small></h2>
+    <div class="vs"><div></div><div class="r">${ca}</div><div class="r">${cb}</div><div class="r">Cambio</div>
+      <div><b>Piezas vendidas</b></div><div class="r">${Math.round(qa).toLocaleString('es-MX')}</div><div class="r">${Math.round(qb).toLocaleString('es-MX')}</div><div class="r">${cel(dq)}</div>
+      <div>Comensales</div><div class="r">${(mA.personas||0).toLocaleString('es-MX')}</div><div class="r">${(mB.personas||0).toLocaleString('es-MX')}</div><div class="r">${cel(dl(mA.personas||0,mB.personas||0))}</div>
+      <div>Tickets</div><div class="r">${a.k}</div><div class="r">${b.k}</div><div class="r">${cel(dl(a.k,b.k))}</div>
+      <div>Precio promedio por pieza</div><div class="r">${fmt(pa)}</div><div class="r">${fmt(pb)}</div><div class="r">${cel(dp)}</div></div>
+    ${conclusion?`<p class="note" style="margin-top:12px;background:var(--green-soft)">${conclusion}</p>`:''}
+    <div style="height:14px"></div>${segBtns('cv',[['cat','Por categoría'],['prod','Por producto']],cmpVista)}
+    <div class="tscroll" style="margin-top:10px"><table class="tk num"><thead><tr><th>${cmpVista==='cat'?'Categoría':'Producto'}</th><th class="r">${ca}</th><th class="r">${cb}</th><th class="r">Piezas</th><th class="r">Precio</th></tr></thead><tbody>
+    ${vis.map(o=>`<tr><td>${esc(o.n)}${cmpVista==='prod'?`<br><small style="color:var(--muted)">${esc(o.f)} · ${pu(o,0)} vs ${pu(o,1)}</small>`:''}</td><td class="r">${Math.round(o.q[0])}</td><td class="r">${Math.round(o.q[1])}</td><td class="r">${cel(dl(o.q[0],o.q[1]))}</td><td class="r">${o.q[0]&&o.q[1]?cel(dl(o.imp[0]/o.q[0],o.imp[1]/o.q[1])):'—'}</td></tr>`).join('')}
+    <tr class="tt"><td>Total</td><td class="r">${Math.round(qa)}</td><td class="r">${Math.round(qb)}</td><td class="r">${cel(dq)}</td><td class="r">${cel(dp)}</td></tr></tbody></table></div>
+    ${cmpVista==='prod'&&L.length>25?`<div class="btns"><button class="btn" data-ct2="1">${cmpTodos?'Ver solo los 25 principales':'Ver los '+L.length+' productos'}</button></div>`:''}
+    <p class="empty" style="margin-top:10px">"Piezas" compara cuántas unidades vendiste; "Precio" compara lo que cobraste en promedio por cada una. Si un producto cambió de nombre en MrTienda, sale como si fueran dos distintos.</p></div>`;
 }
 function rCompara(){
   const u=days[days.length-1], ud=pd(u), wd=(ud.getDay()+6)%7;
@@ -712,7 +746,7 @@ $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(b)irA(b.dataset.tab)};
 $('#view').addEventListener('click',e=>{
-  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes]');if(!t)return;
+  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2]');if(!t)return;
   const d=t.dataset;
   if(d.go) return irA(d.go);
   if(d.pm){prodModo=d.pm;return render()} if(d.pt){prodT=d.pt;return render()}
@@ -723,6 +757,8 @@ $('#view').addEventListener('click',e=>{
   if(d.pq){[pDesde,pHasta]=rangoRapido(d.pq);return render()}
   if(d.rq){[rDesde,rHasta]=rangoRapido(d.rq);return render()}
   if(d.csv) return csvQuitadas(d.csv);
+  if(d.cv){cmpVista=d.cv;return render()}
+  if(d.ct2){cmpTodos=!cmpTodos;return render()}
   if(d.mes){e.preventDefault();mesSel=d.mes;render();window.scrollTo(0,0);return}
   if(d.quitar!=null){e.preventDefault();const a=(DATA.abiertas||[])[+d.quitar];if(a)abrirHoja({modo:'quitar',archivo:a.archivo,ref:a.ref??a.mesa,cuenta:a.mesa,total:a.total});return}
   if(d.motivo){e.preventDefault();const r=(DATA.quitadas||[]).find(x=>x.id===d.motivo);if(r)abrirHoja({modo:'motivo',id:r.id,cuenta:r.cuenta,total:r.total,motivo:r.motivo==='Sin clasificar'?null:r.motivo,nota:r.nota});return}

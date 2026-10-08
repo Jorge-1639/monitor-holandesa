@@ -13,7 +13,7 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 21
+VERSION = 22
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -191,6 +191,7 @@ class Monitor:
         self.lock = threading.Lock()
         self.write_lock = threading.Lock()
         self.q_lock = threading.Lock()
+        self.psum = {}            # día -> (firma de archivos, {producto: [piezas, importe, familia]})
         self._touched = set()
 
     def rows(self, path):
@@ -456,6 +457,42 @@ class Monitor:
         return xlsx([head] + rows + [[], ['', '', '', 'TOTAL · ' + str(len(rows)) + ' cuentas', '', '', '', '', '', '', tot, '']], titulo,
                     widths=[11, 7, 8, 22, 17, 10, 9, 22, 14, 9, 15, 60], money_cols={10})
 
+    def productos_dia(self, idx, d):
+        """Piezas e importe por producto de un día, sin guardar los renglones en memoria (solo el resumen)."""
+        arch = sorted(idx.get(('P', d), [])) + sorted(idx.get(('V', d), []))
+        firma = []
+        for tn, f in arch:
+            try: st = os.stat(f); firma.append((f, st.st_size, int(st.st_mtime)))
+            except OSError: pass
+        firma = tuple(firma)
+        prev = self.psum.get(d)
+        if prev and prev[0] == firma: return prev[1]
+        validos = set()
+        for tn, f in idx.get(('P', d), []):
+            for p in safe_rows(f):
+                if not p['_del'] and p.get('FOL_VTA') and not p.get('CANCELADA'): validos.add((tn, p['FOL_VTA']))
+        out = {}
+        for tn, f in idx.get(('V', d), []):
+            for v in safe_rows(f):
+                if v['_del'] or (tn, v.get('FOL_VTA')) not in validos: continue
+                n = (v.get('DES_PROD') or '').strip()
+                if not n: continue
+                q = v.get('CANTIDAD') or 0
+                o = out.setdefault(n, [0, 0, self.FAM.get(v.get('COD_FAMILI'), 'Otros')])
+                o[0] += q; o[1] += (v.get('PRECIO') or 0) * q
+        self.psum[d] = (firma, out)
+        return out
+
+    def productos_mes(self, idx, days):
+        mm = collections.defaultdict(dict)
+        for d in days:
+            m = mm[d.isoformat()[:7]]
+            for n, (q, imp, fam) in self.productos_dia(idx, d).items():
+                o = m.setdefault(n, [0, 0, fam]); o[0] += q; o[1] += imp; o[2] = fam
+        vivos = set(days)
+        self.psum = {k: v for k, v in list(self.psum.items()) if k in vivos}
+        return {k: [[n, o[2], round(o[0], 2), round(o[1], 2)] for n, o in sorted(v.items(), key=lambda x: -x[1][0])] for k, v in sorted(mm.items())}
+
     # ------------------------------------------------ bitácora de cuentas quitadas (archivo propio, no de MrTienda)
     def quitadas(self):
         with self.q_lock:
@@ -505,9 +542,11 @@ class Monitor:
         except Exception as e: log('No pude leer cuentas abiertas: ' + str(e)); out['abiertas'] = []
         out['diario'] = [self.day(idx, d, False) for d in days]
         out['detalle'] = {d.isoformat(): self.day(idx, d, True) for d in days[-int(self.cfg['dias_detalle']):]}
-        mon = collections.defaultdict(lambda: [0, 0])
-        for x in out['diario']: m = mon[x['fecha'][:7]]; m[0] += x['total']; m[1] += x['tickets']
-        out['mensual'] = [{'mes': k, 'total': round(v[0], 2), 'tickets': v[1]} for k, v in sorted(mon.items())]
+        mon = collections.defaultdict(lambda: [0, 0, 0])
+        for x in out['diario']: m = mon[x['fecha'][:7]]; m[0] += x['total']; m[1] += x['tickets']; m[2] += x['personas']
+        out['mensual'] = [{'mes': k, 'total': round(v[0], 2), 'tickets': v[1], 'personas': v[2]} for k, v in sorted(mon.items())]
+        try: out['mensual_prod'] = self.productos_mes(idx, days)
+        except Exception as e: log('No pude resumir productos por mes: ' + str(e)); out['mensual_prod'] = {}
         out['quitadas'] = self.quitadas(); out['motivos'] = MOTIVOS
         # suelta de la memoria los archivos que ya no se leyeron en esta vuelta
         vivos = self._touched
