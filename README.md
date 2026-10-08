@@ -11,3 +11,4 @@ de `archivos.txt`, los revisa y se reinicia sola. La versión anterior queda en 
 
 Las cuentas abiertas que se quitan desde el panel (familia, Didi, Uber, errores) quedan registradas en
 `cuentas_quitadas.json` y sus respaldos en `respaldos_cuentas\`, ambos en la caja; nunca se suben aquí.
+Los gastos y compras capturados en el panel quedan en `gastos.json`, también solo en la caja.

@@ -13,7 +13,7 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 22
+VERSION = 23
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -28,6 +28,8 @@ DEFAULT_CONFIG = {
     "segundos_revision_actualizacion": 300
 }
 QUITADAS_FILE = os.path.join(AQUI, 'cuentas_quitadas.json')
+GASTOS_FILE = os.path.join(AQUI, 'gastos.json')       # compras y gastos que captura Jorge (no es de MrTienda)
+CATEGORIAS_GASTO = ['Insumos y compras', 'Sueldos', 'Seguro social', 'Luz', 'Agua', 'Gas', 'Renta', 'Mantenimiento', 'Comisiones', 'Otros gastos']
 RESPALDO_CUENTAS = os.path.join(AQUI, 'respaldos_cuentas')   # fuera de _respaldo: las actualizaciones no lo borran
 MOTIVOS = ['Familia', 'Didi · efectivo', 'Didi · tarjeta', 'Uber · efectivo', 'Uber · tarjeta', 'Error de captura', 'Otro', 'Sin clasificar']
 
@@ -514,6 +516,65 @@ class Monitor:
             except (OSError, ValueError): q = []
             q.append(reg); self._guardar_quitadas(q)
 
+    # ------------------------------------------------ gastos y compras (archivo propio)
+    def gastos(self):
+        with self.q_lock:
+            try:
+                with open(GASTOS_FILE, encoding='utf-8') as f: g = json.load(f)
+            except (OSError, ValueError): g = {}
+        if not isinstance(g, dict): g = {}
+        g.setdefault('movs', []); g.setdefault('fijos', [])
+        return g
+
+    def _guardar_gastos(self, g):
+        tmp = GASTOS_FILE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f: json.dump(g, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, GASTOS_FILE)
+
+    def _limpia_mov(self, m):
+        fecha = str(m.get('fecha') or '')[:10]
+        datetime.date.fromisoformat(fecha)
+        cat = m.get('categoria') if m.get('categoria') in CATEGORIAS_GASTO else 'Otros gastos'
+        monto = round(float(str(m.get('monto')).replace('$', '').replace(',', '')), 2)
+        if monto <= 0 or monto > 10000000: raise ValueError('Monto no válido.')
+        concepto = str(m.get('concepto') or '').strip()[:80] or cat
+        return {'fecha': fecha, 'concepto': concepto, 'categoria': cat, 'monto': monto,
+                'proveedor': str(m.get('proveedor') or '').strip()[:60], 'nota': str(m.get('nota') or '').strip()[:120]}
+
+    def gasto_accion(self, d):
+        acc = d.get('accion')
+        with self.q_lock:
+            try:
+                with open(GASTOS_FILE, encoding='utf-8') as f: g = json.load(f)
+                if not isinstance(g, dict): g = {}
+            except (OSError, ValueError): g = {}
+            g.setdefault('movs', []); g.setdefault('fijos', [])
+            ahora = datetime.datetime.now()
+            if acc == 'agregar':
+                nuevos = d.get('movs') or [d.get('mov')]
+                limpios = [self._limpia_mov(m) for m in nuevos if m]
+                if not limpios: raise ValueError('No hay gastos para guardar.')
+                for i, m in enumerate(limpios):
+                    m['id'] = ahora.strftime('%Y%m%d%H%M%S') + '-' + str(len(g['movs']) + i)
+                    m['capturado'] = ahora.isoformat(timespec='seconds')
+                g['movs'].extend(limpios); n = len(limpios)
+            elif acc == 'borrar':
+                antes = len(g['movs']); g['movs'] = [m for m in g['movs'] if m.get('id') != d.get('id')]; n = antes - len(g['movs'])
+                if not n: raise RuntimeError('No encontré ese gasto.')
+            elif acc == 'fijos':
+                fj = []
+                for x in d.get('fijos') or []:
+                    try: monto = round(float(str(x.get('monto')).replace('$', '').replace(',', '')), 2)
+                    except (TypeError, ValueError): continue
+                    if monto <= 0: continue
+                    fj.append({'concepto': str(x.get('concepto') or '').strip()[:60] or 'Gasto fijo',
+                               'categoria': x.get('categoria') if x.get('categoria') in CATEGORIAS_GASTO else 'Otros gastos', 'monto': monto})
+                g['fijos'] = fj; n = len(fj)
+            else: raise ValueError('Acción no válida.')
+            self._guardar_gastos(g)
+        self.refresh()
+        return {'ok': True, 'n': n}
+
     def cambiar_motivo(self, rid, motivo, nota):
         if motivo not in MOTIVOS: raise ValueError('Motivo no válido.')
         with self.q_lock:
@@ -548,6 +609,7 @@ class Monitor:
         try: out['mensual_prod'] = self.productos_mes(idx, days)
         except Exception as e: log('No pude resumir productos por mes: ' + str(e)); out['mensual_prod'] = {}
         out['quitadas'] = self.quitadas(); out['motivos'] = MOTIVOS
+        out['gastos'] = self.gastos(); out['categorias_gasto'] = CATEGORIAS_GASTO
         # suelta de la memoria los archivos que ya no se leyeron en esta vuelta
         vivos = self._touched
         self.cache = {k: v for k, v in list(self.cache.items()) if k[0] in vivos}
@@ -621,13 +683,14 @@ def make_handler(mon, cfg):
             self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
         def do_POST(self):
             if not self._auth(): return
-            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo'): self.send_response(404); self.end_headers(); return
+            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return
             try:
-                n=min(int(self.headers.get('Content-Length','0') or 0),4096)
+                n=min(int(self.headers.get('Content-Length','0') or 0),262144)
                 d=json.loads(self.rfile.read(n).decode('utf-8'))
-                if self.path == '/api/quitada-motivo': out=mon.cambiar_motivo(d.get('id'),d.get('motivo'),d.get('nota'))
+                if self.path == '/api/gastos': out=mon.gasto_accion(d)
+                elif self.path == '/api/quitada-motivo': out=mon.cambiar_motivo(d.get('id'),d.get('motivo'),d.get('nota'))
                 else: out=mon.eliminar_abierta(d.get('archivo'),d.get('referencia'),d.get('motivo') or 'Sin clasificar',d.get('nota'))
                 body=json.dumps(out,ensure_ascii=False).encode('utf-8')
                 return self._send(body,'application/json; charset=utf-8')
