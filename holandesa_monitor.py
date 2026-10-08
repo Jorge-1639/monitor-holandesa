@@ -13,8 +13,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 25            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '24.1'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 26            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '25.0'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -31,6 +31,16 @@ DEFAULT_CONFIG = {
 QUITADAS_FILE = os.path.join(AQUI, 'cuentas_quitadas.json')
 GASTOS_FILE = os.path.join(AQUI, 'gastos.json')       # compras y gastos capturados (no es de MrTienda)
 FOTOS_DIR = os.path.join(AQUI, 'fotos_compras')        # fotos de tickets de compra
+CAJEROS_FILE = os.path.join(AQUI, 'cajeros.json')       # cajeros con su clave (solo se guarda la huella de la clave)
+IA_URL = 'https://api.anthropic.com/v1/messages'
+IA_MODELO = 'claude-haiku-5-5'
+PROMPT_TICKET = '''Eres el capturista de compras de un restaurante en Ensenada, México. Lee la foto de este ticket o factura de compra y responde SOLO con un objeto JSON, sin texto antes ni después, con esta forma:
+{"legible": true, "proveedor": "nombre corto del negocio que vendió", "fecha": "AAAA-MM-DD o vacío", "ticket": "número de ticket o factura o vacío",
+ "subtotal": 0, "iva": 0, "total": 0,
+ "items": [{"descripcion": "texto del renglón como viene", "insumo": "nombre genérico corto en español, en singular", "cantidad": 0, "unidad": "pz|kg|g|l|ml|paquete|caja", "precio_unitario": 0, "importe": 0}]}
+Reglas: los montos son números en pesos sin signos. "total" es lo que se pagó. Si el ticket no trae IVA desglosado pon iva 0 y subtotal igual al total.
+"insumo" agrupa productos iguales de distintas marcas (por ejemplo "LECHE LALA ENTERA 1L" es "Leche"; "QUESO OAXACA KG" es "Queso oaxaca"). Usa de preferencia uno de estos nombres si corresponde: {catalogo}.
+Si no se puede leer, responde {"legible": false}.'''
 NEGOCIOS = ['Restaurante', 'Cafetería']
 PAGOS = ['Efectivo de la caja', 'Tarjeta o transferencia', 'Otro']
 CATEGORIAS_GASTO = ['Insumos y compras', 'Sueldos', 'Seguro social', 'Luz', 'Agua', 'Gas', 'Renta', 'Mantenimiento', 'Comisiones', 'Otros gastos']
@@ -145,6 +155,42 @@ def denom(ref, q, tc):
     m = re.search(r'([\d.]+)', r)
     try: return float(m.group(1)) * q if m else 0
     except ValueError: return 0
+
+# ---------------------------------------------------------------- cajeros y lectura de tickets: utilidades
+SESIONES = {}   # token -> (nombre, vence)
+FALLOS = {}     # ip -> [intentos, bloqueado_hasta]
+def huella_pin(sal, pin): return hashlib.sha256((sal + ':' + pin).encode()).hexdigest()
+def verifica_pin(c, pin): return bool(c.get('sal')) and secrets.compare_digest(c.get('huella', ''), huella_pin(c['sal'], pin))
+def sesion(tok):
+    s_ = SESIONES.get(tok or '')
+    if not s_ or s_[1] < time.time(): SESIONES.pop(tok or '', None); return None
+    return s_[0]
+def _num(v):
+    try: return round(float(str(v).replace('$', '').replace(',', '')), 2)
+    except (TypeError, ValueError): return 0.0
+def limpia_items(L):
+    out = []
+    for i in L[:150]:
+        if not isinstance(i, dict): continue
+        u = str(i.get('unidad') or 'pz').strip().lower()[:10]
+        out.append({'descripcion': str(i.get('descripcion') or '').strip()[:80], 'insumo': str(i.get('insumo') or '').strip()[:50].capitalize(),
+                    'cantidad': _num(i.get('cantidad')), 'unidad': u, 'precio_unitario': _num(i.get('precio_unitario')), 'importe': _num(i.get('importe'))})
+    return out
+def limpia_lectura(r):
+    if not isinstance(r, dict): return {'legible': False}
+    if r.get('error'): return {'intentado': True, 'error': str(r['error'])[:120]}
+    if r.get('legible') is False: return {'legible': False, 'intentado': True}
+    f = str(r.get('fecha') or '')[:10]
+    try: datetime.date.fromisoformat(f)
+    except ValueError: f = ''
+    return {'legible': True, 'intentado': True, 'proveedor': str(r.get('proveedor') or '').strip()[:60], 'fecha': f, 'ticket': str(r.get('ticket') or '').strip()[:30],
+            'subtotal': _num(r.get('subtotal')), 'iva': _num(r.get('iva')), 'total': _num(r.get('total')), 'items': limpia_items(r.get('items') or [])}
+def aplica_lectura(m, r):
+    m['lectura'] = {k: v for k, v in r.items() if k != 'items'}
+    if r.get('legible'):
+        m['items'] = r.get('items') or []
+        if not m.get('proveedor') and r.get('proveedor'): m['proveedor'] = r['proveedor']
+        if not m.get('ticket') and r.get('ticket'): m['ticket'] = r['ticket']
 
 # ---------------------------------------------------------------- Excel (.xlsx) sin paquetes extra
 def xlsx(rows, sheet='Hoja1', widths=None, money_cols=()):
@@ -557,7 +603,109 @@ class Monitor:
         if tasa is not None and tasa in (0, 0.08, 0.16):
             sub = round(monto / (1 + tasa), 2)
             out.update({'tasa': tasa, 'subtotal': sub, 'iva': round(monto - sub, 2)})
+        try:
+            s_, i_ = float(m.get('subtotal')), float(m.get('iva'))
+            if s_ >= 0 and i_ >= 0 and abs(s_ + i_ - monto) <= max(2, monto * 0.02): out.update({'subtotal': round(s_, 2), 'iva': round(i_, 2)})
+        except (TypeError, ValueError): pass
+        if isinstance(m.get('items'), list): out['items'] = limpia_items(m['items'])
+        if isinstance(m.get('lectura'), dict): out['lectura'] = limpia_lectura(m['lectura'])
+        try:
+            ic = round(float(m.get('importe_capturado')), 2)
+            if ic > 0: out['importe_capturado'] = ic
+        except (TypeError, ValueError): pass
         return out
+
+    # ------------------------------------------------ cajeros con clave propia
+    def cajeros(self):
+        try:
+            with open(CAJEROS_FILE, encoding='utf-8') as f: c = json.load(f)
+            return c if isinstance(c, list) else []
+        except (OSError, ValueError): return []
+
+    def cajero_accion(self, d):
+        acc = d.get('accion'); c = self.cajeros()
+        if acc == 'alta':
+            nombre = str(d.get('nombre') or '').strip()[:40]; pin = str(d.get('pin') or '').strip()
+            if not nombre: raise ValueError('Escribe el nombre.')
+            if not re.fullmatch(r'\d{4,6}', pin): raise ValueError('La clave debe ser de 4 a 6 números.')
+            if any(x.get('activo') and verifica_pin(x, pin) for x in c): raise ValueError('Esa clave ya la tiene otra persona. Usa otra.')
+            sal = secrets.token_hex(8)
+            c.append({'id': secrets.token_hex(4), 'nombre': nombre, 'sal': sal, 'huella': huella_pin(sal, pin), 'activo': True,
+                      'alta': datetime.datetime.now().isoformat(timespec='seconds')})
+        elif acc == 'baja':
+            for x in c:
+                if x.get('id') == d.get('id'): x['activo'] = False; x['baja'] = datetime.datetime.now().isoformat(timespec='seconds')
+            SESIONES.clear()
+        else: raise ValueError('Acción no válida.')
+        tmp = CAJEROS_FILE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f: json.dump(c, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, CAJEROS_FILE)
+        self.refresh()
+        return {'ok': True}
+
+    def login_cajero(self, pin, ip):
+        ahora = time.time(); f = FALLOS.get(ip, [0, 0])
+        if f[1] > ahora: raise RuntimeError('Demasiados intentos. Espera unos minutos.')
+        for x in self.cajeros():
+            if x.get('activo') and verifica_pin(x, str(pin or '')):
+                FALLOS.pop(ip, None); tok = secrets.token_urlsafe(24)
+                SESIONES[tok] = (x['nombre'], ahora + 14 * 3600)
+                return {'ok': True, 'token': tok, 'nombre': x['nombre']}
+        f[0] += 1
+        if f[0] >= 5: f = [0, ahora + 300]
+        FALLOS[ip] = f
+        raise RuntimeError('Clave incorrecta.')
+
+    # ------------------------------------------------ lectura de tickets con la API de Claude
+    def catalogo_insumos(self):
+        c = collections.Counter()
+        for m in self.gastos()['movs']:
+            for i in m.get('items') or []:
+                if i.get('insumo'): c[i['insumo']] += 1
+        return [n for n, _ in c.most_common(200)]
+
+    def leer_ticket(self, b64):
+        llave = self.cfg.get('ia_llave')
+        if not llave: raise RuntimeError('La lectura automática no está activada.')
+        if ',' in b64[:80]: b64 = b64.split(',', 1)[1]
+        cat = ', '.join(self.catalogo_insumos()) or '(todavía no hay catálogo)'
+        cuerpo = {'model': self.cfg.get('ia_modelo') or IA_MODELO, 'max_tokens': 4000,
+                  'messages': [{'role': 'user', 'content': [
+                      {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg', 'data': b64}},
+                      {'type': 'text', 'text': PROMPT_TICKET.replace('{catalogo}', cat)}]}]}
+        req = urllib.request.Request(IA_URL, data=json.dumps(cuerpo).encode('utf-8'), method='POST',
+                                     headers={'x-api-key': llave, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'})
+        try:
+            with urllib.request.urlopen(req, timeout=90) as r: resp = json.loads(r.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            det = e.read().decode('utf-8', 'ignore')[:300]
+            log('La lectura del ticket falló: ' + str(e.code) + ' ' + det)
+            raise RuntimeError('No se pudo leer el ticket (' + ('llave no válida' if e.code in (401, 403) else 'sin saldo o límite' if e.code in (402, 429) else 'error ' + str(e.code)) + ').')
+        txt = ''.join(b.get('text', '') for b in resp.get('content', []) if b.get('type') == 'text')
+        a, z = txt.find('{'), txt.rfind('}')
+        if a < 0 or z < a: raise RuntimeError('No se entendió la lectura del ticket.')
+        return limpia_lectura(json.loads(txt[a:z + 1]))
+
+    def leer_pendientes(self, maximo=15):
+        g = self.gastos(); hechos = 0; errores = 0
+        pend = [m for m in g['movs'] if m.get('foto') and not m.get('items') and not (m.get('lectura') or {}).get('intentado')][:maximo]
+        resultados = {}
+        for m in pend:
+            try:
+                with open(os.path.join(FOTOS_DIR, m['foto']), 'rb') as f: b64 = base64.b64encode(f.read()).decode()
+                resultados[m['id']] = self.leer_ticket(b64); hechos += 1
+            except Exception as e:
+                resultados[m['id']] = {'intentado': True, 'error': str(e)[:120]}; errores += 1
+        with self.q_lock:
+            with open(GASTOS_FILE, encoding='utf-8') as f: g2 = json.load(f)
+            for m in g2.get('movs', []):
+                r = resultados.get(m.get('id'))
+                if not r: continue
+                if r.get('error'): m['lectura'] = r; continue
+                aplica_lectura(m, r)
+            self._guardar_gastos(g2)
+        self.refresh()
+        return {'ok': True, 'leidos': hechos, 'errores': errores, 'faltan': max(0, len([m for m in g['movs'] if m.get('foto') and not m.get('items')]) - hechos)}
 
     def guardar_foto(self, mid, b64):
         if not b64: return ''
@@ -569,9 +717,11 @@ class Monitor:
         with open(os.path.join(FOTOS_DIR, nom), 'wb') as f: f.write(raw)
         return nom
 
-    def captura(self, d, origen):
+    def captura(self, d, origen, quien=None):
         """Compra o gasto capturado desde el teléfono del cajero (o por Jorge), con foto opcional."""
         m = self._limpia_mov(d.get('mov') or {})
+        if origen == 'caja':
+            m['quien'] = quien or m['quien']; m['fecha'] = datetime.date.today().isoformat()   # el cajero solo captura compras del día
         ahora = datetime.datetime.now()
         with self.q_lock:
             try:
@@ -592,7 +742,7 @@ class Monitor:
         g = self.gastos()
         provs = collections.Counter(m.get('proveedor') for m in g['movs'] if m.get('proveedor'))
         return {'ok': True, 'version': VERSION_TXT, 'hoy': hoy, 'categorias': CATEGORIAS_GASTO, 'negocios': NEGOCIOS, 'pagos': PAGOS,
-                'personas': sorted(set(v for v in getattr(self, 'EMP', {}).values() if v)),
+                'ia': bool(self.cfg.get('ia_llave')),
                 'proveedores': [p for p, _ in provs.most_common(60)],
                 'hoy_lista': [{k: m.get(k) for k in ('fecha', 'proveedor', 'concepto', 'monto', 'negocio', 'quien', 'capturado', 'ticket')}
                               for m in g['movs'] if m.get('fecha') == hoy and m.get('origen') == 'caja']}
@@ -680,6 +830,8 @@ class Monitor:
         except Exception as e: log('No pude resumir productos por mes: ' + str(e)); out['mensual_prod'] = {}
         out['quitadas'] = self.quitadas(); out['motivos'] = MOTIVOS
         out['gastos'] = self.gastos(); out['categorias_gasto'] = CATEGORIAS_GASTO
+        out['cajeros'] = [{'id': x['id'], 'nombre': x['nombre'], 'activo': x.get('activo', True), 'alta': x.get('alta', '')} for x in self.cajeros()]
+        out['ia'] = {'activa': bool(self.cfg.get('ia_llave')), 'modelo': self.cfg.get('ia_modelo') or IA_MODELO}
         # suelta de la memoria los archivos que ya no se leyeron en esta vuelta
         vivos = self._touched
         self.cache = {k: v for k, v in list(self.cache.items()) if k[0] in vivos}
@@ -759,8 +911,13 @@ def make_handler(mon, cfg):
         def log_message(self, *a): pass
         def _auth(self, caja_ok=False):
             a = self.headers.get('Authorization', '')
-            if secrets.compare_digest(a, 'Basic ' + token): self.rol = 'admin'; return True
-            if caja_ok and secrets.compare_digest(a, 'Basic ' + token_caja): self.rol = 'caja'; return True
+            if secrets.compare_digest(a, 'Basic ' + token): self.rol = 'admin'; self.quien = 'Jorge'; return True
+            if caja_ok:
+                n_ = sesion(self.headers.get('X-Caja-Token'))
+                if n_: self.rol = 'caja'; self.quien = n_; return True
+                body = b'{"ok":false,"error":"Tu sesion termino. Vuelve a entrar con tu clave.","sesion":false}'
+                self.send_response(401); self.send_header('Content-Type', 'application/json'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
+                return False
             self.send_response(401); self.send_header('WWW-Authenticate', 'Basic realm="' + ('Caja La Holandesa' if caja_ok else 'La Holandesa') + '", charset="UTF-8"'); self.end_headers()
             return False
         def _send(self, body, ctype, gz=False):
@@ -768,16 +925,35 @@ def make_handler(mon, cfg):
             if gz: self.send_header('Content-Encoding', 'gzip')
             self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
         def do_POST(self):
-            if not self._auth(caja_ok=(self.path == '/api/compra')): return
-            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra'): self.send_response(404); self.end_headers(); return
+            if self.path == '/api/caja-login':
+                try:
+                    n = min(int(self.headers.get('Content-Length', '0') or 0), 2048)
+                    d = json.loads(self.rfile.read(n).decode('utf-8'))
+                    body = json.dumps(mon.login_cajero(d.get('pin'), self.client_address[0]), ensure_ascii=False).encode('utf-8')
+                    return self._send(body, 'application/json; charset=utf-8')
+                except Exception as e:
+                    body = json.dumps({'ok': False, 'error': str(e)}, ensure_ascii=False).encode('utf-8')
+                    self.send_response(403); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
+            if not self._auth(caja_ok=(self.path in ('/api/compra', '/api/leer-ticket'))): return
+            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/ia', '/api/leer-pendientes'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return
             try:
-                lim = 9 * 1024 * 1024 if self.path in ('/api/compra', '/api/gastos') else 262144
+                lim = 9 * 1024 * 1024 if self.path in ('/api/compra', '/api/gastos', '/api/leer-ticket') else 262144
                 n=int(self.headers.get('Content-Length','0') or 0)
                 if n > lim: raise ValueError('La foto es demasiado grande.')
                 d=json.loads(self.rfile.read(n).decode('utf-8'))
-                if self.path == '/api/compra': out=mon.captura(d, 'caja' if self.rol == 'caja' else 'admin')
+                if self.path == '/api/compra': out=mon.captura(d, 'caja' if self.rol == 'caja' else 'admin', self.quien)
+                elif self.path == '/api/leer-ticket': out={'ok': True, 'lectura': mon.leer_ticket(d.get('foto') or '')}
+                elif self.path == '/api/cajeros': out=mon.cajero_accion(d)
+                elif self.path == '/api/leer-pendientes': out=mon.leer_pendientes()
+                elif self.path == '/api/ia':
+                    llave = str(d.get('llave') or '').strip()
+                    if d.get('quitar'): cfg.pop('ia_llave', None)
+                    elif not llave.startswith('sk-'): raise ValueError('Esa no parece una llave de la API (empieza con sk-).')
+                    else: cfg['ia_llave'] = llave
+                    with open(CONFIG_FILE, 'w', encoding='utf-8') as f: json.dump(cfg, f, ensure_ascii=False, indent=2)
+                    mon.cfg = cfg; mon.refresh(); out = {'ok': True}
                 elif self.path == '/api/gastos': out=mon.gasto_accion(d)
                 elif self.path == '/api/quitada-motivo': out=mon.cambiar_motivo(d.get('id'),d.get('motivo'),d.get('nota'))
                 else: out=mon.eliminar_abierta(d.get('archivo'),d.get('referencia'),d.get('motivo') or 'Sin clasificar',d.get('nota'))
@@ -789,19 +965,21 @@ def make_handler(mon, cfg):
                 self.send_response(409); self.send_header('Content-Type','application/json; charset=utf-8'); self.send_header('Cache-Control','no-store'); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)
         def do_GET(self):
             p0 = self.path.split('?')[0]
-            if p0 in ('/captura', '/captura/', '/api/captura-info'):
+            if p0 in ('/captura', '/captura/'):
+                return self._send(page, 'text/html; charset=utf-8')   # la página no trae datos; pide la clave del cajero
+            if p0 == '/api/captura-info':
                 if not self._auth(caja_ok=True): return
-                if p0 == '/api/captura-info':
-                    body = json.dumps(mon.captura_info(), ensure_ascii=False).encode('utf-8')
-                    return self._send(body, 'application/json; charset=utf-8')
-                return self._send(page, 'text/html; charset=utf-8')
+                info = mon.captura_info(); info['nombre'] = self.quien
+                if self.rol == 'caja': info['hoy_lista'] = [x for x in info['hoy_lista'] if x.get('quien') == self.quien] or info['hoy_lista']
+                body = json.dumps(info, ensure_ascii=False).encode('utf-8')
+                return self._send(body, 'application/json; charset=utf-8')
             if p0 in ('/manifest-caja.webmanifest',):
                 return self._send(manifest_caja, 'application/manifest+json; charset=utf-8')
             if p0 == '/icon.png' and icon_png and self.headers.get('Authorization'):
                 return self._send(icon_png, 'image/png')
             if not self._auth(): return
             if p0 == '/api/acceso':
-                body = json.dumps({'ok': True, 'usuario': cfg['usuario_caja'], 'contrasena': cfg['contrasena_caja'], 'puerto': cfg['puerto'], 'ips': ips_locales()}, ensure_ascii=False).encode('utf-8')
+                body = json.dumps({'ok': True, 'puerto': cfg['puerto'], 'ips': ips_locales()}, ensure_ascii=False).encode('utf-8')
                 return self._send(body, 'application/json; charset=utf-8')
             if p0.startswith('/foto/'):
                 nom = re.sub(r'[^0-9A-Za-z_.-]', '', p0[6:])
@@ -837,7 +1015,7 @@ def make_handler(mon, cfg):
     return H
 
 # ---------------------------------------------------------------- actualización automática (solo descarga ESTE programa)
-import urllib.request, shutil, subprocess, py_compile
+import urllib.request, urllib.error, shutil, subprocess, py_compile
 
 def _bajar(nombre):
     req = urllib.request.Request(REPO_RAW + nombre + '?t=' + str(int(time.time())), headers={'User-Agent': 'monitor-holandesa'})

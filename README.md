@@ -12,4 +12,5 @@ de `archivos.txt`, los revisa y se reinicia sola. La versión anterior queda en 
 Las cuentas abiertas que se quitan desde el panel (familia, Didi, Uber, errores) quedan registradas en
 `cuentas_quitadas.json` y sus respaldos en `respaldos_cuentas\`, ambos en la caja; nunca se suben aquí.
 Los gastos y compras capturados (por Jorge o desde la página del cajero, `/captura`) quedan en `gastos.json`
-y las fotos de tickets en `fotos_compras\`, también solo en la caja. La contraseña de cajeros está en config.json.
+y las fotos de tickets en `fotos_compras\`, también solo en la caja. Los cajeros entran a `/captura` con su clave (se guarda solo la huella en `cajeros.json`). La llave de la API de Claude
+para leer tickets se guarda en config.json; nunca se sube aquí.

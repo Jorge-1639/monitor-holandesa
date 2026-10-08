@@ -294,7 +294,8 @@ const tkPorForma=(ts,f)=>{const L=[];ts.forEach(t=>t.pagos.forEach(([ff,a])=>{if
 const lugar=t=>t.mesa?'Mesa '+esc(t.mesa):(t.llevar?'Para llevar':'Sin mesa');
 const segBtns=(attr,opts,val)=>`<div class="seg">${opts.map(([k,l])=>`<button data-${attr}="${k}" aria-pressed="${val===k}">${l}</button>`).join('')}</div>`;
 const esHoy=()=>cur===days[days.length-1];
-function rangoRapido(k){const u=pd(days[days.length-1]);const w=(u.getDay()+6)%7;let a,b;
+const ultimoDia=()=>{const h=iso(new Date()),u=days[days.length-1];return u>h?u:h};
+function rangoRapido(k){const u=pd(ultimoDia());const w=(u.getDay()+6)%7;let a,b;
   if(k==='semana'){a=new Date(u);a.setDate(u.getDate()-w);b=u}
   else if(k==='semana_ant'){a=new Date(u);a.setDate(u.getDate()-w-7);b=new Date(a);b.setDate(a.getDate()+6)}
   else if(k==='mes'){a=new Date(u.getFullYear(),u.getMonth(),1);b=u}
@@ -304,7 +305,7 @@ function rangoRapido(k){const u=pd(days[days.length-1]);const w=(u.getDay()+6)%7
 const QUICK=[['semana','Esta semana'],['semana_ant','Semana pasada'],['mes','Este mes'],['mes_ant','Mes pasado'],['30','30 días']];
 function selectorFechas(pre,desde,hasta){
   return `<div class="seg">${QUICK.map(([k,l])=>{const [a,b]=rangoRapido(k);return `<button data-${pre}q="${k}" aria-pressed="${a===desde&&b===hasta}">${l}</button>`}).join('')}</div>
-  <div class="dates"><label>Del <input type="date" id="${pre}D" value="${desde}" max="${days[days.length-1]}"></label><label>al <input type="date" id="${pre}H" value="${hasta}" max="${days[days.length-1]}"></label></div>`}
+  <div class="dates"><label>Del <input type="date" id="${pre}D" value="${desde}" max="${ultimoDia()}"></label><label>al <input type="date" id="${pre}H" value="${hasta}" max="${ultimoDia()}"></label></div>`}
 
 // alertas del día
 function alertas(D){
@@ -503,7 +504,7 @@ function vControl(D){
 }
 
 // ---------- REPORTES
-const REPS=[['historial','Historial'],['quitadas','Cuentas quitadas'],['cajeras','Cajeras'],['meseros','Meseros'],['mes','Por mes'],['calor','Horas y días'],['compara','Comparativos'],['resultados','Resultados'],['gastos','Gastos']];
+const REPS=[['historial','Historial'],['quitadas','Cuentas quitadas'],['cajeras','Cajeras'],['meseros','Meseros'],['mes','Por mes'],['calor','Horas y días'],['compara','Comparativos'],['compras','Compras'],['resultados','Resultados'],['gastos','Gastos']];
 // ---- Didi y Uber (cuentas quitadas) como opción en los reportes; la familia nunca cuenta como venta
 let incPlat=!!st.plat, RD=null;
 const esPlat=r=>/^(Didi|Uber)/.test(r.motivo||'');
@@ -524,7 +525,7 @@ function vReportes(){
   RD=datosRep();
   const usaPlat=['historial','mes','calor','compara','resultados'].includes(repModo);
   const head=segBtns('rp',REPS,repModo)+(usaPlat?`<div class="seg"><button data-plat="1" aria-pressed="${incPlat}">${incPlat?'✓ ':''}Incluir Didi y Uber</button></div>`:'');
-  const fn={historial:rHist,quitadas:rQuitadas,cajeras:rCajeras,meseros:rMeseros,calor:rCalor,compara:rCompara,mes:rMes,resultados:rResultados,gastos:rGastos}[repModo]||rHist;
+  const fn={historial:rHist,quitadas:rQuitadas,cajeras:rCajeras,meseros:rMeseros,calor:rCalor,compara:rCompara,mes:rMes,resultados:rResultados,gastos:rGastos,compras:rCompras}[repModo]||rHist;
   return '<section>'+head+fn()+'</section>';
 }
 const conFechas=()=>`<div class="card">${selectorFechas('r',rDesde,rHasta)}</div>`;
@@ -708,8 +709,10 @@ const CATS=()=>DATA&&DATA.categorias_gasto||(CAP&&CAP.categorias)||['Insumos y c
 const GA=()=>{const g=DATA.gastos||{};return {movs:g.movs||[],fijos:g.fijos||[],recibos:g.recibos||[]}};
 const NEGS=['Restaurante','Cafetería'], PAGOS=['Efectivo de la caja','Tarjeta o transferencia','Otro'];
 async function api(url,body){
-  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-Holandesa-Action':'1'},body:JSON.stringify(body),credentials:'same-origin'});
+  const h={'Content-Type':'application/json','X-Holandesa-Action':'1'};if(CAPMODE)h['X-Caja-Token']=capTok();
+  const r=await fetch(url,{method:'POST',headers:h,body:JSON.stringify(body),credentials:'same-origin'});
   const j=await r.json().catch(()=>({ok:false,error:'Respuesta inválida ('+r.status+')'}));
+  if(CAPMODE&&j.sesion===false){salirCaja();throw new Error(j.error)}
   if(!j.ok) throw new Error(j.error||'No se pudo.'); return j;
 }
 const diasEntre=(a,b)=>Math.round((pd(b)-pd(a))/864e5)+1;
@@ -729,68 +732,157 @@ function parseLineas(txt){
 }
 
 // ---- formulario de compra (lo usan el cajero y Jorge)
-const FC={negocio:'Restaurante',tipo:'compra',tasa:st.tasa??0.08,modo:'total',pago:'Efectivo de la caja',foto:null,quien:st.quien||''};
+const FC={negocio:'Restaurante',tipo:'compra',tasa:st.tasa??0.08,pago:'Efectivo de la caja',foto:null,lect:null,leyendo:false};
+const iaActiva=()=>CAPMODE?!!(CAP&&CAP.ia):!!(DATA&&DATA.ia&&DATA.ia.activa);
 function fcCalc(){
-  const v=money(document.getElementById('fcM')?.value), t=FC.tasa;
+  const v=money(document.getElementById('fcM')?.value), t=FC.tasa, L=FC.lect;
   if(!(v>0)) return {total:0,sub:0,iva:0};
+  if(L&&L.legible&&L.total&&Math.abs(L.total-v)<=1&&(L.iva||L.subtotal)) return {total:v,sub:L.subtotal,iva:L.iva,ticket:true};
   if(t==null) return {total:v,sub:null,iva:null};
-  const total=FC.modo==='total'?v:Math.round(v*(1+t)*100)/100, sub=Math.round(total/(1+t)*100)/100;
-  return {total,sub,iva:Math.round((total-sub)*100)/100};
+  const sub=Math.round(v/(1+t)*100)/100;return {total:v,sub,iva:Math.round((v-sub)*100)/100};
 }
-function fcResumen(){const c=fcCalc();if(!c.total)return 'Escribe el monto.';return c.sub==null?`Total ${fmt2(c.total)} · sin desglose de IVA`:`Subtotal ${fmt2(c.sub)} · IVA ${fmt2(c.iva)} · <b>Total ${fmt2(c.total)}</b>`}
+function fcResumen(){const c=fcCalc();if(!c.total)return 'Escribe el importe.';return c.sub==null?`Total ${fmt2(c.total)} · sin desglose de IVA`:`Subtotal ${fmt2(c.sub)} · IVA ${fmt2(c.iva)} · <b>Total ${fmt2(c.total)}</b>${c.ticket?' · según el ticket':''}`}
+function bloqueLectura(){
+  if(FC.leyendo) return `<div class="note" style="margin-top:10px;background:var(--green-soft)">Leyendo el ticket… espera unos segundos.</div>`;
+  const L=FC.lect; if(!L) return '';
+  if(L.error) return `<div class="note" style="margin-top:10px">${esc(L.error)} La compra se puede guardar igual con la foto.</div>`;
+  if(!L.legible) return `<div class="note" style="margin-top:10px">No se pudo leer la foto. Tómala otra vez con buena luz y el ticket completo, o guarda así.</div>`;
+  const v=money(document.getElementById('fcM')?.value), ok=v>0&&Math.abs(L.total-v)<=1;
+  return `<div class="card" style="margin-top:10px;padding:12px;background:var(--surface-2);box-shadow:none">
+    <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline"><b>${esc(L.proveedor||'Ticket')}</b><span class="num"><b>${fmt2(L.total)}</b></span></div>
+    <p class="empty" style="margin:2px 0 8px">${L.ticket?'Ticket '+esc(L.ticket)+' · ':''}${L.fecha?corto(L.fecha)+' · ':''}${L.items.length} productos${L.iva?' · IVA '+fmt2(L.iva):''}</p>
+    ${v>0?(ok?'<span class="pill good">✓ Coincide con el importe capturado</span>':`<span class="pill bad">✗ El ticket dice ${fmt2(L.total)} y se capturó ${fmt2(v)}</span>`):'<span class="pill warn">Escribe el importe para comparar</span>'}
+    ${L.items.length?`<table class="ledger num tk-items"><tbody>${L.items.map(i=>`<tr><td>${esc(i.descripcion||i.insumo)}<br><small style="color:var(--muted)">${esc(i.insumo)} · ${i.cantidad} ${esc(i.unidad)}${i.precio_unitario?' × '+fmt2(i.precio_unitario):''}</small></td><td>${fmt2(i.importe)}</td></tr>`).join('')}</tbody></table>`:''}</div>`;
+}
 let FCCTX=null;
-function formCompra(ctx){FCCTX=ctx;const {personas,provs,admin}=ctx;
+function formCompra(ctx){FCCTX=ctx;const {provs,admin}=ctx;
   const chips=(k,opts,val)=>`<div class="seg" style="margin-top:6px">${opts.map(([v,l])=>`<button type="button" data-fc="${k}" data-v="${esc(String(v))}" aria-pressed="${String(val)===String(v)}">${l}</button>`).join('')}</div>`;
   const cats=CATS().filter(c=>c!=='Insumos y compras');
-  return `<div class="card" id="fcCard"><h2>${FC.tipo==='compra'?'Capturar compra':'Capturar gasto'}</h2>
+  return `<div class="card" id="fcCard"><h2>${admin?'Capturar compra o gasto':'Compra del día'}<small>${admin?'':esc(CAP&&CAP.nombre||'')}</small></h2>
     <div class="field" style="margin-top:0"><label>¿Para qué negocio?</label>${chips('negocio',NEGS.map(n=>[n,n]),FC.negocio)}</div>
+    <div class="field"><label for="fcM">1. Importe que se pagó</label><input id="fcM" inputmode="decimal" placeholder="$0.00" style="font-size:22px;font-weight:700;height:52px"></div>
+    <div class="field"><label>2. Foto del ticket${iaActiva()?' (se lee sola)':''}</label>
+      <div class="btns" style="margin-top:4px"><label class="btn pri" style="flex:1.4;padding:13px">📷 Tomar foto<input type="file" accept="image/*" capture="environment" id="fcFoto" hidden></label><label class="btn" style="flex:1">🖼 Galería<input type="file" accept="image/*" id="fcFoto2" hidden></label></div>
+      <div id="fcPrev" style="margin-top:8px">${FC.foto?`<img src="${FC.foto}" alt="Foto del ticket" style="max-width:100%;max-height:200px;border-radius:12px;border:1px solid var(--line)">`:''}</div>
+      <div id="fcLect">${bloqueLectura()}</div></div>
     <div class="field"><label>Tipo</label>${chips('tipo',[['compra','Compra de insumos'],['gasto','Otro gasto']],FC.tipo)}</div>
     ${FC.tipo==='gasto'?`<div class="field"><label for="fcCat">¿Qué gasto?</label><select id="fcCat" class="msel" style="width:100%;height:44px">${cats.map(c=>`<option>${esc(c)}</option>`).join('')}</select></div>`:''}
-    <div class="field"><label for="fcProv">Proveedor</label><input id="fcProv" maxlength="60" list="fcProvs" placeholder="Costco, mercado, carnicería…" autocomplete="off"><datalist id="fcProvs">${(provs||[]).map(p=>`<option value="${esc(p)}">`).join('')}</datalist></div>
-    <div class="field"><label for="fcTk">Número de ticket o factura</label><input id="fcTk" maxlength="30" inputmode="text" placeholder="Opcional"></div>
-    <div class="field"><label for="fcCon">¿Qué se compró?</label><input id="fcCon" maxlength="80" placeholder="Ej. carne, verdura, desechables"></div>
-    ${admin?`<div class="field"><label for="fcF">Fecha</label><input type="date" id="fcF" value="${cur||iso(new Date())}" max="${iso(new Date())}"></div>`:''}
+    <div class="field"><label for="fcProv">Proveedor</label><input id="fcProv" maxlength="60" list="fcProvs" placeholder="Costco, Rossini, mercado…" autocomplete="off"><datalist id="fcProvs">${(provs||[]).map(p=>`<option value="${esc(p)}">`).join('')}</datalist></div>
+    <div class="field"><label for="fcTk">Número de ticket o factura</label><input id="fcTk" maxlength="30" placeholder="Opcional"></div>
+    ${admin?`<div class="field"><label for="fcCon">Nota</label><input id="fcCon" maxlength="80" placeholder="Opcional"></div><div class="field"><label for="fcF">Fecha</label><input type="date" id="fcF" value="${cur||iso(new Date())}" max="${iso(new Date())}"></div>`:''}
     <div class="field"><label>IVA del ticket</label>${chips('tasa',[[0.08,'8% (frontera)'],[0.16,'16%'],[0,'0%'],['null','No sé / mixto']],FC.tasa==null?'null':FC.tasa)}</div>
-    ${FC.tasa==null?'':`<div class="field"><label>¿Qué monto vas a escribir?</label>${chips('modo',[['total','Total (ya trae IVA)'],['sub','Subtotal (sin IVA)']],FC.modo)}</div>`}
-    <div class="field"><label for="fcM">${FC.tasa==null||FC.modo==='total'?'Total pagado':'Subtotal sin IVA'}</label><input id="fcM" inputmode="decimal" placeholder="$0.00" style="font-size:20px;font-weight:700"></div>
-    <p class="empty" id="fcRes" style="margin-top:8px">Escribe el monto.</p>
+    <p class="empty" id="fcRes" style="margin-top:8px">Escribe el importe.</p>
     <div class="field"><label>¿Con qué se pagó?</label>${chips('pago',PAGOS.map(p=>[p,p]),FC.pago)}</div>
-    ${personas?`<div class="field"><label for="fcQ">¿Quién captura?</label><select id="fcQ" class="msel" style="width:100%;height:44px"><option value="">Elige tu nombre</option>${personas.map(n=>`<option ${n===FC.quien?'selected':''}>${esc(n)}</option>`).join('')}</select></div>`:''}
-    <div class="field"><label>Foto del ticket</label>
-      <div class="btns" style="margin-top:4px"><label class="btn" style="flex:1">📷 Tomar foto<input type="file" accept="image/*" capture="environment" id="fcFoto" hidden></label><label class="btn" style="flex:1">🖼 Galería<input type="file" accept="image/*" id="fcFoto2" hidden></label></div>
-      <div id="fcPrev" style="margin-top:8px">${FC.foto?`<img src="${FC.foto}" alt="Foto del ticket" style="max-width:100%;max-height:220px;border-radius:12px;border:1px solid var(--line)">`:''}</div></div>
-    <div class="btns" style="margin-top:16px"><button class="btn pri" data-fcsave="1" style="flex:1;padding:14px">Guardar ${FC.tipo==='compra'?'compra':'gasto'}</button></div></div>`;
+    <div class="btns" style="margin-top:16px"><button class="btn pri" data-fcsave="1" style="flex:1;padding:15px;font-size:16px" ${FC.leyendo?'disabled':''}>Guardar ${FC.tipo==='compra'?'compra':'gasto'}</button></div></div>`;
 }
 async function comprimir(file){
   const img=await new Promise((res,rej)=>{const u=URL.createObjectURL(file),i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error('No pude leer la foto.'));i.src=u});
-  const k=Math.min(1,1400/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=Math.round(img.width*k);c.height=Math.round(img.height*k);
-  c.getContext('2d').drawImage(img,0,0,c.width,c.height);return c.toDataURL('image/jpeg',0.72);
+  const k=Math.min(1,1600/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=Math.round(img.width*k);c.height=Math.round(img.height*k);
+  c.getContext('2d').drawImage(img,0,0,c.width,c.height);return c.toDataURL('image/jpeg',0.78);
+}
+async function leerFoto(){
+  if(!iaActiva()||!FC.foto) return;
+  FC.leyendo=true;FC.lect=null;fcRerender();
+  try{const j=await api('/api/leer-ticket',{foto:FC.foto});FC.lect=j.lectura;
+    const L=FC.lect;
+    if(L&&L.legible){
+      if($('#fcProv')&&!$('#fcProv').value&&L.proveedor)$('#fcProv').value=L.proveedor;
+      if($('#fcTk')&&!$('#fcTk').value&&L.ticket)$('#fcTk').value=L.ticket;
+      if(L.subtotal>0){const r=L.iva/L.subtotal;FC.tasa=Math.abs(r)<0.005?0:Math.abs(r-0.08)<0.01?0.08:Math.abs(r-0.16)<0.01?0.16:null}
+      if($('#fcM')&&!$('#fcM').value&&L.total){/* no se llena: el cajero debe escribir su importe para poder comparar */}
+    }
+  }catch(e){FC.lect={error:e.message}}
+  FC.leyendo=false;fcRerender();
 }
 async function guardarCompra(btn,admin){
-  const prov=$('#fcProv').value.trim(), con=$('#fcCon').value.trim(), c=fcCalc();
-  if(!(c.total>0)) throw new Error('Escribe el monto.');
-  if(!prov&&!con) throw new Error('Escribe el proveedor o qué se compró.');
-  const q=$('#fcQ')?$('#fcQ').value:'Jorge';
-  if(!q) throw new Error('Elige quién captura.');
+  const prov=$('#fcProv').value.trim(), c=fcCalc();
+  if(!(c.total>0)) throw new Error('Escribe el importe.');
+  if(!prov&&!(FC.lect&&FC.lect.proveedor)) throw new Error('Escribe el proveedor.');
   btn.disabled=true;btn.textContent='Guardando…';
+  const L=FC.lect&&FC.lect.legible?FC.lect:null;
   const mov={fecha:admin&&$('#fcF')?$('#fcF').value:iso(new Date()),negocio:FC.negocio,categoria:FC.tipo==='compra'?'Insumos y compras':($('#fcCat')?.value||'Otros gastos'),
-    proveedor:prov,ticket:$('#fcTk').value.trim(),concepto:con,monto:c.total,tasa:FC.tasa,pago:FC.pago,quien:q};
+    proveedor:prov||(L&&L.proveedor)||'',ticket:$('#fcTk').value.trim(),concepto:$('#fcCon')?$('#fcCon').value.trim():'',monto:c.total,importe_capturado:c.total,
+    tasa:FC.tasa,pago:FC.pago,quien:admin?'Jorge':'',subtotal:c.sub,iva:c.iva,items:L?L.items:undefined,lectura:FC.lect||undefined};
   await api('/api/compra',{mov,foto:FC.foto});
-  FC.foto=null;FC.quien=q;st.quien=q;st.tasa=FC.tasa;save();
+  FC.foto=null;FC.lect=null;st.tasa=FC.tasa;save();
 }
 
-// ---- página del cajero (/captura)
+// ---- página del cajero (/captura): entra con su clave
 let CAP=null;
+const capTok=()=>{try{return localStorage.getItem('hol_caja_tok')||''}catch(e){return ''}};
+function pintarLogin(msg){
+  $('#gen').textContent='';$('#live').classList.add('off');
+  $('#view').innerHTML=`<section><div class="card" style="margin-top:20px"><h2>Entra con tu clave</h2>
+    <p class="empty">Captura de compras del día. Tu clave te la da Jorge.</p>
+    <div class="field"><input id="lgPin" type="password" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••" style="font-size:28px;letter-spacing:.4em;text-align:center;height:58px"></div>
+    ${msg?`<p class="empty" style="color:var(--bad);margin-top:8px">${esc(msg)}</p>`:''}
+    <div class="btns"><button class="btn pri" data-login="1" style="flex:1;padding:14px;font-size:16px">Entrar</button></div></div></section>`;
+  setTimeout(()=>{const i=$('#lgPin');if(i)i.focus()},50);
+}
+async function entrar(){
+  const pin=$('#lgPin').value.trim();if(!pin)return;
+  try{const r=await fetch('/api/caja-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin})});const j=await r.json();
+    if(!j.ok) throw new Error(j.error||'Clave incorrecta.');try{localStorage.setItem('hol_caja_tok',j.token)}catch(e){}
+    await cargarCaptura();
+  }catch(e){pintarLogin(e.message)}
+}
+function salirCaja(){try{localStorage.removeItem('hol_caja_tok')}catch(e){}CAP=null;pintarLogin()}
 async function cargarCaptura(){
-  try{const r=await fetch('/api/captura-info?'+Date.now(),{cache:'no-store',credentials:'same-origin'});if(!r.ok)throw new Error('HTTP '+r.status);CAP=await r.json();
-    $('#gen').textContent='v'+CAP.version;$('#live').classList.remove('off');pintarCaptura()}
-  catch(e){$('#live').classList.add('off');$('#gen').textContent='Sin conexión';$('#note').hidden=false;$('#note').textContent='No pude conectarme con la computadora de la caja. ('+e.message+')'}
+  if(!capTok()) return pintarLogin();
+  try{const r=await fetch('/api/captura-info?'+Date.now(),{cache:'no-store',headers:{'X-Caja-Token':capTok()}});
+    if(r.status===401){try{localStorage.removeItem('hol_caja_tok')}catch(e){}return pintarLogin('Tu sesión terminó. Entra otra vez.')}
+    if(!r.ok)throw new Error('HTTP '+r.status);CAP=await r.json();
+    $('#gen').innerHTML=esc(CAP.nombre)+' · <a href="#" data-salir="1" style="color:inherit">Salir</a>';$('#live').classList.remove('off');$('#note').hidden=true;pintarCaptura()}
+  catch(e){$('#live').classList.add('off');$('#gen').textContent='Sin conexión';$('#note').hidden=false;$('#note').textContent='No pude conectarme con la computadora de la caja. Revisa que el teléfono esté en el WiFi del restaurante. ('+e.message+')'}
 }
 function pintarCaptura(){
   const L=CAP.hoy_lista||[], t=L.reduce((a,m)=>a+(m.monto||0),0);
-  $('#view').innerHTML=`<section>${formCompra({personas:CAP.personas.length?CAP.personas:['Cajera','Encargada'],provs:CAP.proveedores})}
-    <div class="card"><h2>Capturado hoy <small>${L.length} · ${fmt2(t)}</small></h2>${L.length?`<div class="list">${L.slice().reverse().map(m=>`<div class="item"><span>${esc(m.proveedor||m.concepto)} <span class="pill ${m.negocio==='Cafetería'?'gold':'good'}">${esc(m.negocio)}</span></span><span class="num">${fmt2(m.monto)}</span><span class="meta">${esc((m.capturado||'').slice(11,16))} · ${esc(m.quien||'')}${m.ticket?' · ticket '+esc(m.ticket):''}${m.concepto&&m.proveedor?' · '+esc(m.concepto):''}</span></div>`).join('')}</div>`:'<p class="empty">Todavía no hay compras capturadas hoy.</p>'}
+  $('#view').innerHTML=`<section>${formCompra({provs:CAP.proveedores,admin:false})}
+    <div class="card"><h2>Capturado hoy <small>${L.length} · ${fmt2(t)}</small></h2>${L.length?`<div class="list">${L.slice().reverse().map(m=>`<div class="item"><span>${esc(m.proveedor||m.concepto)} <span class="pill ${m.negocio==='Cafetería'?'gold':'good'}">${esc(m.negocio)}</span></span><span class="num">${fmt2(m.monto)}</span><span class="meta">${esc((m.capturado||'').slice(11,16))} · ${esc(m.quien||'')}${m.ticket?' · ticket '+esc(m.ticket):''}</span></div>`).join('')}</div>`:'<p class="empty">Todavía no hay compras capturadas hoy.</p>'}
     <p class="empty" style="margin-top:10px">Si te equivocaste en una compra, avísale a Jorge para que la corrija.</p></div></section>`;
+}
+
+// ---- cajeros y lectura automática (tarjetas en Gastos)
+function tarjetasCajeros(){
+  const C=(DATA.cajeros||[]).filter(c=>c.activo), ia=DATA.ia||{};
+  const pend=GA().movs.filter(m=>m.foto&&!(m.items&&m.items.length)&&!(m.lectura&&m.lectura.intentado)).length;
+  return `<div class="card"><h2>Cajeros <small>${C.length} con acceso</small></h2>
+    ${C.length?`<div class="list">${C.map(c=>`<div class="item"><span>${esc(c.nombre)}</span><span><a href="#" data-cjbaja="${esc(c.id)}" style="color:var(--bad);font-size:13px">Dar de baja</a></span><span class="meta">Alta ${c.alta?corto(c.alta.slice(0,10)):''}</span></div>`).join('')}</div>`:'<p class="empty">Todavía no das de alta a nadie.</p>'}
+    <div style="display:grid;grid-template-columns:1fr 110px;gap:8px;margin-top:12px">
+      <input id="cjN" maxlength="40" placeholder="Nombre" style="height:44px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--ink);padding:0 12px;font:15px var(--body);min-width:0">
+      <input id="cjP" inputmode="numeric" maxlength="6" placeholder="Clave" style="height:44px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--ink);padding:0 12px;font:15px var(--body);min-width:0;text-align:center;letter-spacing:.2em"></div>
+    <div class="btns"><button class="btn pri" data-cjalta="1">Dar de alta</button><button class="btn" data-acceso="1">Dirección para el teléfono</button></div>
+    ${ACCESO?`<div class="list" style="margin-top:12px">${ACCESO.ips.filter(ip=>!ip.startsWith('100.')).concat(ACCESO.ips.filter(ip=>ip.startsWith('100.'))).map(ip=>`<div class="item"><span><b class="num" style="user-select:all">http://${esc(ip)}:${ACCESO.puerto}/captura</b></span><span></span><span class="meta">${ip.startsWith('100.')?'Por Tailscale':'Por el WiFi del restaurante'}</span></div>`).join('')}</div>
+      <p class="empty" style="margin-top:8px">Ábrela en el teléfono del restaurante y toca "Agregar a pantalla de inicio". Cada quien entra con su clave; con esa clave solo pueden capturar compras del día.</p>`:''}
+    <p class="empty" style="margin-top:10px">La clave es de 4 a 6 números y no se puede repetir. Si alguien se va, dale de baja y su clave deja de funcionar.</p></div>
+  <div class="card"><h2>Lectura automática de tickets <small>${ia.activa?'<span class="pill good">Activa</span>':'<span class="pill mut">Apagada</span>'}</small></h2>
+    <p class="empty">Cuando el cajero toma la foto, Claude lee el ticket: proveedor, número, IVA y cada producto, y lo compara con el importe capturado. Necesita tu llave de la API de Claude (console.anthropic.com). Se guarda solo en la computadora de la caja.</p>
+    <div class="field"><input id="iaK" type="password" autocomplete="off" placeholder="${ia.activa?'Llave guardada · pega otra para cambiarla':'Pega aquí tu llave (sk-ant-…)'}"></div>
+    <div class="btns"><button class="btn pri" data-iasave="1">Guardar llave</button>${ia.activa?'<button class="btn" data-iaquitar="1">Quitar llave</button>':''}${ia.activa&&pend?`<button class="btn" data-leerpend="1">Leer ${pend} fotos pendientes</button>`:''}</div></div>`;
+}
+const noCoincide=m=>m.lectura&&m.lectura.legible&&m.lectura.total>0&&Math.abs(m.lectura.total-m.monto)>1;
+
+// ---- reporte de compras: por proveedor y por insumo
+let rcIns=null;
+function rCompras(){
+  const M=GA().movs.filter(m=>m.categoria==='Insumos y compras'&&m.fecha>=rDesde&&m.fecha<=rHasta&&(gNeg==='todos'||(m.negocio||'Restaurante')===gNeg));
+  const tot=M.reduce((a,m)=>a+m.monto,0), conItems=M.filter(m=>m.items&&m.items.length), mal=M.filter(noCoincide);
+  const prov={};M.forEach(m=>{const k=m.proveedor||'Sin proveedor';const o=prov[k]=prov[k]||{t:0,n:0};o.t+=m.monto;o.n++});
+  const ins={};conItems.forEach(m=>m.items.forEach(i=>{const k=(i.insumo||i.descripcion||'Otro')+'|'+(i.unidad||'pz');const o=ins[k]=ins[k]||{n:i.insumo||i.descripcion||'Otro',u:i.unidad||'pz',q:0,t:0,L:[]};
+    o.q+=i.cantidad||0;o.t+=i.importe||0;o.L.push({...i,fecha:m.fecha,prov:m.proveedor,foto:m.foto})}));
+  const IL=Object.values(ins).sort((a,b)=>b.t-a.t), tIns=IL.reduce((a,o)=>a+o.t,0);
+  // precios que subieron: último precio contra el anterior, mismo insumo, unidad y proveedor (todo el historial hasta la fecha final)
+  const hist={};GA().movs.filter(m=>m.fecha<=rHasta&&m.items).forEach(m=>m.items.forEach(i=>{if(!i.precio_unitario)return;const k=i.insumo+'|'+i.unidad+'|'+(m.proveedor||'');(hist[k]=hist[k]||[]).push({f:m.fecha,p:i.precio_unitario,n:i.insumo,u:i.unidad,pr:m.proveedor})}));
+  const sube=Object.values(hist).map(L=>{L.sort((a,b)=>a.f.localeCompare(b.f));const u=L[L.length-1],a=L.slice(0,-1).reverse().find(x=>x.p!==u.p);return a&&u.f>=rDesde?{...u,antes:a.p,fa:a.f,d:(u.p-a.p)/a.p}:null}).filter(x=>x&&x.d>0.03).sort((a,b)=>b.d-a.d);
+  const q=v=>(Math.round(v*100)/100).toLocaleString('es-MX');
+  return `<div class="card">${selectorFechas('r',rDesde,rHasta)}<div style="height:8px"></div>${segBtns('gneg',[['todos','Todos'],['Restaurante','Restaurante'],['Cafetería','Cafetería']],gNeg)}</div>
+  <div class="kpis"><div class="kpi"><b class="num">${fmt(tot)}</b><span>compras · ${M.length} tickets</span></div><div class="kpi"><b class="num" style="color:${mal.length?'var(--bad)':'var(--good)'}">${mal.length}</b><span>no coinciden con el ticket</span></div></div>
+  <div class="card"><h2>Por proveedor</h2>${M.length?bars(Object.entries(prov).sort((a,b)=>b[1].t-a[1].t).map(([n,o])=>({n,v:o.t,vs:fmt2(o.t),sub:o.n+(o.n===1?' compra':' compras')+' · '+pct(o.t,tot)}))):'<p class="empty">No hay compras en estas fechas.</p>'}</div>
+  <div class="card"><h2>Por insumo <small>${IL.length} insumos · ${conItems.length} de ${M.length} tickets leídos</small></h2>
+    ${IL.length?`<div class="dtab">${IL.map(o=>fila(`${esc(o.n)} <small>${q(o.q)} ${esc(o.u)}</small>`,fmt2(o.t),o.L.sort((a,b)=>b.fecha.localeCompare(a.fecha)).map(i=>linea(`${corto(i.fecha)} · ${esc(i.prov||'')}`,fmt2(i.importe),`${q(i.cantidad)} ${esc(i.unidad)}${i.precio_unitario?' × '+fmt2(i.precio_unitario):''} · ${esc(i.descripcion)}`)).join('')+linea('<b>Precio promedio</b>',o.q?fmt2(o.t/o.q)+' por '+esc(o.u):'—'),o.L.length)).join('')}${fijo('Total de productos leídos',fmt2(tIns),'tot')}</div>`
+      :`<p class="empty">${iaActiva()?'Todavía no hay tickets leídos en estas fechas.':'Los productos aparecen cuando se activa la lectura automática de tickets (Reportes → Gastos).'}</p>`}</div>
+  ${sube.length?`<div class="card"><h2>Precios que subieron <small>vs la compra anterior al mismo proveedor</small></h2><div class="list">${sube.slice(0,20).map(x=>`<div class="item"><span>${esc(x.n)} <span class="pill bad">+${Math.round(x.d*100)}%</span></span><span class="num">${fmt2(x.p)}</span><span class="meta">${esc(x.pr||'')} · antes ${fmt2(x.antes)} (${corto(x.fa)}) → ${corto(x.f)} · por ${esc(x.u)}</span></div>`).join('')}</div></div>`:''}
+  ${mal.length?`<div class="card"><h2>No coinciden <small>importe capturado vs ticket</small></h2><div class="list">${mal.map(m=>`<div class="item"><span>${esc(m.proveedor||'')} <span class="pill bad">${fmt2(Math.abs(m.lectura.total-m.monto))} ${m.lectura.total>m.monto?'de menos':'de más'}</span></span><span class="num">${fmt2(m.monto)}</span><span class="meta">${corto(m.fecha)} · ${esc(m.quien||'')} capturó ${fmt2(m.monto)}, el ticket dice ${fmt2(m.lectura.total)}${m.foto?` · <a href="/foto/${esc(m.foto)}" target="_blank" style="color:var(--green-2)">ver foto</a>`:''}</span></div>`).join('')}</div></div>`:''}`;
 }
 
 // ---- pantalla de gastos de Jorge
@@ -800,13 +892,8 @@ function rGastos(){
   const prev=gImp?parseLineas(gImp):null;
   const provs=[...new Set(GA().movs.map(m=>m.proveedor).filter(Boolean))].slice(-60);
   const conceptosF=[...new Set(['Luz','Agua','Gas',...fj.map(f=>f.concepto)])];
-  return formCompra({personas:null,provs,admin:true})+`
-  <div class="card"><h2>Acceso para cajeros <small>solo pueden capturar compras</small></h2>
-    ${ACCESO?`<p class="empty">En el teléfono del restaurante, conectado al WiFi del restaurante, abre:</p>
-      <div class="list" style="margin-top:6px">${ACCESO.ips.filter(ip=>!ip.startsWith('100.')).concat(ACCESO.ips.filter(ip=>ip.startsWith('100.'))).map(ip=>`<div class="item"><span><b class="num" style="user-select:all">http://${esc(ip)}:${ACCESO.puerto}/captura</b></span><span></span><span class="meta">${ip.startsWith('100.')?'Por Tailscale (si el teléfono tiene Tailscale)':'Por el WiFi del restaurante'}</span></div>`).join('')}</div>
-      <table class="ledger num" style="margin-top:10px"><tbody><tr><td>Usuario</td><td style="user-select:all">${esc(ACCESO.usuario)}</td></tr><tr><td>Contraseña</td><td style="user-select:all">${esc(ACCESO.contrasena)}</td></tr></tbody></table>
-      <p class="empty" style="margin-top:10px">Después de entrar, en el navegador toca "Agregar a pantalla de inicio" para que quede como app. Esta contraseña no abre tu panel, solo la captura.</p>`
-    :`<div class="btns" style="margin-top:0"><button class="btn" data-acceso="1">Ver dirección y contraseña</button></div>`}</div>
+  return formCompra({provs,admin:true})+`
+  ${tarjetasCajeros()}
   <div class="card"><h2>Pegar gastos de Claude <small>de tus fotos de tickets</small></h2>
     <p class="empty">Mándale a Claude la foto del ticket y te dará renglones listos. Pégalos aquí, un gasto por renglón: <b style="color:var(--ink)">2026-10-07 | Insumos y compras | Carne | 1250.50 | Costco | Restaurante</b></p>
     <div class="field"><textarea id="gT" rows="5" style="width:100%;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--ink);font:13px ui-monospace,Consolas,monospace;padding:10px">${esc(gImp||'')}</textarea></div>
@@ -850,7 +937,7 @@ function listaGastos(){
   const cmp=ds.map(d=>{const mt=(DATA.detalle[d].salidas||[]).filter(e=>e.cat==='Gastos y compras').reduce((a,e)=>a+e.importe,0);
     const cp=GA().movs.filter(m=>m.fecha===d&&m.pago==='Efectivo de la caja').reduce((a,m)=>a+m.monto,0);return {d,mt,cp}}).filter(x=>x.mt||x.cp);
   const item=m=>`<div class="ditem"><span>${esc(m.proveedor||m.concepto)}${m.proveedor&&m.concepto&&m.concepto!==m.proveedor?' · '+esc(m.concepto):''} <span class="pill ${m.negocio==='Cafetería'?'gold':'mut'}">${esc(m.negocio||'Restaurante')}</span>
-    <small>${corto(m.fecha)}${m.ticket?' · ticket '+esc(m.ticket):''}${m.subtotal!=null?' · subtotal '+fmt2(m.subtotal)+' + IVA '+fmt2(m.iva):''}${m.pago?' · '+esc(m.pago):''}${m.quien?' · '+esc(m.quien):''}${m.foto?` · <a href="/foto/${esc(m.foto)}" target="_blank" style="color:var(--green-2)">ver foto</a>`:''}${COPIA?'':` · <a href="#" data-gdel="${esc(m.id)}" style="color:var(--bad)">borrar</a>`}</small></span><span class="num">${fmt2(m.monto)}</span></div>`;
+    ${noCoincide(m)?` <span class="pill bad">Ticket dice ${fmt2(m.lectura.total)}</span>`:''}<small>${corto(m.fecha)}${m.items&&m.items.length?' · '+m.items.length+' productos':''}${m.ticket?' · ticket '+esc(m.ticket):''}${m.subtotal!=null?' · subtotal '+fmt2(m.subtotal)+' + IVA '+fmt2(m.iva):''}${m.pago?' · '+esc(m.pago):''}${m.quien?' · '+esc(m.quien):''}${m.foto?` · <a href="/foto/${esc(m.foto)}" target="_blank" style="color:var(--green-2)">ver foto</a>`:''}${COPIA?'':` · <a href="#" data-gdel="${esc(m.id)}" style="color:var(--bad)">borrar</a>`}</small></span><span class="num">${fmt2(m.monto)}</span></div>`;
   return `<div class="card">${selectorFechas('r',rDesde,rHasta)}</div>
   <div class="kpis"><div class="kpi"><b class="num">${fmt(tN('Restaurante'))}</b><span>Restaurante</span></div><div class="kpi"><b class="num" style="color:var(--gold)">${fmt(tN('Cafetería'))}</b><span>Cafetería</span></div></div>
   <div class="card"><h2>Compras y gastos capturados <small>${L.length} · ${fmt2(L.reduce((a,m)=>a+m.monto,0))}${ivaT?' · IVA '+fmt2(ivaT):''}</small></h2>
@@ -909,6 +996,17 @@ function rResultados(){
     <tr><td>Venta diaria para no perder <small style="color:var(--muted)">(punto de equilibrio)</small></td><td>${venta&&bruta>0?fmt((tFij+tOtr)/n/(bruta/venta)):'—'}</td></tr>
     ${ivaA?`<tr><td>IVA de las compras capturadas <small style="color:var(--muted)">(posible acreditable)</small></td><td>${fmt2(ivaA)}</td></tr>`:''}</tbody></table>
     <p class="empty" style="margin-top:10px">Ventas y compras se comparan con IVA incluido. Es un resultado aproximado: toma las compras como lo que se consumió; después se puede agregar el inventario inicial y final.</p></div>`;
+}
+async function accionAdmin(t,d){
+  try{
+    if(t.tagName==='BUTTON')t.disabled=true;
+    if(d.cjalta){await api('/api/cajeros',{accion:'alta',nombre:$('#cjN').value,pin:$('#cjP').value});toast('Cajero dado de alta')}
+    else if(d.cjbaja){if(!confirm('¿Dar de baja a este cajero? Su clave dejará de funcionar.')){t.disabled=false;return}await api('/api/cajeros',{accion:'baja',id:d.cjbaja});toast('Dado de baja')}
+    else if(d.iasave){await api('/api/ia',{llave:$('#iaK').value});toast('Llave guardada; la lectura automática está activa')}
+    else if(d.iaquitar){if(!confirm('¿Quitar la llave? Se apaga la lectura automática.')){t.disabled=false;return}await api('/api/ia',{quitar:true});toast('Llave quitada')}
+    else if(d.leerpend){t.textContent='Leyendo… puede tardar';const j=await api('/api/leer-pendientes',{});toast(j.leidos+' tickets leídos'+(j.errores?' · '+j.errores+' con error':'')+(j.faltan?' · faltan '+j.faltan:''))}
+    await cargar(true);
+  }catch(err){toast(err.message);if(t.tagName==='BUTTON')t.disabled=false}
 }
 async function guardarGasto(t,d){
   try{
@@ -985,7 +1083,7 @@ $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(b)irA(b.dataset.tab)};
 $('#view').addEventListener('click',e=>{
-  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel]');if(!t)return;
+  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cjalta],[data-cjbaja],[data-iasave],[data-iaquitar],[data-leerpend]');if(!t)return;
   const d=t.dataset;
   if(d.go) return irA(d.go);
   if(d.pm){prodModo=d.pm;return render()} if(d.pt){prodT=d.pt;return render()}
@@ -1004,8 +1102,10 @@ $('#view').addEventListener('click',e=>{
   if(d.fdel){t.closest('.fj').remove();return}
   if(d.fc){const k=d.fc;let v=d.v;if(k==='tasa')v=v==='null'?null:+v;FC[k]=v;fcRerender();return}
   if(d.gneg){gNeg=d.gneg;return render()}
+  if(d.login){entrar();return}
+  if(d.cjalta||d.cjbaja||d.iasave||d.iaquitar||d.leerpend){e.preventDefault();accionAdmin(t,d);return}
   if(d.acceso){fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;render()}).catch(err=>toast(err.message));return}
-  if(d.fcsave&&CAPMODE){e.preventDefault();guardarCompra(t,false).then(()=>{toast('Compra guardada');return cargarCaptura()}).catch(err=>{toast(err.message);t.disabled=false;t.textContent='Guardar'});return}
+  if(d.fcsave&&CAPMODE){e.preventDefault();guardarCompra(t,false).then(()=>{toast('Compra guardada ✓');window.scrollTo(0,0);return cargarCaptura()}).catch(err=>{toast(err.message);t.disabled=false;t.textContent='Guardar'});return}
   if(d.gimp||d.gdel||d.fsave||d.fcsave||d.rcsave||d.rcdel){e.preventDefault();guardarGasto(t,d);return}
   if(d.ct2){cmpTodos=!cmpTodos;return render()}
   if(d.mes){e.preventDefault();mesSel=d.mes;render();window.scrollTo(0,0);return}
@@ -1016,15 +1116,17 @@ $('#view').addEventListener('change',e=>{const id=e.target.id,v=e.target.value;i
   if(id==='pD'){pDesde=v;render()}else if(id==='pH'){pHasta=v;render()}else if(id==='rD'){rDesde=v;render()}else if(id==='rH'){rHasta=v;render()}else if(id==='rMes'){mesSel=v;render()}else if(id==='cA'){cmpA=v;render()}else if(id==='cB'){cmpB=v;render()}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')cerrarHoja()});
 function fcRerender(){
-  const ids=['fcProv','fcTk','fcCon','fcF','fcM','fcQ','fcCat'],vals={};ids.forEach(i=>{const el=document.getElementById(i);if(el)vals[i]=el.value});
+  const ids=['fcProv','fcTk','fcCon','fcF','fcM','fcCat'],vals={};ids.forEach(i=>{const el=document.getElementById(i);if(el)vals[i]=el.value});
   const card=$('#fcCard');if(!card)return;card.outerHTML=formCompra(FCCTX);
   ids.forEach(i=>{const el=document.getElementById(i);if(el&&vals[i]!=null)el.value=vals[i]});$('#fcRes').innerHTML=fcResumen();
 }
-$('#view').addEventListener('input',e=>{if(e.target.id==='fcM'){const r=$('#fcRes');if(r)r.innerHTML=fcResumen()}});
+$('#view').addEventListener('input',e=>{if(e.target.id==='fcM'){const r=$('#fcRes');if(r)r.innerHTML=fcResumen();const l=$('#fcLect');if(l&&FC.lect)l.innerHTML=bloqueLectura()}});
+$('#view').addEventListener('keydown',e=>{if(e.target.id==='lgPin'&&e.key==='Enter')entrar()});
+document.querySelector('header').addEventListener('click',e=>{if(e.target.closest('[data-salir]')){e.preventDefault();salirCaja()}});
 $('#view').addEventListener('change',async e=>{
   const id=e.target.id;
   if(id==='fcFoto'||id==='fcFoto2'||id==='rcFoto'){const f=e.target.files&&e.target.files[0];if(!f)return;
-    try{const u=await comprimir(f);if(id==='rcFoto'){RCFOTO=u;$('#rcFotoOk').textContent='✓ Foto lista'}else{FC.foto=u;$('#fcPrev').innerHTML=`<img src="${u}" alt="Foto del ticket" style="max-width:100%;max-height:220px;border-radius:12px;border:1px solid var(--line)">`}}catch(err){toast(err.message)}}
+    try{const u=await comprimir(f);if(id==='rcFoto'){RCFOTO=u;$('#rcFotoOk').textContent='✓ Foto lista'}else{FC.foto=u;FC.lect=null;$('#fcPrev').innerHTML=`<img src="${u}" alt="Foto del ticket" style="max-width:100%;max-height:200px;border-radius:12px;border:1px solid var(--line)">`;leerFoto()}}catch(err){toast(err.message)}}
 });
 
 function hm(s){return new Date(s).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}
