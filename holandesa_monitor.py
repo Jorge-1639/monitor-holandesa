@@ -13,7 +13,7 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 23
+VERSION = 24
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -28,7 +28,10 @@ DEFAULT_CONFIG = {
     "segundos_revision_actualizacion": 300
 }
 QUITADAS_FILE = os.path.join(AQUI, 'cuentas_quitadas.json')
-GASTOS_FILE = os.path.join(AQUI, 'gastos.json')       # compras y gastos que captura Jorge (no es de MrTienda)
+GASTOS_FILE = os.path.join(AQUI, 'gastos.json')       # compras y gastos capturados (no es de MrTienda)
+FOTOS_DIR = os.path.join(AQUI, 'fotos_compras')        # fotos de tickets de compra
+NEGOCIOS = ['Restaurante', 'Cafetería']
+PAGOS = ['Efectivo de la caja', 'Tarjeta o transferencia', 'Otro']
 CATEGORIAS_GASTO = ['Insumos y compras', 'Sueldos', 'Seguro social', 'Luz', 'Agua', 'Gas', 'Renta', 'Mantenimiento', 'Comisiones', 'Otros gastos']
 RESPALDO_CUENTAS = os.path.join(AQUI, 'respaldos_cuentas')   # fuera de _respaldo: las actualizaciones no lo borran
 MOTIVOS = ['Familia', 'Didi · efectivo', 'Didi · tarjeta', 'Uber · efectivo', 'Uber · tarjeta', 'Error de captura', 'Otro', 'Sin clasificar']
@@ -53,6 +56,10 @@ def load_config():
     cfg = dict(DEFAULT_CONFIG)
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, encoding='utf-8') as f: cfg.update(json.load(f))
+    if not cfg.get('usuario_caja'): cfg['usuario_caja'] = 'caja'
+    if not cfg.get('contrasena_caja'):
+        cfg['contrasena_caja'] = ''.join(secrets.choice('23456789') for _ in range(6))
+        log('Se generó la contraseña de cajeros; está en config.json')
     if not cfg.get('contrasena'):
         cfg['contrasena'] = secrets.token_urlsafe(6)
         log('Se generó una contraseña nueva; está en config.json')
@@ -523,7 +530,7 @@ class Monitor:
                 with open(GASTOS_FILE, encoding='utf-8') as f: g = json.load(f)
             except (OSError, ValueError): g = {}
         if not isinstance(g, dict): g = {}
-        g.setdefault('movs', []); g.setdefault('fijos', [])
+        g.setdefault('movs', []); g.setdefault('fijos', []); g.setdefault('recibos', [])
         return g
 
     def _guardar_gastos(self, g):
@@ -537,9 +544,57 @@ class Monitor:
         cat = m.get('categoria') if m.get('categoria') in CATEGORIAS_GASTO else 'Otros gastos'
         monto = round(float(str(m.get('monto')).replace('$', '').replace(',', '')), 2)
         if monto <= 0 or monto > 10000000: raise ValueError('Monto no válido.')
-        concepto = str(m.get('concepto') or '').strip()[:80] or cat
-        return {'fecha': fecha, 'concepto': concepto, 'categoria': cat, 'monto': monto,
-                'proveedor': str(m.get('proveedor') or '').strip()[:60], 'nota': str(m.get('nota') or '').strip()[:120]}
+        concepto = str(m.get('concepto') or '').strip()[:80] or (str(m.get('proveedor') or '').strip()[:80] or cat)
+        out = {'fecha': fecha, 'concepto': concepto, 'categoria': cat, 'monto': monto,
+               'proveedor': str(m.get('proveedor') or '').strip()[:60], 'nota': str(m.get('nota') or '').strip()[:120],
+               'negocio': m.get('negocio') if m.get('negocio') in NEGOCIOS else 'Restaurante',
+               'ticket': str(m.get('ticket') or '').strip()[:30], 'pago': m.get('pago') if m.get('pago') in PAGOS else '',
+               'quien': str(m.get('quien') or '').strip()[:40]}
+        try:
+            tasa = float(m.get('tasa')) if m.get('tasa') not in (None, '') else None
+        except (TypeError, ValueError): tasa = None
+        if tasa is not None and tasa in (0, 0.08, 0.16):
+            sub = round(monto / (1 + tasa), 2)
+            out.update({'tasa': tasa, 'subtotal': sub, 'iva': round(monto - sub, 2)})
+        return out
+
+    def guardar_foto(self, mid, b64):
+        if not b64: return ''
+        if ',' in b64[:80]: b64 = b64.split(',', 1)[1]
+        raw = base64.b64decode(b64)
+        if not raw.startswith(b'\xff\xd8') or len(raw) > 6 * 1024 * 1024: raise ValueError('La foto no es válida.')
+        os.makedirs(FOTOS_DIR, exist_ok=True)
+        nom = re.sub(r'[^0-9A-Za-z_-]', '', mid) + '.jpg'
+        with open(os.path.join(FOTOS_DIR, nom), 'wb') as f: f.write(raw)
+        return nom
+
+    def captura(self, d, origen):
+        """Compra o gasto capturado desde el teléfono del cajero (o por Jorge), con foto opcional."""
+        m = self._limpia_mov(d.get('mov') or {})
+        ahora = datetime.datetime.now()
+        with self.q_lock:
+            try:
+                with open(GASTOS_FILE, encoding='utf-8') as f: g = json.load(f)
+                if not isinstance(g, dict): g = {}
+            except (OSError, ValueError): g = {}
+            g.setdefault('movs', []); g.setdefault('fijos', []); g.setdefault('recibos', [])
+            m['id'] = ahora.strftime('%Y%m%d%H%M%S') + '-' + str(len(g['movs']))
+            m['capturado'] = ahora.isoformat(timespec='seconds'); m['origen'] = origen
+            m['foto'] = self.guardar_foto(m['id'], d.get('foto'))
+            g['movs'].append(m); self._guardar_gastos(g)
+        log(f"Compra capturada ({origen}): {m['proveedor'] or m['concepto']} {m['monto']:.2f} · {m['negocio']}")
+        self.refresh()
+        return {'ok': True, 'id': m['id']}
+
+    def captura_info(self):
+        hoy = datetime.date.today().isoformat()
+        g = self.gastos()
+        provs = collections.Counter(m.get('proveedor') for m in g['movs'] if m.get('proveedor'))
+        return {'ok': True, 'version': VERSION, 'hoy': hoy, 'categorias': CATEGORIAS_GASTO, 'negocios': NEGOCIOS, 'pagos': PAGOS,
+                'personas': sorted(set(v for v in getattr(self, 'EMP', {}).values() if v)),
+                'proveedores': [p for p, _ in provs.most_common(60)],
+                'hoy_lista': [{k: m.get(k) for k in ('fecha', 'proveedor', 'concepto', 'monto', 'negocio', 'quien', 'capturado', 'ticket')}
+                              for m in g['movs'] if m.get('fecha') == hoy and m.get('origen') == 'caja']}
 
     def gasto_accion(self, d):
         acc = d.get('accion')
@@ -548,9 +603,23 @@ class Monitor:
                 with open(GASTOS_FILE, encoding='utf-8') as f: g = json.load(f)
                 if not isinstance(g, dict): g = {}
             except (OSError, ValueError): g = {}
-            g.setdefault('movs', []); g.setdefault('fijos', [])
+            g.setdefault('movs', []); g.setdefault('fijos', []); g.setdefault('recibos', [])
             ahora = datetime.datetime.now()
-            if acc == 'agregar':
+            if acc == 'recibo':
+                r = d.get('recibo') or {}
+                de, ha = str(r.get('desde') or '')[:10], str(r.get('hasta') or '')[:10]
+                if datetime.date.fromisoformat(de) > datetime.date.fromisoformat(ha): raise ValueError('La fecha "desde" va después de "hasta".')
+                monto = round(float(str(r.get('monto')).replace('$', '').replace(',', '')), 2)
+                if monto <= 0: raise ValueError('Monto no válido.')
+                rec = {'id': ahora.strftime('%Y%m%d%H%M%S') + '-r' + str(len(g['recibos'])), 'concepto': str(r.get('concepto') or '').strip()[:60],
+                       'desde': de, 'hasta': ha, 'monto': monto, 'capturado': ahora.isoformat(timespec='seconds')}
+                if not rec['concepto']: raise ValueError('Falta el concepto.')
+                rec['foto'] = self.guardar_foto(rec['id'], d.get('foto'))
+                g['recibos'].append(rec); n = 1
+            elif acc == 'borrar_recibo':
+                antes = len(g['recibos']); g['recibos'] = [r for r in g['recibos'] if r.get('id') != d.get('id')]; n = antes - len(g['recibos'])
+                if not n: raise RuntimeError('No encontré ese recibo.')
+            elif acc == 'agregar':
                 nuevos = d.get('movs') or [d.get('mov')]
                 limpios = [self._limpia_mov(m) for m in nuevos if m]
                 if not limpios: raise ValueError('No hay gastos para guardar.')
@@ -664,32 +733,51 @@ class Monitor:
 # ---------------------------------------------------------------- servidor web
 def make_handler(mon, cfg):
     token = base64.b64encode(f"{cfg['usuario']}:{cfg['contrasena']}".encode()).decode()
+    token_caja = base64.b64encode(f"{cfg['usuario_caja']}:{cfg['contrasena_caja']}".encode()).decode()
+    def ips_locales():
+        import socket
+        out = []
+        try:
+            for ip in socket.gethostbyname_ex(socket.gethostname())[2]:
+                if not ip.startswith('127.'): out.append(ip)
+        except OSError: pass
+        try:
+            s_ = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s_.connect(('10.255.255.255', 1)); ip = s_.getsockname()[0]; s_.close()
+            if ip not in out and not ip.startswith('127.'): out.append(ip)
+        except OSError: pass
+        return out
     with open(os.path.join(AQUI, 'panel.html'), 'rb') as f: page = f.read()
     icon_path = os.path.join(AQUI, 'icon.png')
     try:
         with open(icon_path, 'rb') as f: icon_png = f.read()
     except OSError:
         icon_png = b''
+    manifest_caja = json.dumps({'name':'Compras Holandesa','short_name':'Compras','start_url':'/captura','display':'standalone','background_color':'#f2f4ef','theme_color':'#123f2a','icons':[{'src':'/icon.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
     manifest = json.dumps({'name':'Control Holandesa','short_name':'Control Holandesa','start_url':'/','display':'standalone','background_color':'#f7f7f4','theme_color':'#ffffff','icons':[{'src':'/icon.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a): pass
-        def _auth(self):
-            if secrets.compare_digest(self.headers.get('Authorization', ''), 'Basic ' + token): return True
-            self.send_response(401); self.send_header('WWW-Authenticate', 'Basic realm="La Holandesa", charset="UTF-8"'); self.end_headers()
+        def _auth(self, caja_ok=False):
+            a = self.headers.get('Authorization', '')
+            if secrets.compare_digest(a, 'Basic ' + token): self.rol = 'admin'; return True
+            if caja_ok and secrets.compare_digest(a, 'Basic ' + token_caja): self.rol = 'caja'; return True
+            self.send_response(401); self.send_header('WWW-Authenticate', 'Basic realm="' + ('Caja La Holandesa' if caja_ok else 'La Holandesa') + '", charset="UTF-8"'); self.end_headers()
             return False
         def _send(self, body, ctype, gz=False):
             self.send_response(200); self.send_header('Content-Type', ctype); self.send_header('Cache-Control', 'no-store')
             if gz: self.send_header('Content-Encoding', 'gzip')
             self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
         def do_POST(self):
-            if not self._auth(): return
-            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos'): self.send_response(404); self.end_headers(); return
+            if not self._auth(caja_ok=(self.path == '/api/compra')): return
+            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return
             try:
-                n=min(int(self.headers.get('Content-Length','0') or 0),262144)
+                lim = 9 * 1024 * 1024 if self.path in ('/api/compra', '/api/gastos') else 262144
+                n=int(self.headers.get('Content-Length','0') or 0)
+                if n > lim: raise ValueError('La foto es demasiado grande.')
                 d=json.loads(self.rfile.read(n).decode('utf-8'))
-                if self.path == '/api/gastos': out=mon.gasto_accion(d)
+                if self.path == '/api/compra': out=mon.captura(d, 'caja' if self.rol == 'caja' else 'admin')
+                elif self.path == '/api/gastos': out=mon.gasto_accion(d)
                 elif self.path == '/api/quitada-motivo': out=mon.cambiar_motivo(d.get('id'),d.get('motivo'),d.get('nota'))
                 else: out=mon.eliminar_abierta(d.get('archivo'),d.get('referencia'),d.get('motivo') or 'Sin clasificar',d.get('nota'))
                 body=json.dumps(out,ensure_ascii=False).encode('utf-8')
@@ -699,7 +787,27 @@ def make_handler(mon, cfg):
                 body=json.dumps({'ok':False,'error':str(e)},ensure_ascii=False).encode('utf-8')
                 self.send_response(409); self.send_header('Content-Type','application/json; charset=utf-8'); self.send_header('Cache-Control','no-store'); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)
         def do_GET(self):
+            p0 = self.path.split('?')[0]
+            if p0 in ('/captura', '/captura/', '/api/captura-info'):
+                if not self._auth(caja_ok=True): return
+                if p0 == '/api/captura-info':
+                    body = json.dumps(mon.captura_info(), ensure_ascii=False).encode('utf-8')
+                    return self._send(body, 'application/json; charset=utf-8')
+                return self._send(page, 'text/html; charset=utf-8')
+            if p0 in ('/manifest-caja.webmanifest',):
+                return self._send(manifest_caja, 'application/manifest+json; charset=utf-8')
+            if p0 == '/icon.png' and icon_png and self.headers.get('Authorization'):
+                return self._send(icon_png, 'image/png')
             if not self._auth(): return
+            if p0 == '/api/acceso':
+                body = json.dumps({'ok': True, 'usuario': cfg['usuario_caja'], 'contrasena': cfg['contrasena_caja'], 'puerto': cfg['puerto'], 'ips': ips_locales()}, ensure_ascii=False).encode('utf-8')
+                return self._send(body, 'application/json; charset=utf-8')
+            if p0.startswith('/foto/'):
+                nom = re.sub(r'[^0-9A-Za-z_.-]', '', p0[6:])
+                ruta = os.path.join(FOTOS_DIR, nom)
+                if nom.endswith('.jpg') and os.path.isfile(ruta):
+                    with open(ruta, 'rb') as f: return self._send(f.read(), 'image/jpeg')
+                self.send_response(404); self.end_headers(); return
             if self.path.startswith('/api/abiertas'):
                 try:
                     body=json.dumps({'ok':True,'abiertas':mon.abiertas(),'generado':datetime.datetime.now().isoformat(timespec='seconds')},ensure_ascii=False).encode('utf-8')
@@ -748,7 +856,7 @@ def buscar_actualizacion():
     try:
         archivos = [a.strip() for a in _bajar('archivos.txt').decode().splitlines() if a.strip()]
         permitidos = {'holandesa_monitor.py', 'panel.html', 'detener_monitor.bat', 'iniciar_monitor.vbs', 'probar.bat', 'actualizar.bat', 'icon.png'}
-        archivos = [a for a in archivos if a in permitidos]
+        archivos = [a for a in archivos if a in permitidos or re.fullmatch(r'[a-z0-9_]+\.(html|css|js|png|bat|vbs)', a)]
         if 'holandesa_monitor.py' not in archivos: raise RuntimeError('archivos.txt incompleto')
         for a in archivos:
             with open(os.path.join(nuevo, a), 'wb') as f: f.write(_bajar(a))

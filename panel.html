@@ -702,99 +702,227 @@ function rCompara(){
     ${fila3('Este mes vs hace un año',sumD(mes,u),sumD(iso(yA),iso(yAh)),`${MESES[ud.getMonth()]} ${ud.getFullYear()}`,`${MESES[yA.getMonth()]} ${yA.getFullYear()}`)}`;
 }
 
-// ---------- gastos y estado de resultados
-let cajaG=st.cajaG!==false, gImp=null;
-const CATS=()=>DATA.categorias_gasto||['Insumos y compras','Sueldos','Seguro social','Luz','Agua','Gas','Renta','Mantenimiento','Comisiones','Otros gastos'];
-const GA=()=>DATA.gastos||{movs:[],fijos:[]};
+// ---------- compras, gastos y estado de resultados
+let cajaG=st.cajaG2===true, gImp=null, gNeg='todos', ACCESO=null;
+const CATS=()=>DATA&&DATA.categorias_gasto||(CAP&&CAP.categorias)||['Insumos y compras','Sueldos','Seguro social','Luz','Agua','Gas','Renta','Mantenimiento','Comisiones','Otros gastos'];
+const GA=()=>{const g=DATA.gastos||{};return {movs:g.movs||[],fijos:g.fijos||[],recibos:g.recibos||[]}};
+const NEGS=['Restaurante','Cafetería'], PAGOS=['Efectivo de la caja','Tarjeta o transferencia','Otro'];
 async function api(url,body){
   const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-Holandesa-Action':'1'},body:JSON.stringify(body),credentials:'same-origin'});
   const j=await r.json().catch(()=>({ok:false,error:'Respuesta inválida ('+r.status+')'}));
   if(!j.ok) throw new Error(j.error||'No se pudo.'); return j;
 }
 const diasEntre=(a,b)=>Math.round((pd(b)-pd(a))/864e5)+1;
+const money=v=>parseFloat(String(v||'').replace(/[$,\s]/g,''));
 function parseLineas(txt){
   const out=[],mal=[];
   txt.split(/\r?\n/).map(l=>l.trim()).filter(Boolean).forEach(l=>{
     const p=l.split('|').map(x=>x.trim());
     if(p.length<4){mal.push(l);return}
-    const monto=parseFloat(p[3].replace(/[$,\s]/g,''));
+    const monto=money(p[3]);
     if(!/^\d{4}-\d{2}-\d{2}$/.test(p[0])||!(monto>0)){mal.push(l);return}
     const cat=CATS().find(c=>c.toLowerCase()===p[1].toLowerCase())||'Otros gastos';
-    out.push({fecha:p[0],categoria:cat,concepto:p[2],monto,proveedor:p[4]||'',nota:p[5]||''});
+    const neg=NEGS.find(n=>n.toLowerCase()===(p[5]||'').toLowerCase().replace('cafeteria','cafetería'))||'Restaurante';
+    out.push({fecha:p[0],categoria:cat,concepto:p[2],monto,proveedor:p[4]||'',negocio:neg});
   });
   return {out,mal};
 }
+
+// ---- formulario de compra (lo usan el cajero y Jorge)
+const FC={negocio:'Restaurante',tipo:'compra',tasa:st.tasa??0.08,modo:'total',pago:'Efectivo de la caja',foto:null,quien:st.quien||''};
+function fcCalc(){
+  const v=money(document.getElementById('fcM')?.value), t=FC.tasa;
+  if(!(v>0)) return {total:0,sub:0,iva:0};
+  if(t==null) return {total:v,sub:null,iva:null};
+  const total=FC.modo==='total'?v:Math.round(v*(1+t)*100)/100, sub=Math.round(total/(1+t)*100)/100;
+  return {total,sub,iva:Math.round((total-sub)*100)/100};
+}
+function fcResumen(){const c=fcCalc();if(!c.total)return 'Escribe el monto.';return c.sub==null?`Total ${fmt2(c.total)} · sin desglose de IVA`:`Subtotal ${fmt2(c.sub)} · IVA ${fmt2(c.iva)} · <b>Total ${fmt2(c.total)}</b>`}
+let FCCTX=null;
+function formCompra(ctx){FCCTX=ctx;const {personas,provs,admin}=ctx;
+  const chips=(k,opts,val)=>`<div class="seg" style="margin-top:6px">${opts.map(([v,l])=>`<button type="button" data-fc="${k}" data-v="${esc(String(v))}" aria-pressed="${String(val)===String(v)}">${l}</button>`).join('')}</div>`;
+  const cats=CATS().filter(c=>c!=='Insumos y compras');
+  return `<div class="card" id="fcCard"><h2>${FC.tipo==='compra'?'Capturar compra':'Capturar gasto'}</h2>
+    <div class="field" style="margin-top:0"><label>¿Para qué negocio?</label>${chips('negocio',NEGS.map(n=>[n,n]),FC.negocio)}</div>
+    <div class="field"><label>Tipo</label>${chips('tipo',[['compra','Compra de insumos'],['gasto','Otro gasto']],FC.tipo)}</div>
+    ${FC.tipo==='gasto'?`<div class="field"><label for="fcCat">¿Qué gasto?</label><select id="fcCat" class="msel" style="width:100%;height:44px">${cats.map(c=>`<option>${esc(c)}</option>`).join('')}</select></div>`:''}
+    <div class="field"><label for="fcProv">Proveedor</label><input id="fcProv" maxlength="60" list="fcProvs" placeholder="Costco, mercado, carnicería…" autocomplete="off"><datalist id="fcProvs">${(provs||[]).map(p=>`<option value="${esc(p)}">`).join('')}</datalist></div>
+    <div class="field"><label for="fcTk">Número de ticket o factura</label><input id="fcTk" maxlength="30" inputmode="text" placeholder="Opcional"></div>
+    <div class="field"><label for="fcCon">¿Qué se compró?</label><input id="fcCon" maxlength="80" placeholder="Ej. carne, verdura, desechables"></div>
+    ${admin?`<div class="field"><label for="fcF">Fecha</label><input type="date" id="fcF" value="${cur||iso(new Date())}" max="${iso(new Date())}"></div>`:''}
+    <div class="field"><label>IVA del ticket</label>${chips('tasa',[[0.08,'8% (frontera)'],[0.16,'16%'],[0,'0%'],['null','No sé / mixto']],FC.tasa==null?'null':FC.tasa)}</div>
+    ${FC.tasa==null?'':`<div class="field"><label>¿Qué monto vas a escribir?</label>${chips('modo',[['total','Total (ya trae IVA)'],['sub','Subtotal (sin IVA)']],FC.modo)}</div>`}
+    <div class="field"><label for="fcM">${FC.tasa==null||FC.modo==='total'?'Total pagado':'Subtotal sin IVA'}</label><input id="fcM" inputmode="decimal" placeholder="$0.00" style="font-size:20px;font-weight:700"></div>
+    <p class="empty" id="fcRes" style="margin-top:8px">Escribe el monto.</p>
+    <div class="field"><label>¿Con qué se pagó?</label>${chips('pago',PAGOS.map(p=>[p,p]),FC.pago)}</div>
+    ${personas?`<div class="field"><label for="fcQ">¿Quién captura?</label><select id="fcQ" class="msel" style="width:100%;height:44px"><option value="">Elige tu nombre</option>${personas.map(n=>`<option ${n===FC.quien?'selected':''}>${esc(n)}</option>`).join('')}</select></div>`:''}
+    <div class="field"><label>Foto del ticket</label>
+      <div class="btns" style="margin-top:4px"><label class="btn" style="flex:1">📷 Tomar foto<input type="file" accept="image/*" capture="environment" id="fcFoto" hidden></label><label class="btn" style="flex:1">🖼 Galería<input type="file" accept="image/*" id="fcFoto2" hidden></label></div>
+      <div id="fcPrev" style="margin-top:8px">${FC.foto?`<img src="${FC.foto}" alt="Foto del ticket" style="max-width:100%;max-height:220px;border-radius:12px;border:1px solid var(--line)">`:''}</div></div>
+    <div class="btns" style="margin-top:16px"><button class="btn pri" data-fcsave="1" style="flex:1;padding:14px">Guardar ${FC.tipo==='compra'?'compra':'gasto'}</button></div></div>`;
+}
+async function comprimir(file){
+  const img=await new Promise((res,rej)=>{const u=URL.createObjectURL(file),i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error('No pude leer la foto.'));i.src=u});
+  const k=Math.min(1,1400/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=Math.round(img.width*k);c.height=Math.round(img.height*k);
+  c.getContext('2d').drawImage(img,0,0,c.width,c.height);return c.toDataURL('image/jpeg',0.72);
+}
+async function guardarCompra(btn,admin){
+  const prov=$('#fcProv').value.trim(), con=$('#fcCon').value.trim(), c=fcCalc();
+  if(!(c.total>0)) throw new Error('Escribe el monto.');
+  if(!prov&&!con) throw new Error('Escribe el proveedor o qué se compró.');
+  const q=$('#fcQ')?$('#fcQ').value:'Jorge';
+  if(!q) throw new Error('Elige quién captura.');
+  btn.disabled=true;btn.textContent='Guardando…';
+  const mov={fecha:admin&&$('#fcF')?$('#fcF').value:iso(new Date()),negocio:FC.negocio,categoria:FC.tipo==='compra'?'Insumos y compras':($('#fcCat')?.value||'Otros gastos'),
+    proveedor:prov,ticket:$('#fcTk').value.trim(),concepto:con,monto:c.total,tasa:FC.tasa,pago:FC.pago,quien:q};
+  await api('/api/compra',{mov,foto:FC.foto});
+  FC.foto=null;FC.quien=q;st.quien=q;st.tasa=FC.tasa;save();
+}
+
+// ---- página del cajero (/captura)
+let CAP=null;
+async function cargarCaptura(){
+  try{const r=await fetch('/api/captura-info?'+Date.now(),{cache:'no-store',credentials:'same-origin'});if(!r.ok)throw new Error('HTTP '+r.status);CAP=await r.json();
+    $('#gen').textContent='v'+CAP.version;$('#live').classList.remove('off');pintarCaptura()}
+  catch(e){$('#live').classList.add('off');$('#gen').textContent='Sin conexión';$('#note').hidden=false;$('#note').textContent='No pude conectarme con la computadora de la caja. ('+e.message+')'}
+}
+function pintarCaptura(){
+  const L=CAP.hoy_lista||[], t=L.reduce((a,m)=>a+(m.monto||0),0);
+  $('#view').innerHTML=`<section>${formCompra({personas:CAP.personas.length?CAP.personas:['Cajera','Encargada'],provs:CAP.proveedores})}
+    <div class="card"><h2>Capturado hoy <small>${L.length} · ${fmt2(t)}</small></h2>${L.length?`<div class="list">${L.slice().reverse().map(m=>`<div class="item"><span>${esc(m.proveedor||m.concepto)} <span class="pill ${m.negocio==='Cafetería'?'gold':'good'}">${esc(m.negocio)}</span></span><span class="num">${fmt2(m.monto)}</span><span class="meta">${esc((m.capturado||'').slice(11,16))} · ${esc(m.quien||'')}${m.ticket?' · ticket '+esc(m.ticket):''}${m.concepto&&m.proveedor?' · '+esc(m.concepto):''}</span></div>`).join('')}</div>`:'<p class="empty">Todavía no hay compras capturadas hoy.</p>'}
+    <p class="empty" style="margin-top:10px">Si te equivocaste en una compra, avísale a Jorge para que la corrija.</p></div></section>`;
+}
+
+// ---- pantalla de gastos de Jorge
 function rGastos(){
   if(COPIA) return '<p class="note">La captura de gastos solo funciona en la app en vivo, con la caja prendida.</p>'+listaGastos();
-  const cats=CATS().map(c=>`<option>${esc(c)}</option>`).join('');
   const fj=GA().fijos, tf=fj.reduce((a,x)=>a+x.monto,0);
   const prev=gImp?parseLineas(gImp):null;
-  return `<div class="card"><h2>Capturar gasto o compra</h2>
-    <div class="field" style="margin-top:0"><label for="gF">Fecha</label><input type="date" id="gF" value="${cur}" max="${iso(new Date())}"></div>
-    <div class="field"><label for="gC">Tipo</label><select id="gC" class="msel" style="width:100%;height:44px">${cats}</select></div>
-    <div class="field"><label for="gN">Concepto</label><input id="gN" maxlength="80" placeholder="Ej. carne, verdura, recibo de luz" list="gNs"><datalist id="gNs">${[...new Set(GA().movs.map(m=>m.concepto))].slice(-40).map(c=>`<option value="${esc(c)}">`).join('')}</datalist></div>
-    <div class="field"><label for="gM">Monto</label><input id="gM" inputmode="decimal" placeholder="$0.00"></div>
-    <div class="field"><label for="gP">Proveedor (opcional)</label><input id="gP" maxlength="60" placeholder="Costco, mercado, CFE…"></div>
-    <div class="btns"><button class="btn pri" data-gsave="1" style="flex:1">Guardar gasto</button></div></div>
+  const provs=[...new Set(GA().movs.map(m=>m.proveedor).filter(Boolean))].slice(-60);
+  const conceptosF=[...new Set(['Luz','Agua','Gas',...fj.map(f=>f.concepto)])];
+  return formCompra({personas:null,provs,admin:true})+`
+  <div class="card"><h2>Acceso para cajeros <small>solo pueden capturar compras</small></h2>
+    ${ACCESO?`<p class="empty">En el teléfono del restaurante, conectado al WiFi del restaurante, abre:</p>
+      <div class="list" style="margin-top:6px">${ACCESO.ips.filter(ip=>!ip.startsWith('100.')).concat(ACCESO.ips.filter(ip=>ip.startsWith('100.'))).map(ip=>`<div class="item"><span><b class="num" style="user-select:all">http://${esc(ip)}:${ACCESO.puerto}/captura</b></span><span></span><span class="meta">${ip.startsWith('100.')?'Por Tailscale (si el teléfono tiene Tailscale)':'Por el WiFi del restaurante'}</span></div>`).join('')}</div>
+      <table class="ledger num" style="margin-top:10px"><tbody><tr><td>Usuario</td><td style="user-select:all">${esc(ACCESO.usuario)}</td></tr><tr><td>Contraseña</td><td style="user-select:all">${esc(ACCESO.contrasena)}</td></tr></tbody></table>
+      <p class="empty" style="margin-top:10px">Después de entrar, en el navegador toca "Agregar a pantalla de inicio" para que quede como app. Esta contraseña no abre tu panel, solo la captura.</p>`
+    :`<div class="btns" style="margin-top:0"><button class="btn" data-acceso="1">Ver dirección y contraseña</button></div>`}</div>
   <div class="card"><h2>Pegar gastos de Claude <small>de tus fotos de tickets</small></h2>
-    <p class="empty">Mándale a Claude la foto o captura del ticket y te dará renglones listos. Pégalos aquí: un gasto por renglón, así: <b style="color:var(--ink)">2026-10-07 | Insumos y compras | Carne | 1250.50 | Costco</b></p>
+    <p class="empty">Mándale a Claude la foto del ticket y te dará renglones listos. Pégalos aquí, un gasto por renglón: <b style="color:var(--ink)">2026-10-07 | Insumos y compras | Carne | 1250.50 | Costco | Restaurante</b></p>
     <div class="field"><textarea id="gT" rows="5" style="width:100%;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--ink);font:13px ui-monospace,Consolas,monospace;padding:10px">${esc(gImp||'')}</textarea></div>
     ${prev?`<p class="empty" style="margin-top:8px">${prev.out.length} gastos por ${fmt2(prev.out.reduce((a,m)=>a+m.monto,0))}${prev.mal.length?` · <b style="color:var(--bad)">${prev.mal.length} renglones no se entienden</b>`:''}</p>`:''}
     <div class="btns"><button class="btn" data-gprev="1">Revisar</button><button class="btn pri" data-gimp="1" ${prev&&prev.out.length&&!prev.mal.length?'':'disabled'}>Guardar ${prev&&prev.out.length?prev.out.length:''} gastos</button></div></div>
-  <div class="card"><h2>Gastos fijos del mes <small>${fmt(tf)} al mes</small></h2>
-    <p class="empty">Lo que pagas cada mes aunque no lo captures: sueldos, seguro social, luz, agua, gas. Se reparte por día en los resultados.</p>
+  <div class="card"><h2>Gastos fijos (promedio) <small>${fmt(tf)} al mes · ${fmt(tf*12/365)} por día</small></h2>
+    <p class="empty">Pon lo que pagas en promedio al mes. Se reparte por día. Cuando llegue el recibo real, regístralo abajo y se ajusta solo para esos días.</p>
     <div id="fjL">${(fj.length?fj:[{concepto:'Sueldos',categoria:'Sueldos',monto:''},{concepto:'Seguro social',categoria:'Seguro social',monto:''},{concepto:'Luz',categoria:'Luz',monto:''},{concepto:'Agua',categoria:'Agua',monto:''},{concepto:'Gas',categoria:'Gas',monto:''}]).map(filaFijo).join('')}</div>
     <div class="btns"><button class="btn" data-fadd="1">+ Agregar renglón</button><button class="btn pri" data-fsave="1">Guardar fijos</button></div></div>
+  <div class="card"><h2>Ajuste con recibo real <small>luz, agua, gas…</small></h2>
+    <div class="field" style="margin-top:0"><label for="rcC">¿Qué recibo?</label><select id="rcC" class="msel" style="width:100%;height:44px">${conceptosF.map(c=>`<option>${esc(c)}</option>`).join('')}</select></div>
+    <div class="dates"><label>Del <input type="date" id="rcD"></label><label>al <input type="date" id="rcH"></label></div>
+    <div class="field"><label for="rcM">Monto del recibo</label><input id="rcM" inputmode="decimal" placeholder="$0.00"></div>
+    <div class="field"><label>Foto del recibo (opcional)</label><div class="btns" style="margin-top:4px"><label class="btn">📷 Foto<input type="file" accept="image/*" id="rcFoto" hidden></label><span class="empty" id="rcFotoOk"></span></div></div>
+    <div class="btns"><button class="btn pri" data-rcsave="1">Guardar recibo</button></div>
+    ${listaRecibos()}</div>
   ${listaGastos()}`;
 }
+let RCFOTO=null;
 function filaFijo(x){return `<div class="fj" style="display:grid;grid-template-columns:1fr 110px 34px;gap:6px;margin-top:8px">
   <input class="fjN" value="${esc(x.concepto||'')}" placeholder="Concepto" style="height:40px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--ink);padding:0 10px;font:14px var(--body);min-width:0">
   <input class="fjM" value="${x.monto||''}" inputmode="decimal" placeholder="$ al mes" style="height:40px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--ink);padding:0 10px;font:14px var(--body);min-width:0;text-align:right">
   <button class="btn" data-fdel="1" aria-label="Quitar renglón" style="padding:0">×</button>
-  <select class="fjC" style="grid-column:1/-1;display:none">${CATS().map(c=>`<option ${c===(x.categoria||'Otros gastos')?'selected':''}>${esc(c)}</option>`).join('')}</select></div>`}
+  <select class="fjC" style="display:none">${CATS().map(c=>`<option ${c===(x.categoria||'Otros gastos')?'selected':''}>${esc(c)}</option>`).join('')}</select></div>`}
+const fijoMes=c=>{const f=GA().fijos.find(f=>f.concepto.toLowerCase()===String(c).toLowerCase());return f?f.monto:0};
+function listaRecibos(){
+  const R=GA().recibos.slice().sort((a,b)=>b.desde.localeCompare(a.desde));
+  if(!R.length) return '<p class="empty" style="margin-top:12px">Todavía no hay recibos registrados.</p>';
+  return `<div class="list" style="margin-top:14px">${R.map(r=>{const est=fijoMes(r.concepto)*12/365*diasEntre(r.desde,r.hasta),aj=r.monto-est;
+    return `<div class="item"><span>${esc(r.concepto)} <small style="color:var(--muted)">${corto(r.desde)} al ${corto(r.hasta)}</small></span><span class="num">${fmt2(r.monto)}</span>
+    <span class="meta">${est?`Estimado ${fmt(est)} · ajuste <b style="color:${aj>0?'var(--bad)':'var(--good)'}">${aj>=0?'+':'−'}${fmt(Math.abs(aj))}</b>`:'Sin promedio para comparar'}${r.foto?` · <a href="/foto/${esc(r.foto)}" target="_blank" style="color:var(--green-2)">ver foto</a>`:''}${COPIA?'':` · <a href="#" data-rcdel="${esc(r.id)}" style="color:var(--bad)">borrar</a>`}</span></div>`}).join('')}</div>`;
+}
 function listaGastos(){
-  const L=GA().movs.filter(m=>m.fecha>=rDesde&&m.fecha<=rHasta).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  const L0=GA().movs.filter(m=>m.fecha>=rDesde&&m.fecha<=rHasta);
+  const L=L0.filter(m=>gNeg==='todos'||(m.negocio||'Restaurante')===gNeg).sort((a,b)=>(b.fecha+(b.capturado||'')).localeCompare(a.fecha+(a.capturado||'')));
   const by={};L.forEach(m=>(by[m.categoria]=by[m.categoria]||[]).push(m));
+  const tN=n=>L0.filter(m=>(m.negocio||'Restaurante')===n).reduce((a,m)=>a+m.monto,0);
+  const ivaT=L.reduce((a,m)=>a+(m.iva||0),0);
+  // salidas de MrTienda vs compras capturadas pagadas con efectivo de la caja
+  const ds=days.filter(d=>d>=rDesde&&d<=rHasta);
+  const cmp=ds.map(d=>{const mt=(DATA.detalle[d].salidas||[]).filter(e=>e.cat==='Gastos y compras').reduce((a,e)=>a+e.importe,0);
+    const cp=GA().movs.filter(m=>m.fecha===d&&m.pago==='Efectivo de la caja').reduce((a,m)=>a+m.monto,0);return {d,mt,cp}}).filter(x=>x.mt||x.cp);
+  const item=m=>`<div class="ditem"><span>${esc(m.proveedor||m.concepto)}${m.proveedor&&m.concepto&&m.concepto!==m.proveedor?' · '+esc(m.concepto):''} <span class="pill ${m.negocio==='Cafetería'?'gold':'mut'}">${esc(m.negocio||'Restaurante')}</span>
+    <small>${corto(m.fecha)}${m.ticket?' · ticket '+esc(m.ticket):''}${m.subtotal!=null?' · subtotal '+fmt2(m.subtotal)+' + IVA '+fmt2(m.iva):''}${m.pago?' · '+esc(m.pago):''}${m.quien?' · '+esc(m.quien):''}${m.foto?` · <a href="/foto/${esc(m.foto)}" target="_blank" style="color:var(--green-2)">ver foto</a>`:''}${COPIA?'':` · <a href="#" data-gdel="${esc(m.id)}" style="color:var(--bad)">borrar</a>`}</small></span><span class="num">${fmt2(m.monto)}</span></div>`;
   return `<div class="card">${selectorFechas('r',rDesde,rHasta)}</div>
-  <div class="card"><h2>Gastos capturados <small>${L.length} · ${fmt2(L.reduce((a,m)=>a+m.monto,0))}</small></h2>
-  ${L.length?`<div class="dtab">${Object.entries(by).sort((a,b)=>b[1].reduce((x,m)=>x+m.monto,0)-a[1].reduce((x,m)=>x+m.monto,0)).map(([c,ms])=>fila(esc(c),fmt2(ms.reduce((x,m)=>x+m.monto,0)),ms.map(m=>`<div class="ditem"><span>${esc(m.concepto)}<small>${corto(m.fecha)}${m.proveedor?' · '+esc(m.proveedor):''}${COPIA?'':` · <a href="#" data-gdel="${esc(m.id)}" style="color:var(--bad)">borrar</a>`}</small></span><span class="num">${fmt2(m.monto)}</span></div>`).join(''),ms.length)).join('')}</div>`:'<p class="empty">No hay gastos capturados en estas fechas.</p>'}</div>`;
+  <div class="kpis"><div class="kpi"><b class="num">${fmt(tN('Restaurante'))}</b><span>Restaurante</span></div><div class="kpi"><b class="num" style="color:var(--gold)">${fmt(tN('Cafetería'))}</b><span>Cafetería</span></div></div>
+  <div class="card"><h2>Compras y gastos capturados <small>${L.length} · ${fmt2(L.reduce((a,m)=>a+m.monto,0))}${ivaT?' · IVA '+fmt2(ivaT):''}</small></h2>
+  ${segBtns('gneg',[['todos','Todos'],['Restaurante','Restaurante'],['Cafetería','Cafetería']],gNeg)}<div style="height:8px"></div>
+  ${L.length?`<div class="dtab">${Object.entries(by).sort((a,b)=>b[1].reduce((x,m)=>x+m.monto,0)-a[1].reduce((x,m)=>x+m.monto,0)).map(([c,ms])=>fila(esc(c),fmt2(ms.reduce((x,m)=>x+m.monto,0)),ms.map(item).join(''),ms.length)).join('')}</div>`:'<p class="empty">No hay gastos capturados en estas fechas.</p>'}</div>
+  <div class="card"><h2>Caja de MrTienda vs capturado <small>compras pagadas con efectivo de la caja</small></h2>
+    ${cmp.length?(()=>{const tm=cmp.reduce((a,x)=>a+x.mt,0),tc=cmp.reduce((a,x)=>a+x.cp,0),malos=cmp.filter(x=>Math.abs(x.mt-x.cp)>20).length;
+      return `<table class="ledger num"><tbody><tr><td>Salidas de caja en MrTienda</td><td>${fmt2(tm)}</td></tr><tr><td>Compras capturadas pagadas de la caja</td><td>${fmt2(tc)}</td></tr>
+      <tr class="tot"><td>${Math.abs(tm-tc)<=20?'Cuadra':(tm>tc?'Falta capturar':'Capturado de más')}</td><td>${fmt2(Math.abs(tm-tc))}</td></tr></tbody></table>
+      <details class="drow" style="margin-top:8px"><summary><span>Día por día <small>(${malos} días no cuadran)</small></span><span></span></summary>`})()+`<div class="tscroll"><table class="tk num"><thead><tr><th>Día</th><th class="r">MrTienda</th><th class="r">Capturado</th><th class="r">Diferencia</th></tr></thead><tbody>
+    ${cmp.map(x=>{const df=x.mt-x.cp;return `<tr><td>${corto(x.d)}</td><td class="r">${fmt(x.mt)}</td><td class="r">${fmt(x.cp)}</td><td class="r" style="color:${Math.abs(df)<=20?'var(--good)':'var(--bad)'}">${Math.abs(df)<=20?'Cuadra':(df>0?'Falta capturar ':'Sobra ')+fmt(Math.abs(df))}</td></tr>`}).join('')}</tbody></table></div></details>`:'<p class="empty">Sin compras de caja en estas fechas.</p>'}
+    <p class="empty" style="margin-top:10px">MrTienda solo cuenta aquí las salidas tipo "Gastos y compras"; vales, retiros, propinas y cambios de turno van aparte. Si "Falta capturar", alguien sacó dinero de la caja para comprar y no subió el ticket.</p></div>`;
+}
+function costoFijos(a,b){
+  const R=GA().recibos, fj=GA().fijos, cons=[...new Set([...fj.map(f=>f.concepto),...R.filter(r=>r.hasta>=a&&r.desde<=b).map(r=>r.concepto)])];
+  return cons.map(c=>{const est=fijoMes(c)*12/365, rs=R.filter(r=>r.concepto.toLowerCase()===c.toLowerCase());let tot=0,real=0;
+    for(let d=a;d<=b;d=shift(d,1)){const r=rs.find(r=>d>=r.desde&&d<=r.hasta);if(r){const v=r.monto/diasEntre(r.desde,r.hasta);tot+=v;real++}else tot+=est}
+    const f=fj.find(f=>f.concepto.toLowerCase()===c.toLowerCase());
+    return {concepto:c,categoria:f?f.categoria:(CATS().find(x=>x.toLowerCase()===c.toLowerCase())||'Otros gastos'),parte:tot,mes:fijoMes(c),real}});
 }
 function rResultados(){
   if(rDesde>rHasta){const t=rDesde;rDesde=rHasta;rHasta=t}
   const n=diasEntre(rDesde,rHasta);
   const D=RD.diario.filter(x=>x.fecha>=rDesde&&x.fecha<=rHasta);
   const venta=D.reduce((a,x)=>a+x.total,0), plat=D.reduce((a,x)=>a+(x.plat||0),0), vMT=venta-plat;
-  const movs=GA().movs.filter(m=>m.fecha>=rDesde&&m.fecha<=rHasta);
+  const movsAll=GA().movs.filter(m=>m.fecha>=rDesde&&m.fecha<=rHasta);
+  const movs=movsAll.filter(m=>(m.negocio||'Restaurante')==='Restaurante'), cafe=movsAll.filter(m=>m.negocio==='Cafetería');
   const ins=movs.filter(m=>m.categoria==='Insumos y compras'), otros=movs.filter(m=>m.categoria!=='Insumos y compras');
   const caja=[];days.filter(d=>d>=rDesde&&d<=rHasta).forEach(d=>(DATA.detalle[d].salidas||[]).forEach(e=>{if(e.cat==='Gastos y compras')caja.push({...e,d})}));
   const sm=a=>a.reduce((x,m)=>x+(m.monto??m.importe??0),0);
   const compras=sm(ins)+(cajaG?sm(caja):0), bruta=venta-compras;
-  // fijos prorrateados por día
-  const fj=GA().fijos.map(f=>({...f,parte:f.monto*12/365*n}));
+  const fj=costoFijos(rDesde,rHasta);
   const tFij=fj.reduce((a,f)=>a+f.parte,0), tOtr=sm(otros), util=bruta-tFij-tOtr;
   const nom=fj.filter(f=>/Sueldos|Seguro social/.test(f.categoria)).reduce((a,f)=>a+f.parte,0)+otros.filter(m=>/Sueldos|Seguro social/.test(m.categoria)).reduce((a,m)=>a+m.monto,0);
   const p=v=>venta?(100*v/venta).toFixed(1)+'%':'—';
-  const sinDet=rDesde<days[0];
   const ln=(a,b,c)=>linea(a,b,c);
+  const ivaA=ins.concat(otros).reduce((a,m)=>a+(m.iva||0),0);
   return `<div class="card">${selectorFechas('r',rDesde,rHasta)}</div>
-  <div class="hero" style="padding:18px"><div class="lbl">Resultado del periodo · ${n} días</div><div class="big num" style="font-size:40px;color:${util<0?'#ffb4ab':'#fff'}">${util<0?'−':''}${fmt(Math.abs(util))}</div>
+  <div class="hero" style="padding:18px"><div class="lbl">Resultado del restaurante · ${n} días</div><div class="big num" style="font-size:40px;color:${util<0?'#ffb4ab':'#fff'}">${util<0?'−':''}${fmt(Math.abs(util))}</div>
     <div class="cmp"><span>Margen ${p(util)}</span><span>Insumos ${p(compras)}</span><span>Nómina ${p(nom)}</span></div></div>
   <div class="card"><h2>Estado de resultados <small>${corto(rDesde)} al ${corto(rHasta)}</small></h2><div class="dtab">
     ${fila('Ventas',fmt2(venta),ln('Ventas en MrTienda',fmt2(vMT))+(incPlat?ln('Didi y Uber (cuentas quitadas)',fmt2(plat)):'')+ln('La comida de la familia no cuenta como venta','—'))}
-    ${fila('− Insumos y compras',fmt2(compras),ins.map(m=>ln(esc(m.concepto),fmt2(m.monto),corto(m.fecha)+(m.proveedor?' · '+esc(m.proveedor):'')+' · capturado')).join('')+(cajaG?caja.map(e=>ln(esc(e.ref),fmt2(e.importe),corto(e.d)+' · pagado de la caja')).join(''):''),ins.length+(cajaG?caja.length:0))}
+    ${fila('− Insumos y compras',fmt2(compras),ins.map(m=>ln(esc(m.proveedor||m.concepto),fmt2(m.monto),corto(m.fecha)+(m.ticket?' · ticket '+esc(m.ticket):'')+' · capturado')).join('')+(cajaG?caja.map(e=>ln(esc(e.ref),fmt2(e.importe),corto(e.d)+' · salida de caja MrTienda')).join(''):''),ins.length+(cajaG?caja.length:0))}
     ${fijo('Utilidad bruta',fmt2(bruta),'tot')}
-    ${fila('− Gastos fijos (proporción de '+n+' días)',fmt2(tFij),fj.map(f=>ln(esc(f.concepto),fmt2(f.parte),fmt(f.monto)+' al mes')).join(''),fj.length)}
-    ${fila('− Otros gastos capturados',fmt2(tOtr),otros.map(m=>ln(esc(m.concepto),fmt2(m.monto),corto(m.fecha)+' · '+esc(m.categoria))).join(''),otros.length)}
+    ${fila('− Gastos fijos ('+n+' días)',fmt2(tFij),fj.map(f=>ln(esc(f.concepto),fmt2(f.parte),(f.real?f.real+' de '+n+' días con recibo real':'promedio')+(f.mes?' · '+fmt(f.mes)+' al mes':''))).join(''),fj.length)}
+    ${fila('− Otros gastos capturados',fmt2(tOtr),otros.map(m=>ln(esc(m.proveedor||m.concepto),fmt2(m.monto),corto(m.fecha)+' · '+esc(m.categoria))).join(''),otros.length)}
     ${fijo('Utilidad de operación',(util<0?'−':'')+fmt2(Math.abs(util)),'tot')}</div>
-    <div class="seg" style="margin-top:12px"><button data-cajag="1" aria-pressed="${cajaG}">${cajaG?'✓ ':''}Contar compras pagadas de la caja</button></div>
-    <p class="empty" style="margin-top:10px">Las compras pagadas de la caja salen de MrTienda (salidas tipo "Gastos y compras"). Si también las capturas a mano, apaga esta opción para no contarlas doble. No se cuentan propinas, vales, retiros ni pagos al personal de la caja.${sinDet?' Las compras de la caja solo están disponibles desde el '+corto(days[0])+'.':''}</p></div>
+    ${cafe.length?`<p class="empty" style="margin-top:10px">Compras de la cafetería en estas fechas: <b style="color:var(--ink)">${fmt2(sm(cafe))}</b>. No se restan aquí porque son de la cafetería.</p>`:''}
+    <div class="seg" style="margin-top:12px"><button data-cajag="1" aria-pressed="${cajaG}">${cajaG?'✓ ':''}Sumar también salidas de caja de MrTienda</button></div>
+    <p class="empty" style="margin-top:10px">Apagado (lo normal): solo cuenta lo que capturan en el módulo de compras, para no contar doble. Préndelo solo en días en que no se capturó nada.</p></div>
   <div class="card"><h2>Indicadores</h2><table class="ledger num"><tbody>
     <tr><td>Insumos como % de la venta <small style="color:var(--muted)">(sano: 30–35%)</small></td><td>${p(compras)}</td></tr>
     <tr><td>Nómina y seguro social como % de la venta <small style="color:var(--muted)">(sano: 25–30%)</small></td><td>${p(nom)}</td></tr>
     <tr><td>Gastos fijos por día</td><td>${fmt(tFij/n)}</td></tr>
     <tr><td>Venta por día</td><td>${fmt(venta/n)}</td></tr>
-    <tr><td>Venta diaria para no perder <small style="color:var(--muted)">(punto de equilibrio)</small></td><td>${venta&&bruta>0?fmt((tFij+tOtr)/n/(bruta/venta)):'—'}</td></tr></tbody></table>
-    <p class="empty" style="margin-top:10px">Es un resultado aproximado: toma las compras como si fueran lo que se consumió. Para afinarlo después se agrega el inventario inicial y final.</p></div>`;
+    <tr><td>Venta diaria para no perder <small style="color:var(--muted)">(punto de equilibrio)</small></td><td>${venta&&bruta>0?fmt((tFij+tOtr)/n/(bruta/venta)):'—'}</td></tr>
+    ${ivaA?`<tr><td>IVA de las compras capturadas <small style="color:var(--muted)">(posible acreditable)</small></td><td>${fmt2(ivaA)}</td></tr>`:''}</tbody></table>
+    <p class="empty" style="margin-top:10px">Ventas y compras se comparan con IVA incluido. Es un resultado aproximado: toma las compras como lo que se consumió; después se puede agregar el inventario inicial y final.</p></div>`;
+}
+async function guardarGasto(t,d){
+  try{
+    if(t.tagName==='BUTTON'){t.disabled=true}
+    if(d.gimp){const {out}=parseLineas($('#gT').value);await api('/api/gastos',{accion:'agregar',movs:out});gImp=null;toast(out.length+' gastos guardados')}
+    else if(d.gdel){if(!confirm('¿Borrar este gasto?')){t.disabled=false;return}await api('/api/gastos',{accion:'borrar',id:d.gdel});toast('Gasto borrado')}
+    else if(d.rcdel){if(!confirm('¿Borrar este recibo?')){t.disabled=false;return}await api('/api/gastos',{accion:'borrar_recibo',id:d.rcdel});toast('Recibo borrado')}
+    else if(d.rcsave){const monto=money($('#rcM').value);if(!$('#rcD').value||!$('#rcH').value) throw new Error('Pon de qué día a qué día cubre el recibo.');if(!(monto>0)) throw new Error('Escribe el monto del recibo.');
+      await api('/api/gastos',{accion:'recibo',recibo:{concepto:$('#rcC').value,desde:$('#rcD').value,hasta:$('#rcH').value,monto},foto:RCFOTO});RCFOTO=null;toast('Recibo guardado; ya se ajustaron esos días')}
+    else if(d.fsave){const fijos=[...document.querySelectorAll('#fjL .fj')].map(r=>({concepto:r.querySelector('.fjN').value,monto:r.querySelector('.fjM').value,categoria:CATS().find(c=>c.toLowerCase()===r.querySelector('.fjN').value.trim().toLowerCase())||r.querySelector('.fjC').value}));
+      await api('/api/gastos',{accion:'fijos',fijos});toast('Gastos fijos guardados')}
+    else if(d.fcsave){await guardarCompra(t,true);toast('Guardado')}
+    await cargar(true);
+  }catch(err){toast(err.message);if(t.tagName==='BUTTON'){t.disabled=false;if(d.fcsave)t.textContent='Guardar'}}
 }
 
 // ---------- quitar cuenta / cambiar motivo
@@ -828,18 +956,6 @@ function abrirHoja(o){
     }catch(err){b.disabled=false;b.textContent='Intentar de nuevo';toast(err.message)}
   });
 }
-async function guardarGasto(t,d){
-  try{
-    if(t.tagName==='BUTTON'){t.disabled=true}
-    if(d.gsave){const monto=parseFloat(($('#gM').value||'').replace(/[$,\s]/g,''));if(!(monto>0)) throw new Error('Escribe el monto.');
-      await api('/api/gastos',{accion:'agregar',mov:{fecha:$('#gF').value,categoria:$('#gC').value,concepto:$('#gN').value,monto,proveedor:$('#gP').value}});toast('Gasto guardado')}
-    else if(d.gimp){const {out}=parseLineas($('#gT').value);await api('/api/gastos',{accion:'agregar',movs:out});gImp=null;toast(out.length+' gastos guardados')}
-    else if(d.gdel){if(!confirm('¿Borrar este gasto?')) return;await api('/api/gastos',{accion:'borrar',id:d.gdel});toast('Gasto borrado')}
-    else if(d.fsave){const fijos=[...document.querySelectorAll('#fjL .fj')].map(r=>({concepto:r.querySelector('.fjN').value,monto:r.querySelector('.fjM').value,categoria:CATS().find(c=>c.toLowerCase()===r.querySelector('.fjN').value.trim().toLowerCase())||r.querySelector('.fjC').value}));
-      await api('/api/gastos',{accion:'fijos',fijos});toast('Gastos fijos guardados')}
-    await cargar(true);
-  }catch(err){toast(err.message);if(t.tagName==='BUTTON')t.disabled=false}
-}
 function cerrarHoja(){const el=$('#sheet');if(el)el.remove()}
 function toast(t){const o=document.createElement('div');o.className='toast';o.textContent=t;document.body.appendChild(o);setTimeout(()=>o.remove(),3200)}
 function csvQuitadas(g){
@@ -869,7 +985,7 @@ $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(b)irA(b.dataset.tab)};
 $('#view').addEventListener('click',e=>{
-  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gsave],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave]');if(!t)return;
+  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel]');if(!t)return;
   const d=t.dataset;
   if(d.go) return irA(d.go);
   if(d.pm){prodModo=d.pm;return render()} if(d.pt){prodT=d.pt;return render()}
@@ -886,7 +1002,11 @@ $('#view').addEventListener('click',e=>{
   if(d.gprev){gImp=$('#gT').value;return render()}
   if(d.fadd){$('#fjL').insertAdjacentHTML('beforeend',filaFijo({}));return}
   if(d.fdel){t.closest('.fj').remove();return}
-  if(d.gsave||d.gimp||d.gdel||d.fsave){e.preventDefault();guardarGasto(t,d);return}
+  if(d.fc){const k=d.fc;let v=d.v;if(k==='tasa')v=v==='null'?null:+v;FC[k]=v;fcRerender();return}
+  if(d.gneg){gNeg=d.gneg;return render()}
+  if(d.acceso){fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;render()}).catch(err=>toast(err.message));return}
+  if(d.fcsave&&CAPMODE){e.preventDefault();guardarCompra(t,false).then(()=>{toast('Compra guardada');return cargarCaptura()}).catch(err=>{toast(err.message);t.disabled=false;t.textContent='Guardar'});return}
+  if(d.gimp||d.gdel||d.fsave||d.fcsave||d.rcsave||d.rcdel){e.preventDefault();guardarGasto(t,d);return}
   if(d.ct2){cmpTodos=!cmpTodos;return render()}
   if(d.mes){e.preventDefault();mesSel=d.mes;render();window.scrollTo(0,0);return}
   if(d.quitar!=null){e.preventDefault();const a=(DATA.abiertas||[])[+d.quitar];if(a)abrirHoja({modo:'quitar',archivo:a.archivo,ref:a.ref??a.mesa,cuenta:a.mesa,total:a.total});return}
@@ -895,6 +1015,17 @@ $('#view').addEventListener('click',e=>{
 $('#view').addEventListener('change',e=>{const id=e.target.id,v=e.target.value;if(!v)return;
   if(id==='pD'){pDesde=v;render()}else if(id==='pH'){pHasta=v;render()}else if(id==='rD'){rDesde=v;render()}else if(id==='rH'){rHasta=v;render()}else if(id==='rMes'){mesSel=v;render()}else if(id==='cA'){cmpA=v;render()}else if(id==='cB'){cmpB=v;render()}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')cerrarHoja()});
+function fcRerender(){
+  const ids=['fcProv','fcTk','fcCon','fcF','fcM','fcQ','fcCat'],vals={};ids.forEach(i=>{const el=document.getElementById(i);if(el)vals[i]=el.value});
+  const card=$('#fcCard');if(!card)return;card.outerHTML=formCompra(FCCTX);
+  ids.forEach(i=>{const el=document.getElementById(i);if(el&&vals[i]!=null)el.value=vals[i]});$('#fcRes').innerHTML=fcResumen();
+}
+$('#view').addEventListener('input',e=>{if(e.target.id==='fcM'){const r=$('#fcRes');if(r)r.innerHTML=fcResumen()}});
+$('#view').addEventListener('change',async e=>{
+  const id=e.target.id;
+  if(id==='fcFoto'||id==='fcFoto2'||id==='rcFoto'){const f=e.target.files&&e.target.files[0];if(!f)return;
+    try{const u=await comprimir(f);if(id==='rcFoto'){RCFOTO=u;$('#rcFotoOk').textContent='✓ Foto lista'}else{FC.foto=u;$('#fcPrev').innerHTML=`<img src="${u}" alt="Foto del ticket" style="max-width:100%;max-height:220px;border-radius:12px;border:1px solid var(--line)">`}}catch(err){toast(err.message)}}
+});
 
 function hm(s){return new Date(s).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}
 async function cargar(force){
@@ -914,7 +1045,16 @@ async function cargar(force){
     if(!$('#sheet')&&(force||primera||!(tab==='reportes'&&repModo==='gastos'))) render();
   }catch(e){$('#live').classList.add('off');$('#gen').textContent='Sin conexión';$('#note').hidden=false;$('#note').textContent='No pude conectarme con la computadora de la caja. Revisa que esté encendida, con internet y con Tailscale activo. ('+e.message+')'}
 }
-cargar(); if(!COPIA) setInterval(cargar,120000);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!COPIA)cargar()});
+const CAPMODE=!COPIA&&location.pathname.startsWith('/captura');
+if(CAPMODE){
+  document.title='Compras Holandesa';document.querySelector('link[rel=manifest]').href='/manifest-caja.webmanifest';
+  document.querySelector('.datebar').hidden=true;document.querySelector('nav.tabs').hidden=true;document.querySelector('footer').hidden=true;
+  document.querySelector('.brand h1').innerHTML='La Holandesa <span style="display:inline">· Compras</span>';
+  document.querySelector('.wrap').style.paddingBottom='40px';
+  cargarCaptura();
+}else{
+  cargar(); if(!COPIA) setInterval(cargar,120000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!COPIA)cargar()});
+}
 </script>
 </body></html>
