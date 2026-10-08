@@ -748,6 +748,9 @@ function bloqueManual(){
     ${FC.manual.length||L?`<p class="empty" id="fcSuma" style="margin-top:6px">Suma de productos: <b style="color:var(--ink)">${fmt2(sm)}</b>${v>0?(Math.abs(sm-v)<=1?' · <span style="color:var(--good)">✓ cuadra con el importe</span>':' de '+fmt2(v)):''}</p>`:''}`;
 }
 const iaActiva=()=>CAPMODE?!!(CAP&&CAP.ia):!!(DATA&&DATA.ia&&DATA.ia.activa);
+const driveActivo=()=>CAPMODE?!!(CAP&&CAP.drive):!!(DATA&&DATA.drive&&DATA.drive.conectado);
+const fotoUrl=m=>m.foto_drive?'https://drive.google.com/file/d/'+encodeURIComponent(m.foto_drive)+'/view':(m.foto?'/foto/'+m.foto:'');
+let DSCRIPT=null;
 function fcCalc(){
   const v=money(document.getElementById('fcM')?.value), t=FC.tasa, L=FC.lect;
   if(!(v>0)) return {total:0,sub:0,iva:0};
@@ -775,8 +778,8 @@ function formCompra(ctx){FCCTX=ctx;const {provs,admin}=ctx;
   return `<div class="card" id="fcCard"><h2>${admin?'Capturar compra o gasto':'Compra del día'}<small>${admin?'':esc(CAP&&CAP.nombre||'')}</small></h2>
     <div class="field" style="margin-top:0"><label>¿Para qué negocio?</label>${chips('negocio',NEGS.map(n=>[n,n]),FC.negocio)}</div>
     <div class="field"><label for="fcM">1. Importe que se pagó</label><input id="fcM" inputmode="decimal" placeholder="$0.00" style="font-size:22px;font-weight:700;height:52px"></div>
-    <div class="field"><label>2. Foto del ticket${iaActiva()?' (se lee y se borra; no se guarda)':''}</label>
-      ${iaActiva()?`<div class="btns" style="margin-top:4px"><label class="btn pri" style="flex:1.4;padding:13px">📷 Tomar foto<input type="file" accept="image/*" capture="environment" id="fcFoto" hidden></label><label class="btn" style="flex:1">🖼 Galería<input type="file" accept="image/*" id="fcFoto2" hidden></label></div>`
+    <div class="field"><label>2. Foto del ticket${iaActiva()&&driveActivo()?' (se lee sola y se guarda en el Drive de Jorge)':iaActiva()?' (se lee y se borra; no se guarda)':driveActivo()?' (se guarda en el Drive de Jorge)':''}</label>
+      ${iaActiva()||driveActivo()?`<div class="btns" style="margin-top:4px"><label class="btn pri" style="flex:1.4;padding:13px">📷 Tomar foto<input type="file" accept="image/*" capture="environment" id="fcFoto" hidden></label><label class="btn" style="flex:1">🖼 Galería<input type="file" accept="image/*" id="fcFoto2" hidden></label></div>`
       :'<p class="empty" style="margin-top:4px">La lectura de fotos todavía no está activada. Escribe los productos a mano abajo.</p>'}
       <div id="fcPrev" style="margin-top:8px">${FC.foto?`<img src="${FC.foto}" alt="Foto del ticket" style="max-width:100%;max-height:200px;border-radius:12px;border:1px solid var(--line)">`:''}</div>
       <div id="fcLect">${bloqueLectura()}</div></div>
@@ -876,7 +879,31 @@ function tarjetasCajeros(){
   <div class="card"><h2>Lectura automática de tickets <small>${ia.activa?'<span class="pill good">Activa</span>':'<span class="pill mut">Apagada</span>'}</small></h2>
     <p class="empty">Cuando el cajero toma la foto, Claude lee el ticket: proveedor, número, IVA y cada producto, y lo compara con el importe capturado. La foto se usa solo para leerla y se descarta: no queda guardada en la computadora, solo los datos. Necesita tu llave de la API de Claude (console.anthropic.com), que se guarda solo en la computadora de la caja.</p>
     <div class="field"><input id="iaK" type="password" autocomplete="off" placeholder="${ia.activa?'Llave guardada · pega otra para cambiarla':'Pega aquí tu llave (sk-ant-…)'}"></div>
-    <div class="btns"><button class="btn pri" data-iasave="1">Guardar llave</button>${ia.activa?'<button class="btn" data-iaquitar="1">Quitar llave</button>':''}${ia.activa&&pend?`<button class="btn" data-leerpend="1">Leer ${pend} fotos pendientes</button>`:''}</div></div>`;
+    <div class="btns"><button class="btn pri" data-iasave="1">Guardar llave</button>${ia.activa?'<button class="btn" data-iaquitar="1">Quitar llave</button>':''}${ia.activa&&pend?`<button class="btn" data-leerpend="1">Leer ${pend} fotos pendientes</button>`:''}</div></div>
+  ${tarjetaDrive()}`;
+}
+function tarjetaDrive(){
+  const dv=DATA.drive||{}, nf=GA().movs.filter(m=>m.foto_drive).length;
+  if(dv.conectado) return `<div class="card"><h2>Fotos en Google Drive <small><span class="pill good">Conectado</span></small></h2>
+    <p class="empty">Las fotos de los tickets se guardan en tu Google Drive, en la carpeta "Fotos de tickets - La Holandesa", nunca en la computadora. "Ver foto" las abre con tu cuenta de Google.</p>
+    <table class="ledger num" style="margin-top:10px"><tbody><tr><td>Compras con foto en tu Drive</td><td>${nf}</td></tr><tr><td>Último borrado</td><td>${dv.ultimo_borrado?corto(dv.ultimo_borrado):'—'}</td></tr></tbody></table>
+    <div class="seg" style="margin-top:12px"><button data-drmes="1" aria-pressed="${dv.mensual}">${dv.mensual?'✓ ':''}Borrar todas las fotos el día 1 de cada mes</button></div>
+    <div class="btns"><button class="btn danger" data-drborrar="1">Borrar todas las fotos ahora</button><button class="btn" data-drquitar="1">Desconectar</button></div>
+    <p class="empty" style="margin-top:10px">Al borrar, las fotos se eliminan de tu Drive definitivamente (si agregaste el servicio "Drive API"; si no, van a la papelera de Drive y Google las quita a los 30 días). Los datos de las compras se quedan; solo se quitan las fotos.</p></div>`;
+  return `<div class="card"><h2>Fotos en Google Drive <small><span class="pill mut">Sin conectar</span></small></h2>
+    <p class="empty">Para guardar las fotos de los tickets en tu Google Drive (en la nube, no en la computadora). Hazlo una vez, de preferencia desde una computadora:</p>
+    <ol style="margin:10px 0 0;padding-left:20px;font-size:14px;line-height:1.55">
+      <li>Entra a <b>script.google.com</b> con tu cuenta de Google y toca <b>Nuevo proyecto</b>.</li>
+      <li>Borra lo que trae y pega el programa de abajo (botón <b>Copiar programa</b>).</li>
+      <li>A la izquierda, en <b>Servicios</b>, toca <b>＋</b>, elige <b>Drive API</b> y <b>Agregar</b>. Así el borrado es definitivo.</li>
+      <li>Guarda (💾). Arriba elige la función <b>autorizar</b> y toca <b>Ejecutar</b>. Acepta los permisos; si Google dice que la app no está verificada, toca <b>Configuración avanzada</b> y <b>Ir a…</b>. La app es tuya.</li>
+      <li>Toca <b>Implementar → Nueva implementación</b>, tipo <b>Aplicación web</b>. "Ejecutar como": <b>Yo</b>. "Quién tiene acceso": <b>Cualquier usuario</b>. Toca <b>Implementar</b> y copia la dirección que termina en <b>/exec</b>.</li>
+      <li>Pégala aquí abajo y toca <b>Conectar</b>.</li></ol>
+    ${DSCRIPT?`<textarea readonly id="drS" rows="6" style="width:100%;margin-top:12px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--ink);font:12px ui-monospace,Consolas,monospace;padding:10px">${esc(DSCRIPT)}</textarea>
+      <div class="btns"><button class="btn" data-drcopiar="1">Copiar programa</button></div>`:`<div class="btns"><button class="btn" data-drver="1">Ver el programa</button></div>`}
+    <div class="field"><input id="drU" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"></div>
+    <div class="btns"><button class="btn pri" data-drconectar="1">Conectar</button></div>
+    <p class="empty" style="margin-top:10px">El programa trae una clave secreta: solo tu computadora de la caja puede subir o borrar fotos en esa carpeta. Las fotos quedan privadas en tu Drive.</p></div>`;
 }
 const noCoincide=m=>m.lectura&&m.lectura.legible&&m.lectura.total>0&&Math.abs(m.lectura.total-m.monto)>1;
 
@@ -900,7 +927,7 @@ function rCompras(){
     ${IL.length?`<div class="dtab">${IL.map(o=>fila(`${esc(o.n)} <small>${q(o.q)} ${esc(o.u)}</small>`,fmt2(o.t),o.L.sort((a,b)=>b.fecha.localeCompare(a.fecha)).map(i=>linea(`${corto(i.fecha)} · ${esc(i.prov||'')}`,fmt2(i.importe),`${q(i.cantidad)} ${esc(i.unidad)}${i.precio_unitario?' × '+fmt2(i.precio_unitario):''} · ${esc(i.descripcion)}`)).join('')+linea('<b>Precio promedio</b>',o.q?fmt2(o.t/o.q)+' por '+esc(o.u):'—'),o.L.length)).join('')}${fijo('Total de productos leídos',fmt2(tIns),'tot')}</div>`
       :`<p class="empty">${iaActiva()?'Todavía no hay tickets leídos en estas fechas.':'Los productos aparecen cuando se activa la lectura automática de tickets (Reportes → Gastos).'}</p>`}</div>
   ${sube.length?`<div class="card"><h2>Precios que subieron <small>vs la compra anterior al mismo proveedor</small></h2><div class="list">${sube.slice(0,20).map(x=>`<div class="item"><span>${esc(x.n)} <span class="pill bad">+${Math.round(x.d*100)}%</span></span><span class="num">${fmt2(x.p)}</span><span class="meta">${esc(x.pr||'')} · antes ${fmt2(x.antes)} (${corto(x.fa)}) → ${corto(x.f)} · por ${esc(x.u)}</span></div>`).join('')}</div></div>`:''}
-  ${mal.length?`<div class="card"><h2>No coinciden <small>importe capturado vs ticket</small></h2><div class="list">${mal.map(m=>`<div class="item"><span>${esc(m.proveedor||'')} <span class="pill bad">${fmt2(Math.abs(m.lectura.total-m.monto))} ${m.lectura.total>m.monto?'de menos':'de más'}</span></span><span class="num">${fmt2(m.monto)}</span><span class="meta">${corto(m.fecha)} · ${esc(m.quien||'')} capturó ${fmt2(m.monto)}, el ticket dice ${fmt2(m.lectura.total)}${m.foto?` · <a href="/foto/${esc(m.foto)}" target="_blank" style="color:var(--green-2)">ver foto</a>`:''}</span></div>`).join('')}</div></div>`:''}`;
+  ${mal.length?`<div class="card"><h2>No coinciden <small>importe capturado vs ticket</small></h2><div class="list">${mal.map(m=>`<div class="item"><span>${esc(m.proveedor||'')} <span class="pill bad">${fmt2(Math.abs(m.lectura.total-m.monto))} ${m.lectura.total>m.monto?'de menos':'de más'}</span></span><span class="num">${fmt2(m.monto)}</span><span class="meta">${corto(m.fecha)} · ${esc(m.quien||'')} capturó ${fmt2(m.monto)}, el ticket dice ${fmt2(m.lectura.total)}${fotoUrl(m)?` · <a href="${esc(fotoUrl(m))}" target="_blank" rel="noopener" style="color:var(--green-2)">ver foto</a>`:''}</span></div>`).join('')}</div></div>`:''}`;
 }
 
 // ---- pantalla de gastos de Jorge
@@ -954,7 +981,7 @@ function listaGastos(){
   const cmp=ds.map(d=>{const mt=(DATA.detalle[d].salidas||[]).filter(e=>e.cat==='Gastos y compras').reduce((a,e)=>a+e.importe,0);
     const cp=GA().movs.filter(m=>m.fecha===d&&m.pago==='Efectivo de la caja').reduce((a,m)=>a+m.monto,0);return {d,mt,cp}}).filter(x=>x.mt||x.cp);
   const item=m=>`<div class="ditem"><span>${esc(m.proveedor||m.concepto)}${m.proveedor&&m.concepto&&m.concepto!==m.proveedor?' · '+esc(m.concepto):''} <span class="pill ${m.negocio==='Cafetería'?'gold':'mut'}">${esc(m.negocio||'Restaurante')}</span>
-    ${noCoincide(m)?` <span class="pill bad">Ticket dice ${fmt2(m.lectura.total)}</span>`:''}<small>${corto(m.fecha)}${m.items&&m.items.length?' · '+m.items.length+' productos':''}${m.ticket?' · ticket '+esc(m.ticket):''}${m.subtotal!=null?' · subtotal '+fmt2(m.subtotal)+' + IVA '+fmt2(m.iva):''}${m.pago?' · '+esc(m.pago):''}${m.quien?' · '+esc(m.quien):''}${m.foto?` · <a href="/foto/${esc(m.foto)}" target="_blank" style="color:var(--green-2)">ver foto</a>`:''}${COPIA?'':` · <a href="#" data-gdel="${esc(m.id)}" style="color:var(--bad)">borrar</a>`}</small></span><span class="num">${fmt2(m.monto)}</span></div>`;
+    ${noCoincide(m)?` <span class="pill bad">Ticket dice ${fmt2(m.lectura.total)}</span>`:''}<small>${corto(m.fecha)}${m.items&&m.items.length?' · '+m.items.length+' productos':''}${m.ticket?' · ticket '+esc(m.ticket):''}${m.subtotal!=null?' · subtotal '+fmt2(m.subtotal)+' + IVA '+fmt2(m.iva):''}${m.pago?' · '+esc(m.pago):''}${m.quien?' · '+esc(m.quien):''}${fotoUrl(m)?` · <a href="${esc(fotoUrl(m))}" target="_blank" rel="noopener" style="color:var(--green-2)">ver foto</a>`:''}${COPIA?'':` · <a href="#" data-gdel="${esc(m.id)}" style="color:var(--bad)">borrar</a>`}</small></span><span class="num">${fmt2(m.monto)}</span></div>`;
   return `<div class="card">${selectorFechas('r',rDesde,rHasta)}</div>
   <div class="kpis"><div class="kpi"><b class="num">${fmt(tN('Restaurante'))}</b><span>Restaurante</span></div><div class="kpi"><b class="num" style="color:var(--gold)">${fmt(tN('Cafetería'))}</b><span>Cafetería</span></div></div>
   <div class="card"><h2>Compras y gastos capturados <small>${L.length} · ${fmt2(L.reduce((a,m)=>a+m.monto,0))}${ivaT?' · IVA '+fmt2(ivaT):''}</small></h2>
@@ -1021,6 +1048,10 @@ async function accionAdmin(t,d){
     else if(d.cjbaja){if(!confirm('¿Dar de baja a este cajero? Su clave dejará de funcionar.')){t.disabled=false;return}await api('/api/cajeros',{accion:'baja',id:d.cjbaja});toast('Dado de baja')}
     else if(d.iasave){await api('/api/ia',{llave:$('#iaK').value});toast('Llave guardada; la lectura automática está activa')}
     else if(d.iaquitar){if(!confirm('¿Quitar la llave? Se apaga la lectura automática.')){t.disabled=false;return}await api('/api/ia',{quitar:true});toast('Llave quitada')}
+    else if(d.drconectar){t.textContent='Probando…';await api('/api/drive',{accion:'guardar',url:$('#drU').value});toast('Google Drive conectado')}
+    else if(d.drquitar){if(!confirm('¿Desconectar Google Drive? Las fotos que ya están en tu Drive se quedan ahí.')){t.disabled=false;return}await api('/api/drive',{accion:'quitar'});toast('Desconectado')}
+    else if(d.drmes){await api('/api/drive',{accion:'mensual',activo:!(DATA.drive&&DATA.drive.mensual)});toast('Listo')}
+    else if(d.drborrar){if(!confirm('¿Borrar TODAS las fotos de tickets de tu Google Drive? No se pueden recuperar.')){t.disabled=false;return}t.textContent='Borrando…';const j=await api('/api/drive',{accion:'borrar'});toast(j.borradas+' fotos borradas'+(j.papelera?' (a la papelera de Drive)':''))}
     else if(d.leerpend){t.textContent='Leyendo… puede tardar';const j=await api('/api/leer-pendientes',{});toast(j.leidos+' tickets leídos'+(j.errores?' · '+j.errores+' con error':'')+(j.faltan?' · faltan '+j.faltan:''))}
     await cargar(true);
   }catch(err){toast(err.message);if(t.tagName==='BUTTON')t.disabled=false}
@@ -1100,7 +1131,7 @@ $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(b)irA(b.dataset.tab)};
 $('#view').addEventListener('click',e=>{
-  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-iasave],[data-iaquitar],[data-leerpend]');if(!t)return;
+  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-iasave],[data-iaquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes]');if(!t)return;
   const d=t.dataset;
   if(d.go) return irA(d.go);
   if(d.pm){prodModo=d.pm;return render()} if(d.pt){prodT=d.pt;return render()}
@@ -1122,7 +1153,9 @@ $('#view').addEventListener('click',e=>{
   if(d.login){entrar();return}
   if(d.madd){FC.manual.push({unidad:'pz'});$('#fcMan').innerHTML=bloqueManual();const r=document.querySelectorAll('#fcMan .mrow');r[r.length-1].querySelector('input').focus();return}
   if(d.mdel!=null){FC.manual.splice(+d.mdel,1);$('#fcMan').innerHTML=bloqueManual();return}
-  if(d.cjalta||d.cjbaja||d.iasave||d.iaquitar||d.leerpend){e.preventDefault();accionAdmin(t,d);return}
+  if(d.drver){fetch('/api/drive-script',{credentials:'same-origin'}).then(r=>r.text()).then(t=>{DSCRIPT=t;render()}).catch(err=>toast(err.message));return}
+  if(d.drcopiar){const ta=$('#drS');ta.select();(navigator.clipboard?navigator.clipboard.writeText(ta.value):Promise.reject()).then(()=>toast('Programa copiado')).catch(()=>{document.execCommand('copy');toast('Programa copiado')});return}
+  if(d.cjalta||d.cjbaja||d.iasave||d.iaquitar||d.leerpend||d.drconectar||d.drquitar||d.drborrar||d.drmes){e.preventDefault();accionAdmin(t,d);return}
   if(d.acceso){fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;render()}).catch(err=>toast(err.message));return}
   if(d.fcsave&&CAPMODE){e.preventDefault();guardarCompra(t,false).then(()=>{toast('Compra guardada ✓');window.scrollTo(0,0);return cargarCaptura()}).catch(err=>{toast(err.message);t.disabled=false;t.textContent='Guardar'});return}
   if(d.gimp||d.gdel||d.fsave||d.fcsave||d.rcsave||d.rcdel){e.preventDefault();guardarGasto(t,d);return}

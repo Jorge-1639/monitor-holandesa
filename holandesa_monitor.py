@@ -13,8 +13,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 28            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '25.2'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 29            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '25.3'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -71,6 +71,7 @@ def load_config():
     if not cfg.get('contrasena_caja'):
         cfg['contrasena_caja'] = ''.join(secrets.choice('23456789') for _ in range(6))
         log('Se generó la contraseña de cajeros; está en config.json')
+    if not cfg.get('drive_secreto'): cfg['drive_secreto'] = secrets.token_urlsafe(24)
     if not cfg.get('contrasena'):
         cfg['contrasena'] = secrets.token_urlsafe(6)
         log('Se generó una contraseña nueva; está en config.json')
@@ -155,6 +156,44 @@ def denom(ref, q, tc):
     m = re.search(r'([\d.]+)', r)
     try: return float(m.group(1)) * q if m else 0
     except ValueError: return 0
+
+# ---------------------------------------------------------------- programa para Google Drive (Apps Script que pega Jorge en su cuenta)
+SCRIPT_DRIVE = r'''// Fotos de tickets de La Holandesa en tu Google Drive.
+// Solo la computadora de la caja que conoce esta clave puede subir o borrar fotos.
+const SECRETO = '{SECRETO}';
+const CARPETA = 'Fotos de tickets - La Holandesa';
+
+function carpeta_() {
+  const it = DriveApp.getFoldersByName(CARPETA);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(CARPETA);
+}
+
+function doPost(e) {
+  let r;
+  try {
+    const d = JSON.parse(e.postData.contents);
+    if (d.secreto !== SECRETO) throw new Error('no autorizado');
+    if (d.accion === 'subir') {
+      const blob = Utilities.newBlob(Utilities.base64Decode(d.datos), 'image/jpeg', d.nombre || 'ticket.jpg');
+      r = { ok: true, id: carpeta_().createFile(blob).getId() };
+    } else if (d.accion === 'borrar') {
+      const it = carpeta_().getFiles(); let n = 0, papelera = 0;
+      while (it.hasNext()) {
+        const f = it.next();
+        try { Drive.Files.remove(f.getId()); } catch (x) { f.setTrashed(true); papelera++; }
+        n++;
+      }
+      r = { ok: true, borradas: n, papelera: papelera };
+    } else if (d.accion === 'probar') {
+      r = { ok: true, carpeta: carpeta_().getName() };
+    } else throw new Error('acción no válida');
+  } catch (err) { r = { ok: false, error: String(err && err.message || err) }; }
+  return ContentService.createTextOutput(JSON.stringify(r)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// Ejecuta esta función una vez desde el editor para dar los permisos.
+function autorizar() { carpeta_(); }
+'''
 
 # ---------------------------------------------------------------- cajeros y lectura de tickets: utilidades
 SESIONES = {}   # token -> (nombre, vence)
@@ -718,6 +757,55 @@ class Monitor:
         with open(os.path.join(FOTOS_DIR, nom), 'wb') as f: f.write(raw)
         return nom
 
+    # ------------------------------------------------ fotos en Google Drive (nunca en el disco de la computadora)
+    def _drive(self, cuerpo, timeout=60):
+        url = self.cfg.get('drive_url')
+        if not url: raise RuntimeError('Google Drive no está conectado.')
+        cuerpo = dict(cuerpo, secreto=self.cfg.get('drive_secreto'))
+        req = urllib.request.Request(url, data=json.dumps(cuerpo).encode('utf-8'), method='POST', headers={'Content-Type': 'application/json'})
+        with urllib.request.urlopen(req, timeout=timeout) as r: txt = r.read().decode('utf-8', 'ignore')
+        try: j = json.loads(txt)
+        except ValueError: raise RuntimeError('Google Drive no respondió bien. Revisa que la dirección sea la de la "aplicación web" y que el acceso sea "Cualquier usuario".')
+        if not j.get('ok'): raise RuntimeError('Google Drive: ' + str(j.get('error') or 'error'))
+        return j
+
+    def subir_foto_drive(self, mid, b64, nombre):
+        """Sube la foto a Drive en segundo plano y anota el id en la compra. La foto solo vive en memoria."""
+        def tarea():
+            try:
+                datos = b64.split(',', 1)[1] if ',' in b64[:80] else b64
+                j = self._drive({'accion': 'subir', 'nombre': nombre, 'datos': datos}, timeout=120)
+                with self.q_lock:
+                    with open(GASTOS_FILE, encoding='utf-8') as f: g = json.load(f)
+                    for m in g.get('movs', []):
+                        if m.get('id') == mid: m['foto_drive'] = j.get('id')
+                    self._guardar_gastos(g)
+                self.refresh()
+            except Exception as e:
+                log('No pude subir la foto a Google Drive: ' + str(e))
+        threading.Thread(target=tarea, daemon=True).start()
+
+    def borrar_fotos_drive(self, motivo='manual'):
+        j = self._drive({'accion': 'borrar'}, timeout=300)
+        with self.q_lock:
+            try:
+                with open(GASTOS_FILE, encoding='utf-8') as f: g = json.load(f)
+                for m in g.get('movs', []): m.pop('foto_drive', None)
+                self._guardar_gastos(g)
+            except (OSError, ValueError): pass
+        self.cfg['drive_ultimo_borrado'] = datetime.date.today().isoformat()
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f: json.dump(self.cfg, f, ensure_ascii=False, indent=2)
+        log(f"Fotos de Google Drive borradas ({motivo}): {j.get('borradas', 0)}" + (' (a la papelera)' if j.get('papelera') else ''))
+        self.refresh()
+        return {'ok': True, 'borradas': j.get('borradas', 0), 'papelera': j.get('papelera', 0)}
+
+    def borrado_mensual(self):
+        if not (self.cfg.get('drive_url') and self.cfg.get('drive_mensual')): return
+        hoy = datetime.date.today(); ult = str(self.cfg.get('drive_ultimo_borrado') or '')
+        if hoy.day == 1 and ult[:7] != hoy.isoformat()[:7]:
+            try: self.borrar_fotos_drive('automático del mes')
+            except Exception as e: log('No pude hacer el borrado mensual de fotos: ' + str(e))
+
     def borrar_fotos(self):
         """Quita de la computadora cualquier foto guardada antes y las referencias a ellas."""
         if self.cfg.get('guardar_fotos', False): return
@@ -754,8 +842,12 @@ class Monitor:
             m['id'] = ahora.strftime('%Y%m%d%H%M%S') + '-' + str(len(g['movs']))
             m['capturado'] = ahora.isoformat(timespec='seconds'); m['origen'] = origen
             m['foto'] = self.guardar_foto(m['id'], d.get('foto'))
+            subir = bool(d.get('foto') and self.cfg.get('drive_url'))
             g['movs'].append(m); self._guardar_gastos(g)
         log(f"Compra capturada ({origen}): {m['proveedor'] or m['concepto']} {m['monto']:.2f} · {m['negocio']}")
+        if subir:
+            nom = f"{m['fecha']} {m['proveedor'] or m['concepto']} {m['monto']:.2f} {m['id']}.jpg"
+            self.subir_foto_drive(m['id'], d.get('foto'), re.sub(r'[\\/:*?"<>|]', '', nom))
         self.refresh()
         return {'ok': True, 'id': m['id']}
 
@@ -764,7 +856,7 @@ class Monitor:
         g = self.gastos()
         provs = collections.Counter(m.get('proveedor') for m in g['movs'] if m.get('proveedor'))
         return {'ok': True, 'version': VERSION_TXT, 'hoy': hoy, 'categorias': CATEGORIAS_GASTO, 'negocios': NEGOCIOS, 'pagos': PAGOS,
-                'ia': bool(self.cfg.get('ia_llave')), 'insumos': self.catalogo_insumos(),
+                'ia': bool(self.cfg.get('ia_llave')), 'drive': bool(self.cfg.get('drive_url')), 'insumos': self.catalogo_insumos(),
                 'proveedores': [p for p, _ in provs.most_common(60)],
                 'hoy_lista': [{k: m.get(k) for k in ('fecha', 'proveedor', 'concepto', 'monto', 'negocio', 'quien', 'capturado', 'ticket')}
                               for m in g['movs'] if m.get('fecha') == hoy and m.get('origen') == 'caja']}
@@ -854,6 +946,7 @@ class Monitor:
         out['gastos'] = self.gastos(); out['categorias_gasto'] = CATEGORIAS_GASTO
         out['cajeros'] = [{'id': x['id'], 'nombre': x['nombre'], 'activo': x.get('activo', True), 'alta': x.get('alta', '')} for x in self.cajeros()]
         out['ia'] = {'activa': bool(self.cfg.get('ia_llave')), 'modelo': self.cfg.get('ia_modelo') or IA_MODELO}
+        out['drive'] = {'conectado': bool(self.cfg.get('drive_url')), 'mensual': bool(self.cfg.get('drive_mensual')), 'ultimo_borrado': self.cfg.get('drive_ultimo_borrado') or ''}
         # suelta de la memoria los archivos que ya no se leyeron en esta vuelta
         vivos = self._touched
         self.cache = {k: v for k, v in list(self.cache.items()) if k[0] in vivos}
@@ -900,7 +993,7 @@ class Monitor:
 
     def loop(self):
         while True:
-            try: self.refresh(); self.guardar_copia()
+            try: self.refresh(); self.guardar_copia(); self.borrado_mensual()
             except Exception as e:
                 self.error = str(e); log('ERROR ' + traceback.format_exc())
             time.sleep(max(30, float(self.cfg['minutos_actualizacion']) * 60))
@@ -957,7 +1050,7 @@ def make_handler(mon, cfg):
                     body = json.dumps({'ok': False, 'error': str(e)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(403); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
             if not self._auth(caja_ok=(self.path in ('/api/compra', '/api/leer-ticket'))): return
-            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/ia', '/api/leer-pendientes'): self.send_response(404); self.end_headers(); return
+            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/ia', '/api/leer-pendientes', '/api/drive'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return
             try:
@@ -969,6 +1062,21 @@ def make_handler(mon, cfg):
                 elif self.path == '/api/leer-ticket': out={'ok': True, 'lectura': mon.leer_ticket(d.get('foto') or '')}
                 elif self.path == '/api/cajeros': out=mon.cajero_accion(d)
                 elif self.path == '/api/leer-pendientes': out=mon.leer_pendientes()
+                elif self.path == '/api/drive':
+                    acc = d.get('accion')
+                    if acc == 'guardar':
+                        url = str(d.get('url') or '').strip()
+                        if not re.match(r'^https://script\.google\.com/macros/s/[A-Za-z0-9_-]+/exec$', url): raise ValueError('Esa no parece la dirección de la aplicación web (debe empezar con https://script.google.com/macros/s/ y terminar en /exec).')
+                        cfg['drive_url'] = url
+                        try: mon._drive({'accion': 'probar'})
+                        except Exception: cfg.pop('drive_url', None); raise
+                    elif acc == 'quitar': cfg.pop('drive_url', None)
+                    elif acc == 'mensual': cfg['drive_mensual'] = bool(d.get('activo'))
+                    elif acc == 'borrar': out = mon.borrar_fotos_drive()
+                    else: raise ValueError('Acción no válida.')
+                    if acc != 'borrar':
+                        with open(CONFIG_FILE, 'w', encoding='utf-8') as f: json.dump(cfg, f, ensure_ascii=False, indent=2)
+                        mon.cfg = cfg; mon.refresh(); out = {'ok': True}
                 elif self.path == '/api/ia':
                     llave = str(d.get('llave') or '').strip()
                     if d.get('quitar'): cfg.pop('ia_llave', None)
@@ -1000,6 +1108,9 @@ def make_handler(mon, cfg):
             if p0 == '/icon.png' and icon_png and self.headers.get('Authorization'):
                 return self._send(icon_png, 'image/png')
             if not self._auth(): return
+            if p0 == '/api/drive-script':
+                body = SCRIPT_DRIVE.replace('{SECRETO}', cfg['drive_secreto']).encode('utf-8')
+                return self._send(body, 'text/plain; charset=utf-8')
             if p0 == '/api/acceso':
                 body = json.dumps({'ok': True, 'puerto': cfg['puerto'], 'ips': ips_locales()}, ensure_ascii=False).encode('utf-8')
                 return self._send(body, 'application/json; charset=utf-8')
