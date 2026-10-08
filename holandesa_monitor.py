@@ -13,8 +13,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 30            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '25.4'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 31            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '25.5'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -42,7 +42,7 @@ Reglas: los montos son números en pesos sin signos. "total" es lo que se pagó.
 "insumo" agrupa productos iguales de distintas marcas (por ejemplo "LECHE LALA ENTERA 1L" es "Leche"; "QUESO OAXACA KG" es "Queso oaxaca"). Usa de preferencia uno de estos nombres si corresponde: {catalogo}.
 Si no se puede leer, responde {"legible": false}.'''
 NEGOCIOS = ['Restaurante', 'Cafetería']
-PAGOS = ['Efectivo de la caja', 'Tarjeta o transferencia', 'Otro']
+PAGOS = ['Efectivo de la caja', 'Tarjeta o transferencia', 'A crédito', 'Otro']
 CATEGORIAS_GASTO = ['Insumos y compras', 'Sueldos', 'Seguro social', 'Luz', 'Agua', 'Gas', 'Renta', 'Mantenimiento', 'Comisiones', 'Otros gastos']
 RESPALDO_CUENTAS = os.path.join(AQUI, 'respaldos_cuentas')   # fuera de _respaldo: las actualizaciones no lo borran
 MOTIVOS = ['Familia', 'Didi · efectivo', 'Didi · tarjeta', 'Uber · efectivo', 'Uber · tarjeta', 'Error de captura', 'Otro', 'Sin clasificar']
@@ -625,7 +625,7 @@ class Monitor:
         os.replace(tmp, GASTOS_FILE)
 
     def _limpia_mov(self, m):
-        fecha = str(m.get('fecha') or '')[:10]
+        fecha = str(m.get('fecha') or '')[:10] or datetime.date.today().isoformat()
         datetime.date.fromisoformat(fecha)
         cat = m.get('categoria') if m.get('categoria') in CATEGORIAS_GASTO else 'Otros gastos'
         monto = round(float(str(m.get('monto')).replace('$', '').replace(',', '')), 2)

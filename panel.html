@@ -707,7 +707,7 @@ function rCompara(){
 let cajaG=st.cajaG2===true, gImp=null, gNeg='todos', ACCESO=null;
 const CATS=()=>DATA&&DATA.categorias_gasto||(CAP&&CAP.categorias)||['Insumos y compras','Sueldos','Seguro social','Luz','Agua','Gas','Renta','Mantenimiento','Comisiones','Otros gastos'];
 const GA=()=>{const g=DATA.gastos||{};return {movs:g.movs||[],fijos:g.fijos||[],recibos:g.recibos||[]}};
-const NEGS=['Restaurante','Cafetería'], PAGOS=['Efectivo de la caja','Tarjeta o transferencia','Otro'];
+const NEGS=['Restaurante','Cafetería'], PAGOS=['Efectivo de la caja','Tarjeta o transferencia','A crédito','Otro'];
 async function api(url,body){
   const h={'Content-Type':'application/json','X-Holandesa-Action':'1'};if(CAPMODE)h['X-Caja-Token']=capTok();
   const r=await fetch(url,{method:'POST',headers:h,body:JSON.stringify(body),credentials:'same-origin'});
@@ -912,7 +912,7 @@ let rcIns=null;
 function rCompras(){
   const M=GA().movs.filter(m=>m.categoria==='Insumos y compras'&&m.fecha>=rDesde&&m.fecha<=rHasta&&(gNeg==='todos'||(m.negocio||'Restaurante')===gNeg));
   const tot=M.reduce((a,m)=>a+m.monto,0), conItems=M.filter(m=>m.items&&m.items.length), mal=M.filter(noCoincide);
-  const prov={};M.forEach(m=>{const k=m.proveedor||'Sin proveedor';const o=prov[k]=prov[k]||{t:0,n:0};o.t+=m.monto;o.n++});
+  const prov={};M.forEach(m=>{const k=m.proveedor||'Sin proveedor';const o=prov[k]=prov[k]||{t:0,n:0,c:0};o.t+=m.monto;o.n++;if(m.pago==='A crédito')o.c+=m.monto});
   const ins={};conItems.forEach(m=>m.items.forEach(i=>{const k=(i.insumo||i.descripcion||'Otro')+'|'+(i.unidad||'pz');const o=ins[k]=ins[k]||{n:i.insumo||i.descripcion||'Otro',u:i.unidad||'pz',q:0,t:0,L:[]};
     o.q+=i.cantidad||0;o.t+=i.importe||0;o.L.push({...i,fecha:m.fecha,prov:m.proveedor,foto:m.foto})}));
   const IL=Object.values(ins).sort((a,b)=>b.t-a.t), tIns=IL.reduce((a,o)=>a+o.t,0);
@@ -921,8 +921,8 @@ function rCompras(){
   const sube=Object.values(hist).map(L=>{L.sort((a,b)=>a.f.localeCompare(b.f));const u=L[L.length-1],a=L.slice(0,-1).reverse().find(x=>x.p!==u.p);return a&&u.f>=rDesde?{...u,antes:a.p,fa:a.f,d:(u.p-a.p)/a.p}:null}).filter(x=>x&&x.d>0.03).sort((a,b)=>b.d-a.d);
   const q=v=>(Math.round(v*100)/100).toLocaleString('es-MX');
   return `<div class="card">${selectorFechas('r',rDesde,rHasta)}<div style="height:8px"></div>${segBtns('gneg',[['todos','Todos'],['Restaurante','Restaurante'],['Cafetería','Cafetería']],gNeg)}</div>
-  <div class="kpis"><div class="kpi"><b class="num">${fmt(tot)}</b><span>compras · ${M.length} tickets</span></div><div class="kpi"><b class="num" style="color:${mal.length?'var(--bad)':'var(--good)'}">${mal.length}</b><span>no coinciden con el ticket</span></div></div>
-  <div class="card"><h2>Por proveedor</h2>${M.length?bars(Object.entries(prov).sort((a,b)=>b[1].t-a[1].t).map(([n,o])=>({n,v:o.t,vs:fmt2(o.t),sub:o.n+(o.n===1?' compra':' compras')+' · '+pct(o.t,tot)}))):'<p class="empty">No hay compras en estas fechas.</p>'}</div>
+  <div class="kpis"><div class="kpi"><b class="num">${fmt(tot)}</b><span>compras · ${M.length} tickets${M.some(m=>m.pago==='A crédito')?' · '+fmt(M.filter(m=>m.pago==='A crédito').reduce((a,m)=>a+m.monto,0))+' a crédito':''}</span></div><div class="kpi"><b class="num" style="color:${mal.length?'var(--bad)':'var(--good)'}">${mal.length}</b><span>no coinciden con el ticket</span></div></div>
+  <div class="card"><h2>Por proveedor</h2>${M.length?bars(Object.entries(prov).sort((a,b)=>b[1].t-a[1].t).map(([n,o])=>({n,v:o.t,vs:fmt2(o.t),sub:o.n+(o.n===1?' compra':' compras')+' · '+pct(o.t,tot)+(o.c?' · <b style="color:var(--warn)">'+fmt2(o.c)+' a crédito</b>':'')}))):'<p class="empty">No hay compras en estas fechas.</p>'}</div>
   <div class="card"><h2>Por insumo <small>${IL.length} insumos · ${conItems.length} de ${M.length} tickets leídos</small></h2>
     ${IL.length?`<div class="dtab">${IL.map(o=>fila(`${esc(o.n)} <small>${q(o.q)} ${esc(o.u)}</small>`,fmt2(o.t),o.L.sort((a,b)=>b.fecha.localeCompare(a.fecha)).map(i=>linea(`${corto(i.fecha)} · ${esc(i.prov||'')}`,fmt2(i.importe),`${q(i.cantidad)} ${esc(i.unidad)}${i.precio_unitario?' × '+fmt2(i.precio_unitario):''} · ${esc(i.descripcion)}`)).join('')+linea('<b>Precio promedio</b>',o.q?fmt2(o.t/o.q)+' por '+esc(o.u):'—'),o.L.length)).join('')}${fijo('Total de productos leídos',fmt2(tIns),'tot')}</div>`
       :`<p class="empty">${iaActiva()?'Todavía no hay tickets leídos en estas fechas.':'Los productos aparecen cuando se activa la lectura automática de tickets (Reportes → Gastos).'}</p>`}</div>
