@@ -868,7 +868,7 @@ function tarjetasCajeros(){
   const C=(DATA.cajeros||[]).filter(c=>c.activo), ia=DATA.ia||{};
   const pend=GA().movs.filter(m=>m.foto&&!(m.items&&m.items.length)&&!(m.lectura&&m.lectura.intentado)).length;
   return `<div class="card"><h2>Cajeros <small>${C.length} con acceso</small></h2>
-    ${C.length?`<div class="list">${C.map(c=>`<div class="item"><span>${esc(c.nombre)}</span><span><a href="#" data-cjbaja="${esc(c.id)}" style="color:var(--bad);font-size:13px">Dar de baja</a></span><span class="meta">Alta ${c.alta?corto(c.alta.slice(0,10)):''}</span></div>`).join('')}</div>`:'<p class="empty">Todavía no das de alta a nadie.</p>'}
+    ${C.length?`<div class="list">${C.map(c=>`<div class="item"><span>${esc(c.nombre)}</span><span style="font-size:13px;white-space:nowrap"><a href="#" data-cjclave="${esc(c.id)}" style="color:var(--green-2)">Cambiar clave</a> · <a href="#" data-cjbaja="${esc(c.id)}" style="color:var(--bad)">Dar de baja</a></span><span class="meta">Alta ${c.alta?corto(c.alta.slice(0,10)):''}</span></div>`).join('')}</div>`:'<p class="empty">Todavía no das de alta a nadie.</p>'}
     <div style="display:grid;grid-template-columns:1fr 110px;gap:8px;margin-top:12px">
       <input id="cjN" maxlength="40" placeholder="Nombre" style="height:44px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--ink);padding:0 12px;font:15px var(--body);min-width:0">
       <input id="cjP" inputmode="numeric" maxlength="6" placeholder="Clave" style="height:44px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--ink);padding:0 12px;font:15px var(--body);min-width:0;text-align:center;letter-spacing:.2em"></div>
@@ -1045,6 +1045,8 @@ async function accionAdmin(t,d){
   try{
     if(t.tagName==='BUTTON')t.disabled=true;
     if(d.cjalta){await api('/api/cajeros',{accion:'alta',nombre:$('#cjN').value,pin:$('#cjP').value});toast('Cajero dado de alta')}
+    else if(d.cjclave){const c=(DATA.cajeros||[]).find(x=>x.id===d.cjclave);const pin=prompt('Nueva clave para '+(c?c.nombre:'el cajero')+' (4 a 6 números):');if(!pin){t.disabled=false;return}
+      await api('/api/cajeros',{accion:'clave',id:d.cjclave,pin:pin.trim()});toast('Clave cambiada. La anterior ya no sirve.')}
     else if(d.cjbaja){if(!confirm('¿Dar de baja a este cajero? Su clave dejará de funcionar.')){t.disabled=false;return}await api('/api/cajeros',{accion:'baja',id:d.cjbaja});toast('Dado de baja')}
     else if(d.iasave){await api('/api/ia',{llave:$('#iaK').value});toast('Llave guardada; la lectura automática está activa')}
     else if(d.iaquitar){if(!confirm('¿Quitar la llave? Se apaga la lectura automática.')){t.disabled=false;return}await api('/api/ia',{quitar:true});toast('Llave quitada')}
@@ -1131,7 +1133,7 @@ $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(b)irA(b.dataset.tab)};
 $('#view').addEventListener('click',e=>{
-  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-iasave],[data-iaquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes]');if(!t)return;
+  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-iasave],[data-iaquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes]');if(!t)return;
   const d=t.dataset;
   if(d.go) return irA(d.go);
   if(d.pm){prodModo=d.pm;return render()} if(d.pt){prodT=d.pt;return render()}
@@ -1155,7 +1157,7 @@ $('#view').addEventListener('click',e=>{
   if(d.mdel!=null){FC.manual.splice(+d.mdel,1);$('#fcMan').innerHTML=bloqueManual();return}
   if(d.drver){fetch('/api/drive-script',{credentials:'same-origin'}).then(r=>r.text()).then(t=>{DSCRIPT=t;render()}).catch(err=>toast(err.message));return}
   if(d.drcopiar){const ta=$('#drS');ta.select();(navigator.clipboard?navigator.clipboard.writeText(ta.value):Promise.reject()).then(()=>toast('Programa copiado')).catch(()=>{document.execCommand('copy');toast('Programa copiado')});return}
-  if(d.cjalta||d.cjbaja||d.iasave||d.iaquitar||d.leerpend||d.drconectar||d.drquitar||d.drborrar||d.drmes){e.preventDefault();accionAdmin(t,d);return}
+  if(d.cjalta||d.cjbaja||d.cjclave||d.iasave||d.iaquitar||d.leerpend||d.drconectar||d.drquitar||d.drborrar||d.drmes){e.preventDefault();accionAdmin(t,d);return}
   if(d.acceso){fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;render()}).catch(err=>toast(err.message));return}
   if(d.fcsave&&CAPMODE){e.preventDefault();guardarCompra(t,false).then(()=>{toast('Compra guardada ✓');window.scrollTo(0,0);return cargarCaptura()}).catch(err=>{toast(err.message);t.disabled=false;t.textContent='Guardar'});return}
   if(d.gimp||d.gdel||d.fsave||d.fcsave||d.rcsave||d.rcdel){e.preventDefault();guardarGasto(t,d);return}

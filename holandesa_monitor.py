@@ -13,8 +13,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 29            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '25.3'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 30            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '25.4'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -671,6 +671,14 @@ class Monitor:
             sal = secrets.token_hex(8)
             c.append({'id': secrets.token_hex(4), 'nombre': nombre, 'sal': sal, 'huella': huella_pin(sal, pin), 'activo': True,
                       'alta': datetime.datetime.now().isoformat(timespec='seconds')})
+        elif acc == 'clave':
+            pin = str(d.get('pin') or '').strip()
+            if not re.fullmatch(r'\d{4,6}', pin): raise ValueError('La clave debe ser de 4 a 6 números.')
+            x = next((x for x in c if x.get('id') == d.get('id') and x.get('activo')), None)
+            if not x: raise RuntimeError('No encontré a ese cajero.')
+            if any(o is not x and o.get('activo') and verifica_pin(o, pin) for o in c): raise ValueError('Esa clave ya la tiene otra persona. Usa otra.')
+            x['sal'] = secrets.token_hex(8); x['huella'] = huella_pin(x['sal'], pin); x['cambio_clave'] = datetime.datetime.now().isoformat(timespec='seconds')
+            for t in [t for t, v in SESIONES.items() if v[0] == x['nombre']]: SESIONES.pop(t, None)
         elif acc == 'baja':
             for x in c:
                 if x.get('id') == d.get('id'): x['activo'] = False; x['baja'] = datetime.datetime.now().isoformat(timespec='seconds')
