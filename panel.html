@@ -864,6 +864,19 @@ function pintarCaptura(){
 }
 
 // ---- cajeros y lectura automática (tarjetas en Gastos)
+let NUEVO_CJ=null;
+function bloqueAcceso(){
+  const wifi=ACCESO.ips.filter(ip=>!ip.startsWith('100.')), ts=ACCESO.ips.filter(ip=>ip.startsWith('100.'));
+  const url=wifi.length?`http://${wifi[0]}:${ACCESO.puerto}/captura`:'';
+  if(!url) return `<p class="note" style="margin-top:12px">No pude saber la dirección de la computadora de la caja en el WiFi del restaurante. Avísale a Claude.</p>`;
+  const quien=NUEVO_CJ||'';
+  const msg=`Hola${quien?' '+quien:''}. Para capturar las compras del día:\n1. Conecta tu teléfono al WiFi del restaurante.\n2. Abre esta dirección: ${url}\n3. Entra con la clave que te di.\n4. En el navegador toca "Agregar a pantalla de inicio" para que te quede como app.`;
+  return `<div class="card" style="margin-top:12px;padding:14px;background:var(--green-soft);box-shadow:none;border-color:var(--green-3)">
+    <b>${quien?'Mándale esto a '+esc(quien):'Dirección para el teléfono del restaurante'}</b>
+    <p style="margin:8px 0;font-size:17px;font-weight:700;word-break:break-all;user-select:all" class="num">${esc(url)}</p>
+    <div class="btns" style="margin-top:6px"><a class="btn pri" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">Mandar por WhatsApp</a><button class="btn" data-cpurl="${esc(url)}">Copiar dirección</button></div>
+    <p class="empty" style="margin-top:8px">Funciona solo con el teléfono conectado al WiFi del restaurante. La clave no va en el mensaje; dásela tú en persona o aparte.${ts.length?` Tú, desde fuera, puedes probarla con Tailscale: http://${esc(ts[0])}:${ACCESO.puerto}/captura`:''}</p></div>`;
+}
 function tarjetasCajeros(){
   const C=(DATA.cajeros||[]).filter(c=>c.activo), ia=DATA.ia||{};
   const pend=GA().movs.filter(m=>m.foto&&!(m.items&&m.items.length)&&!(m.lectura&&m.lectura.intentado)).length;
@@ -873,8 +886,7 @@ function tarjetasCajeros(){
       <input id="cjN" maxlength="40" placeholder="Nombre" style="height:44px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--ink);padding:0 12px;font:15px var(--body);min-width:0">
       <input id="cjP" inputmode="numeric" maxlength="6" placeholder="Clave" style="height:44px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--ink);padding:0 12px;font:15px var(--body);min-width:0;text-align:center;letter-spacing:.2em"></div>
     <div class="btns"><button class="btn pri" data-cjalta="1">Dar de alta</button><button class="btn" data-acceso="1">Dirección para el teléfono</button></div>
-    ${ACCESO?`<div class="list" style="margin-top:12px">${ACCESO.ips.filter(ip=>!ip.startsWith('100.')).concat(ACCESO.ips.filter(ip=>ip.startsWith('100.'))).map(ip=>`<div class="item"><span><b class="num" style="user-select:all">http://${esc(ip)}:${ACCESO.puerto}/captura</b></span><span></span><span class="meta">${ip.startsWith('100.')?'Por Tailscale':'Por el WiFi del restaurante'}</span></div>`).join('')}</div>
-      <p class="empty" style="margin-top:8px">Ábrela en el teléfono del restaurante y toca "Agregar a pantalla de inicio". Cada quien entra con su clave; con esa clave solo pueden capturar compras del día.</p>`:''}
+    ${ACCESO?bloqueAcceso():''}
     <p class="empty" style="margin-top:10px">La clave es de 4 a 6 números y no se puede repetir. Si alguien se va, dale de baja y su clave deja de funcionar.</p></div>
   <div class="card"><h2>Lectura automática de tickets <small>${ia.activa?'<span class="pill good">Activa</span>':'<span class="pill mut">Apagada</span>'}</small></h2>
     <p class="empty">Cuando el cajero toma la foto, Claude lee el ticket: proveedor, número, IVA y cada producto, y lo compara con el importe capturado. La foto se usa solo para leerla y se descarta: no queda guardada en la computadora, solo los datos. Necesita tu llave de la API de Claude (console.anthropic.com), que se guarda solo en la computadora de la caja.</p>
@@ -1044,7 +1056,8 @@ function rResultados(){
 async function accionAdmin(t,d){
   try{
     if(t.tagName==='BUTTON')t.disabled=true;
-    if(d.cjalta){await api('/api/cajeros',{accion:'alta',nombre:$('#cjN').value,pin:$('#cjP').value});toast('Cajero dado de alta')}
+    if(d.cjalta){const nom=$('#cjN').value.trim();await api('/api/cajeros',{accion:'alta',nombre:nom,pin:$('#cjP').value});NUEVO_CJ=nom;
+      try{ACCESO=await (await fetch('/api/acceso',{credentials:'same-origin'})).json()}catch(e){}toast(nom+' dado de alta')}
     else if(d.cjclave){const c=(DATA.cajeros||[]).find(x=>x.id===d.cjclave);const pin=prompt('Nueva clave para '+(c?c.nombre:'el cajero')+' (4 a 6 números):');if(!pin){t.disabled=false;return}
       await api('/api/cajeros',{accion:'clave',id:d.cjclave,pin:pin.trim()});toast('Clave cambiada. La anterior ya no sirve.')}
     else if(d.cjbaja){if(!confirm('¿Dar de baja a este cajero? Su clave dejará de funcionar.')){t.disabled=false;return}await api('/api/cajeros',{accion:'baja',id:d.cjbaja});toast('Dado de baja')}
@@ -1133,7 +1146,7 @@ $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(b)irA(b.dataset.tab)};
 $('#view').addEventListener('click',e=>{
-  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-iasave],[data-iaquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes]');if(!t)return;
+  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-iasave],[data-iaquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes]');if(!t)return;
   const d=t.dataset;
   if(d.go) return irA(d.go);
   if(d.pm){prodModo=d.pm;return render()} if(d.pt){prodT=d.pt;return render()}
@@ -1158,7 +1171,8 @@ $('#view').addEventListener('click',e=>{
   if(d.drver){fetch('/api/drive-script',{credentials:'same-origin'}).then(r=>r.text()).then(t=>{DSCRIPT=t;render()}).catch(err=>toast(err.message));return}
   if(d.drcopiar){const ta=$('#drS');ta.select();(navigator.clipboard?navigator.clipboard.writeText(ta.value):Promise.reject()).then(()=>toast('Programa copiado')).catch(()=>{document.execCommand('copy');toast('Programa copiado')});return}
   if(d.cjalta||d.cjbaja||d.cjclave||d.iasave||d.iaquitar||d.leerpend||d.drconectar||d.drquitar||d.drborrar||d.drmes){e.preventDefault();accionAdmin(t,d);return}
-  if(d.acceso){fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;render()}).catch(err=>toast(err.message));return}
+  if(d.cpurl){(navigator.clipboard?navigator.clipboard.writeText(d.cpurl):Promise.reject()).then(()=>toast('Dirección copiada')).catch(()=>toast(d.cpurl));return}
+  if(d.acceso){NUEVO_CJ=null;fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;render()}).catch(err=>toast(err.message));return}
   if(d.fcsave&&CAPMODE){e.preventDefault();guardarCompra(t,false).then(()=>{toast('Compra guardada ✓');window.scrollTo(0,0);return cargarCaptura()}).catch(err=>{toast(err.message);t.disabled=false;t.textContent='Guardar'});return}
   if(d.gimp||d.gdel||d.fsave||d.fcsave||d.rcsave||d.rcdel){e.preventDefault();guardarGasto(t,d);return}
   if(d.ct2){cmpTodos=!cmpTodos;return render()}
