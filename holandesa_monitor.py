@@ -13,8 +13,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 27            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '25.1'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 28            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '25.2'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -708,7 +708,8 @@ class Monitor:
         return {'ok': True, 'leidos': hechos, 'errores': errores, 'faltan': max(0, len([m for m in g['movs'] if m.get('foto') and not m.get('items')]) - hechos)}
 
     def guardar_foto(self, mid, b64):
-        if not b64: return ''
+        # Por decisión de Jorge las fotos NO se guardan en la computadora: solo se leen y se descartan.
+        if not b64 or not self.cfg.get('guardar_fotos', False): return ''
         if ',' in b64[:80]: b64 = b64.split(',', 1)[1]
         raw = base64.b64decode(b64)
         if not raw.startswith(b'\xff\xd8') or len(raw) > 6 * 1024 * 1024: raise ValueError('La foto no es válida.')
@@ -716,6 +717,27 @@ class Monitor:
         nom = re.sub(r'[^0-9A-Za-z_-]', '', mid) + '.jpg'
         with open(os.path.join(FOTOS_DIR, nom), 'wb') as f: f.write(raw)
         return nom
+
+    def borrar_fotos(self):
+        """Quita de la computadora cualquier foto guardada antes y las referencias a ellas."""
+        if self.cfg.get('guardar_fotos', False): return
+        n = 0
+        if os.path.isdir(FOTOS_DIR):
+            for f in os.listdir(FOTOS_DIR):
+                try: os.remove(os.path.join(FOTOS_DIR, f)); n += 1
+                except OSError: pass
+            try: os.rmdir(FOTOS_DIR)
+            except OSError: pass
+        with self.q_lock:
+            try:
+                with open(GASTOS_FILE, encoding='utf-8') as f: g = json.load(f)
+            except (OSError, ValueError): g = None
+            if isinstance(g, dict):
+                cambio = False
+                for x in g.get('movs', []) + g.get('recibos', []):
+                    if x.get('foto'): x['foto'] = ''; cambio = True
+                if cambio: self._guardar_gastos(g)
+        if n: log(f'Se borraron {n} fotos de tickets de esta computadora (las fotos ya no se guardan).')
 
     def captura(self, d, origen, quien=None):
         """Compra o gasto capturado desde el teléfono del cajero (o por Jorge), con foto opcional."""
@@ -1106,6 +1128,8 @@ def main():
     if not os.path.isdir(cfg['carpeta_mrtienda']):
         log('No existe la carpeta ' + cfg['carpeta_mrtienda'] + '. Corrígela en config.json'); sys.exit(1)
     mon = Monitor(cfg)
+    try: mon.borrar_fotos()
+    except Exception as e: log('No pude borrar las fotos viejas: ' + str(e))
     threading.Thread(target=mon.loop, daemon=True).start()
     if cfg.get('actualizar_solo', True): threading.Thread(target=ciclo_actualizacion, daemon=True).start()
     srv = None
