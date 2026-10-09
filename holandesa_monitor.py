@@ -13,8 +13,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 32            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '25.6'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 33            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '25.7'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -45,7 +45,8 @@ NEGOCIOS = ['Restaurante', 'Cafetería']
 PAGOS = ['Efectivo de la caja', 'Tarjeta o transferencia', 'A crédito', 'Otro']
 CATEGORIAS_GASTO = ['Insumos y compras', 'Sueldos', 'Seguro social', 'Luz', 'Agua', 'Gas', 'Renta', 'Mantenimiento', 'Comisiones', 'Otros gastos']
 RESPALDO_CUENTAS = os.path.join(AQUI, 'respaldos_cuentas')   # fuera de _respaldo: las actualizaciones no lo borran
-MOTIVOS = ['Familia', 'Didi · efectivo', 'Didi · tarjeta', 'Uber · efectivo', 'Uber · tarjeta', 'Error de captura', 'Otro', 'Sin clasificar']
+MOTIVOS = ['Familia', 'Empleado', 'Cortesía', 'Didi · efectivo', 'Didi · tarjeta', 'Uber · efectivo', 'Uber · tarjeta', 'Error de captura', 'Otro', 'Sin clasificar']
+CON_PERSONA = {'Familia', 'Empleado'}   # estos motivos piden de quién fue la comida
 
 
 def log(msg):
@@ -464,7 +465,7 @@ class Monitor:
                         'llevar': x.get('COD_ESCALA') == '02', 'archivo': arch, 'items': items, 'turno': turno_raw})
         return sorted(out, key=lambda a: (a['fecha'], a['abrio']))
 
-    def eliminar_abierta(self, archivo, referencia, motivo='Sin clasificar', nota=''):
+    def eliminar_abierta(self, archivo, referencia, motivo='Sin clasificar', nota='', persona=''):
         """Replica la baja observada en MrTienda para una cuenta abierta y NO pagada.
         Respalda PENDIENT.DBF y el DBF de la cuenta, marca el renglón de PENDIENT como eliminado
         y retira el DBF activo. No toca DATABASE ni archivos .ENC/.BAK de MrTienda.
@@ -474,6 +475,7 @@ class Monitor:
         if not archivo: raise ValueError('Faltan datos de la cuenta.')
         if motivo not in MOTIVOS: raise ValueError('Elige un motivo válido.')
         nota = str(nota or '').strip()[:120]
+        persona = self._persona(motivo, persona)
         foto = next((a for a in self.abiertas() if a['archivo'].upper() == archivo.upper() and a['ref'] == referencia), None)
         if foto is None: raise RuntimeError('La cuenta ya no está abierta o cambió. Actualiza la pantalla.')
         com = os.path.join(self.base, 'COMUNES')
@@ -520,14 +522,14 @@ class Monitor:
                 except Exception: pass
                 raise
             self.cache = {k:v for k,v in self.cache.items() if k[0] not in (pend,cuenta)}
-            log(f'CUENTA QUITADA remotamente: {referencia} / {archivo} · {motivo}. Respaldo: {bdir}')
+            log(f'CUENTA QUITADA remotamente: {referencia} / {archivo} · {motivo}{" · " + persona if persona else ""}. Respaldo: {bdir}')
         ahora = datetime.datetime.now()
         try:
             self.anotar_quitada({'id': sello + '_' + archivo, 'quitada': ahora.isoformat(timespec='seconds'),
                                  'fecha': foto['fecha'] or ahora.date().isoformat(), 'abrio': foto['abrio'], 'cuenta': foto['mesa'],
                                  'mesero': foto['mesero'], 'pers': foto['pers'], 'arts': foto['arts'], 'total': foto['total'],
                                  'llevar': foto['llevar'], 'items': [{'n': i['n'], 'q': i['q'], 'imp': i['imp']} for i in foto['items']],
-                                 'motivo': motivo, 'nota': nota, 'respaldo': os.path.basename(bdir)})
+                                 'motivo': motivo, 'persona': persona, 'nota': nota, 'respaldo': os.path.basename(bdir)})
         except Exception as e:
             log('La cuenta se quitó pero no pude anotarla en la bitácora: ' + str(e))
         self.refresh()
@@ -539,18 +541,26 @@ class Monitor:
         elif grupo == 'uber': q = [r for r in q if r.get('motivo', '').startswith('Uber')]
         elif grupo == 'plataformas': q = [r for r in q if r.get('motivo', '').startswith(('Didi', 'Uber'))]
         elif grupo == 'familia': q = [r for r in q if r.get('motivo') == 'Familia']
-        q.sort(key=lambda r: (r.get('fecha', ''), r.get('abrio', '')))
-        head = ['Fecha', 'Abrió', 'Quitada', 'Cuenta', 'Motivo', 'Plataforma', 'Pago', 'Nota', 'Mesero', 'Artículos', 'Importe MrTienda', 'Detalle']
+        elif grupo == 'empleados': q = [r for r in q if r.get('motivo') == 'Empleado']
+        elif grupo == 'cortesias': q = [r for r in q if r.get('motivo') == 'Cortesía']
+        if grupo in ('familia', 'empleados', 'cortesias'): q.sort(key=lambda r: ((r.get('persona') or '').lower(), r.get('fecha', ''), r.get('abrio', '')))
+        else: q.sort(key=lambda r: (r.get('fecha', ''), r.get('abrio', '')))
+        head = ['Fecha', 'Abrió', 'Quitada', 'Cuenta', 'Motivo', 'De quién', 'Plataforma', 'Pago', 'Nota', 'Mesero', 'Artículos', 'Importe MrTienda', 'Detalle']
         rows = []
         for r in q:
             m = r.get('motivo', ''); plat, _, pago = m.partition(' · ')
-            rows.append([r.get('fecha', ''), r.get('abrio', ''), (r.get('quitada') or '')[11:16], r.get('cuenta', ''), m,
+            rows.append([r.get('fecha', ''), r.get('abrio', ''), (r.get('quitada') or '')[11:16], r.get('cuenta', ''), m, r.get('persona', ''),
                          plat if pago else '', pago, r.get('nota', ''), r.get('mesero', ''), r.get('arts') or len(r.get('items') or []),
                          float(r.get('total') or 0), ', '.join(f"{int(i['q']) if float(i['q']).is_integer() else i['q']} {i['n']}" for i in r.get('items') or [])])
-        tot = round(sum(x[10] for x in rows), 2)
-        titulo = {'didi': 'Didi', 'uber': 'Uber', 'plataformas': 'Didi y Uber', 'familia': 'Familia'}.get(grupo, 'Cuentas quitadas')
-        return xlsx([head] + rows + [[], ['', '', '', 'TOTAL · ' + str(len(rows)) + ' cuentas', '', '', '', '', '', '', tot, '']], titulo,
-                    widths=[11, 7, 8, 22, 17, 10, 9, 22, 14, 9, 15, 60], money_cols={10})
+        tot = round(sum(x[11] for x in rows), 2)
+        titulo = {'didi': 'Didi', 'uber': 'Uber', 'plataformas': 'Didi y Uber', 'familia': 'Familia', 'empleados': 'Empleados', 'cortesias': 'Cortesías'}.get(grupo, 'Cuentas quitadas')
+        extra = []
+        if grupo in ('familia', 'empleados', 'cortesias'):
+            por = collections.OrderedDict()
+            for x in rows: por[x[5] or 'Sin nombre'] = por.get(x[5] or 'Sin nombre', 0) + x[11]
+            extra = [[], ['', '', '', 'TOTAL POR PERSONA']] + [['', '', '', n, '', '', '', '', '', '', '', round(v, 2), ''] for n, v in por.items()]
+        return xlsx([head] + rows + extra + [[], ['', '', '', 'TOTAL · ' + str(len(rows)) + ' cuentas', '', '', '', '', '', '', '', tot, '']], titulo,
+                    widths=[11, 7, 8, 22, 15, 18, 10, 9, 22, 14, 9, 15, 60], money_cols={11})
 
     def productos_dia(self, idx, d):
         """Piezas e importe por producto de un día, sin guardar los renglones en memoria (solo el resumen)."""
@@ -917,15 +927,53 @@ class Monitor:
         self.refresh()
         return {'ok': True, 'n': n}
 
-    def cambiar_motivo(self, rid, motivo, nota):
+    def _persona(self, motivo, persona):
+        persona = re.sub(r'\s+', ' ', str(persona or '')).strip()[:40]
+        if motivo in CON_PERSONA and not persona: raise ValueError('Escribe de quién fue la comida.')
+        if persona:   # usar siempre la misma escritura del nombre (Mónica = mónica = MONICA)
+            conocidos = self.familia() + self.empleados() + [r.get('persona') for r in self.quitadas() if r.get('persona')]
+            persona = next((x for x in conocidos if x and x.lower() == persona.lower()), persona if persona != persona.lower() else persona.title())
+        if motivo == 'Familia' and persona: self._alta_familia(persona)
+        if motivo == 'Empleado' and persona and persona not in self.empleados():
+            self.cfg['empleados_extra'] = (self.cfg.get('empleados_extra') or []) + [persona]
+            with open(CONFIG_FILE, 'w', encoding='utf-8') as fh: json.dump(self.cfg, fh, ensure_ascii=False, indent=2)
+        return persona if motivo in CON_PERSONA or motivo == 'Cortesía' else ''
+
+    def empleados(self):
+        return sorted(set(v for v in getattr(self, 'EMP', {}).values() if v) | {x['nombre'] for x in self.cajeros() if x.get('activo')} | set(self.cfg.get('empleados_extra') or []))
+
+    def familia(self):
+        f = self.cfg.get('familia')
+        return f if isinstance(f, list) else []
+
+    def _alta_familia(self, nombre):
+        f = self.familia()
+        if any(x.lower() == nombre.lower() for x in f): return
+        self.cfg['familia'] = f + [nombre]
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as fh: json.dump(self.cfg, fh, ensure_ascii=False, indent=2)
+
+    def familia_accion(self, d):
+        nombre = re.sub(r'\s+', ' ', str(d.get('nombre') or '')).strip()[:40]
+        if not nombre: raise ValueError('Escribe el nombre.')
+        if nombre == nombre.lower(): nombre = nombre.title()
+        if d.get('accion') == 'alta': self._alta_familia(nombre)
+        elif d.get('accion') == 'baja':
+            self.cfg['familia'] = [x for x in self.familia() if x.lower() != nombre.lower()]
+            with open(CONFIG_FILE, 'w', encoding='utf-8') as fh: json.dump(self.cfg, fh, ensure_ascii=False, indent=2)
+        else: raise ValueError('Acción no válida.')
+        self.refresh()
+        return {'ok': True}
+
+    def cambiar_motivo(self, rid, motivo, nota, persona=''):
         if motivo not in MOTIVOS: raise ValueError('Motivo no válido.')
+        persona = self._persona(motivo, persona)
         with self.q_lock:
             try:
                 with open(QUITADAS_FILE, encoding='utf-8') as f: q = json.load(f)
             except (OSError, ValueError): q = []
             for r in q:
                 if r.get('id') == rid:
-                    r['motivo'] = motivo; r['nota'] = str(nota or '').strip()[:120]
+                    r['motivo'] = motivo; r['nota'] = str(nota or '').strip()[:120]; r['persona'] = persona
                     r['editado'] = datetime.datetime.now().isoformat(timespec='seconds')
                     self._guardar_quitadas(q); break
             else: raise RuntimeError('No encontré ese registro.')
@@ -950,7 +998,8 @@ class Monitor:
         out['mensual'] = [{'mes': k, 'total': round(v[0], 2), 'tickets': v[1], 'personas': v[2]} for k, v in sorted(mon.items())]
         try: out['mensual_prod'] = self.productos_mes(idx, days)
         except Exception as e: log('No pude resumir productos por mes: ' + str(e)); out['mensual_prod'] = {}
-        out['quitadas'] = self.quitadas(); out['motivos'] = MOTIVOS
+        out['quitadas'] = self.quitadas(); out['motivos'] = MOTIVOS; out['familia'] = self.familia()
+        out['empleados'] = self.empleados()
         out['gastos'] = self.gastos(); out['categorias_gasto'] = CATEGORIAS_GASTO
         out['cajeros'] = [{'id': x['id'], 'nombre': x['nombre'], 'activo': x.get('activo', True), 'alta': x.get('alta', '')} for x in self.cajeros()]
         out['ia'] = {'activa': bool(self.cfg.get('ia_llave')), 'modelo': self.cfg.get('ia_modelo') or IA_MODELO}
@@ -1058,7 +1107,7 @@ def make_handler(mon, cfg):
                     body = json.dumps({'ok': False, 'error': str(e)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(403); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
             if not self._auth(caja_ok=(self.path in ('/api/compra', '/api/leer-ticket'))): return
-            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/ia', '/api/leer-pendientes', '/api/drive'): self.send_response(404); self.end_headers(); return
+            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return
             try:
@@ -1093,8 +1142,9 @@ def make_handler(mon, cfg):
                     with open(CONFIG_FILE, 'w', encoding='utf-8') as f: json.dump(cfg, f, ensure_ascii=False, indent=2)
                     mon.cfg = cfg; mon.refresh(); out = {'ok': True}
                 elif self.path == '/api/gastos': out=mon.gasto_accion(d)
-                elif self.path == '/api/quitada-motivo': out=mon.cambiar_motivo(d.get('id'),d.get('motivo'),d.get('nota'))
-                else: out=mon.eliminar_abierta(d.get('archivo'),d.get('referencia'),d.get('motivo') or 'Sin clasificar',d.get('nota'))
+                elif self.path == '/api/quitada-motivo': out=mon.cambiar_motivo(d.get('id'),d.get('motivo'),d.get('nota'),d.get('persona'))
+                elif self.path == '/api/familia': out=mon.familia_accion(d)
+                else: out=mon.eliminar_abierta(d.get('archivo'),d.get('referencia'),d.get('motivo') or 'Sin clasificar',d.get('nota'),d.get('persona'))
                 body=json.dumps(out,ensure_ascii=False).encode('utf-8')
                 return self._send(body,'application/json; charset=utf-8')
             except Exception as e:
