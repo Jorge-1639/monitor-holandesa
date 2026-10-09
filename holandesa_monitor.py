@@ -13,8 +13,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 33            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '25.7'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 34            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '25.8'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -1077,8 +1077,8 @@ def make_handler(mon, cfg):
         with open(icon_path, 'rb') as f: icon_png = f.read()
     except OSError:
         icon_png = b''
-    manifest_caja = json.dumps({'name':'Compras Holandesa','short_name':'Compras','start_url':'/captura','display':'standalone','background_color':'#f2f4ef','theme_color':'#123f2a','icons':[{'src':'/icon.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
-    manifest = json.dumps({'name':'Control Holandesa','short_name':'Control Holandesa','start_url':'/','display':'standalone','background_color':'#f7f7f4','theme_color':'#ffffff','icons':[{'src':'/icon.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
+    manifest_caja = json.dumps({'name':'Compras Holandesa','short_name':'Compras','start_url':'/captura','display':'standalone','background_color':'#fbf6f1','theme_color':'#ea580c','icons':[{'src':'/icon.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
+    manifest = json.dumps({'name':'Control Holandesa','short_name':'Control Holandesa','start_url':'/','display':'standalone','background_color':'#fbf6f1','theme_color':'#ea580c','icons':[{'src':'/icon.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a): pass
         def _auth(self, caja_ok=False):
