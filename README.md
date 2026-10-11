@@ -70,3 +70,8 @@ casilla "Restarle la comida (medio turno)". Nómina: horas del rol de cada quien
 separa vales de comida y vales de dinero; abono de préstamo automático. Nueva pestaña "Resumen de nómina": total, menos préstamos, vales de comida,
 vales de dinero, transferencias = efectivo, con botón para mandarle el efectivo de cada quien a Berenice por WhatsApp. Pestañas visibles en varias filas;
 el catálogo muestra lo que debe cada quien y sus vales de la semana.
+
+Versión 29.1 — la semana del rol y de la nómina va de martes a lunes (lo ya capturado se acomoda solo una vez al instalar).
+Préstamos y vales: "Vales de dinero" (los que no pasaron por caja) y "Vales de comida": lista de lo que comió cada empleado esa semana
+con un cuadrito para el descuento que Jorge decide, más vales de comida a mano (consumo y descuento). Lo capturado pasa solo a la nómina;
+si la nómina ya estaba guardada, avisa "ahora suman…".

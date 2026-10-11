@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 58            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '29.0'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 59            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '29.1'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -55,14 +55,46 @@ def rh_base(e):
     d = DIAS_SEM.index(e['descanso']) if e.get('descanso') in DIAS_SEM else -1
     return [None if i == d else [_hhmm(e.get('entrada')), _hhmm(e.get('salida'))] for i in range(7)]
 
+SEM_INI = 1   # la nómina de La Holandesa va de martes a lunes (29.1): las semanas del rol y la nómina empiezan en martes
+
+def inicio_sem(f):
+    return f - datetime.timedelta(days=(f.weekday() - SEM_INI) % 7)
+
+def base_sem(base):
+    # horario base (lunes a domingo) acomodado en el orden de la semana de nómina (martes a lunes)
+    return [base[(SEM_INI + i) % 7] for i in range(7)]
+
 def rh_dia(rh, e, f):
     # (código del día, [entra, sale]) según el rol de esa semana; si no se capturó, según su horario base
-    sem = (f - datetime.timedelta(days=f.weekday())).isoformat(); i = f.weekday(); base = rh_base(e)
+    sem = inicio_sem(f).isoformat(); i = (f.weekday() - SEM_INI) % 7; base = rh_base(e)[f.weekday()]
     r = (rh.get('roles', {}).get(sem) or {}).get(e['id'])
-    c = r[i] if isinstance(r, list) and len(r) == 7 else ('D' if base[i] is None else 'T')
+    c = r[i] if isinstance(r, list) and len(r) == 7 else ('D' if base is None else 'T')
     hs = (rh.get('roles_h', {}).get(sem) or {}).get(e['id'])
-    h = hs[i] if isinstance(hs, list) and len(hs) == 7 and hs[i] else base[i]
+    h = hs[i] if isinstance(hs, list) and len(hs) == 7 and hs[i] else base
     return c, (h or ['', ''])
+
+def rh_a_martes(d):
+    # una sola vez: pasa el rol, horarios, quién capturó y nóminas de semanas lunes–domingo a semanas martes–lunes
+    emps = {e['id']: e for e in d.get('empleados', [])}
+    roles, horas, meta, nom = {}, {}, {}, {}
+    for k, v in d.get('roles', {}).items():
+        try: K = datetime.date.fromisoformat(k)
+        except ValueError: continue
+        for emp, arr in (v or {}).items():
+            if not isinstance(arr, list) or len(arr) != 7: continue
+            hs = ((d.get('roles_h') or {}).get(k) or {}).get(emp)
+            for j in range(7):
+                f = K + datetime.timedelta(days=j); nk = inicio_sem(f).isoformat(); i = (f.weekday() - SEM_INI) % 7
+                b = rh_base(emps[emp]) if emp in emps else [['', '']] * 7
+                roles.setdefault(nk, {}).setdefault(emp, ['D' if b[(SEM_INI + x) % 7] is None else 'T' for x in range(7)])[i] = arr[j]
+                if isinstance(hs, list) and len(hs) == 7 and hs[j]: horas.setdefault(nk, {}).setdefault(emp, [None] * 7)[i] = hs[j]
+                if (d.get('roles_meta') or {}).get(k, {}).get(emp): meta.setdefault(nk, {})[emp] = d['roles_meta'][k][emp]
+    for k, v in d.get('nominas', {}).items():
+        try: nom[inicio_sem(datetime.date.fromisoformat(k) + datetime.timedelta(days=1)).isoformat()] = v
+        except ValueError: pass
+    d['roles'], d['roles_h'], d['roles_meta'], d['nominas'] = roles, horas, meta, nom
+    d['semana_inicia'] = 'martes'
+    return d
 
 def horas_list(v):
     # 7 horarios que manda el teléfono: [entra, sale] o None
@@ -1369,10 +1401,6 @@ class Monitor:
         e = next((e for e in es if e.get('activo', True)), None)
         if not e: return 'Estás dado de baja en Personal. Avísale a Jorge o a la encargada.'
         ahora = ahora or datetime.datetime.now()
-        def codigo(f):
-            r = (rh['roles'].get((f - datetime.timedelta(days=f.weekday())).isoformat()) or {}).get(e['id'])
-            if isinstance(r, list) and len(r) == 7: return r[f.weekday()]
-            return 'D' if e.get('descanso') == self.DIAS_RH[f.weekday()] else 'T'
         def hm(v):
             m = re.fullmatch(r'(\d{1,2}):(\d{2})', str(v or '').strip())
             return (int(m.group(1)), int(m.group(2))) if m and int(m.group(1)) < 24 and int(m.group(2)) < 60 else None
@@ -1658,8 +1686,12 @@ class Monitor:
         try:
             with open(RH_FILE, encoding='utf-8') as f: d = json.load(f)
         except (OSError, ValueError): d = {}
-        for k, v in (('empleados', []), ('roles', {}), ('roles_meta', {}), ('roles_h', {}), ('nominas', {}), ('prestamos', []), ('vales', []), ('acceso_rol', {})):
+        for k, v in (('empleados', []), ('roles', {}), ('roles_meta', {}), ('roles_h', {}), ('nominas', {}), ('prestamos', []), ('vales', []), ('acceso_rol', {}), ('desc_comida', {})):
             if not isinstance(d.get(k), type(v)): d[k] = v
+        if d.get('semana_inicia') != 'martes':
+            rh_a_martes(d)
+            if os.path.exists(RH_FILE):
+                self._rh_guardar(d); log('Personal: las semanas del rol y la nómina ahora van de martes a lunes.')
         return d
 
     def _rh_guardar(self, d):
@@ -1679,7 +1711,7 @@ class Monitor:
         d['emp_mrtienda'] = sorted([{'cod': k, 'nombre': v} for k, v in getattr(self, 'EMP', {}).items() if v], key=lambda e: e['nombre'])
         try: d['vales_caja'] = self.vales_caja()
         except Exception as e: log('No pude leer vales de caja: ' + str(e)); d['vales_caja'] = []
-        d['comidas'] = [{'fecha': q.get('fecha'), 'persona': q.get('persona'), 'total': q.get('total')} for q in self.quitadas() if q.get('motivo') == 'Empleado']
+        d['comidas'] = [{'id': q.get('id'), 'fecha': q.get('fecha'), 'persona': q.get('persona'), 'total': q.get('total'), 'arts': q.get('arts')} for q in self.quitadas() if q.get('motivo') == 'Empleado']
         d['hoy'] = datetime.date.today().isoformat()
         return d
 
@@ -1716,12 +1748,12 @@ class Monitor:
         d = self.rh(); hoy = datetime.date.today()
         try: f = datetime.date.fromisoformat(sem)
         except ValueError: f = hoy
-        lun = (f - datetime.timedelta(days=f.weekday())).isoformat()
+        lun = inicio_sem(f).isoformat()
         emps = sorted([e for e in d['empleados'] if e.get('activo', True)], key=lambda e: (PUESTOS.index(e['puesto']) if e.get('puesto') in PUESTOS else 99, e.get('nombre', '')))
         pagados = {k for k, v in (d['nominas'].get(lun) or {}).items() if v.get('pagada')}
         return {'ok': True, 'semana': lun, 'hoy': hoy.isoformat(),
                 'empleados': [{'id': e['id'], 'nombre': e.get('nombre', ''), 'puesto': e.get('puesto', ''), 'descanso': e.get('descanso', ''),
-                               'horario': horario_texto(rh_base(e)), 'base': rh_base(e), 'comida': int(e.get('comida_min') or 0), 'pagada': e['id'] in pagados} for e in emps],
+                               'horario': horario_texto(rh_base(e)), 'base': base_sem(rh_base(e)), 'comida': int(e.get('comida_min') or 0), 'pagada': e['id'] in pagados} for e in emps],
                 'rol': d['roles'].get(lun) or {}, 'meta': d['roles_meta'].get(lun) or {}, 'horas': (d.get('roles_h') or {}).get(lun) or {},
                 'anterior_tiene': bool(d['roles'].get((datetime.date.fromisoformat(lun) - datetime.timedelta(days=7)).isoformat()))}
 
@@ -1729,7 +1761,7 @@ class Monitor:
         d = self.rh(); acc = a.get('accion')
         try: lun = datetime.date.fromisoformat(str(a.get('semana') or ''))
         except ValueError: raise ValueError('Revisa la semana.')
-        if lun.weekday() != 0: raise ValueError('Revisa la semana.')
+        if lun.weekday() != SEM_INI: raise ValueError('Revisa la semana.')
         sem = lun.isoformat()
         if lun < datetime.date.today() - datetime.timedelta(days=35): raise ValueError('Esa semana ya pasó hace mucho. Si hay que corregirla, avísale a Jorge.')
         pagados = {k for k, v in (d['nominas'].get(sem) or {}).items() if v.get('pagada')}
@@ -1860,9 +1892,18 @@ class Monitor:
             if m <= 0: raise ValueError('Escribe el monto del préstamo.')
             d['prestamos'].append({'id': secrets.token_hex(4), 'emp': emp_id(a.get('emp')), 'fecha': fecha(a.get('fecha'), True), 'monto': m, 'concepto': txt(a.get('concepto'), 120), 'abono_sugerido': num(a.get('abono'))})
         elif acc == 'vale_alta':
+            m = num(a.get('monto')); tipo = 'comida' if a.get('tipo') == 'comida' else 'dinero'
+            if m <= 0: raise ValueError('Escribe el descuento.' if tipo == 'comida' else 'Escribe el monto del vale.')
+            d['vales'].append({'id': secrets.token_hex(4), 'emp': emp_id(a.get('emp')), 'fecha': fecha(a.get('fecha'), True), 'monto': m, 'tipo': tipo,
+                               'consumo': num(a.get('consumo')) if tipo == 'comida' else 0, 'nota': txt(a.get('nota'), 120)})
+        elif acc == 'comida_desc':
+            # descuento que Jorge decide para una comida de empleado registrada en la caja (cuenta quitada con motivo Empleado)
+            k = txt(a.get('id'), 80)
+            if not k: raise ValueError('Falta la comida.')
             m = num(a.get('monto'))
-            if m <= 0: raise ValueError('Escribe el monto del vale.')
-            d['vales'].append({'id': secrets.token_hex(4), 'emp': emp_id(a.get('emp')), 'fecha': fecha(a.get('fecha'), True), 'monto': m, 'nota': txt(a.get('nota'), 120)})
+            if m < 0: raise ValueError('Revisa el descuento.')
+            if a.get('monto') in (None, ''): d['desc_comida'].pop(k, None)
+            else: d['desc_comida'][k] = m
         elif acc == 'archivo_borrar':
             x = next((x for x in d['empleados'] if x['id'] == a.get('emp')), None)
             if not x: raise ValueError('No encontré a ese empleado.')

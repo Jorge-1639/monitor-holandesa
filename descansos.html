@@ -95,7 +95,8 @@ button:focus-visible{outline:2px solid var(--green-2);outline-offset:2px}
 <script>
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const DIAS=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'], DIAS_L=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+// la semana de nómina va de martes a lunes
+const DIAS=['Mar','Mié','Jue','Vie','Sáb','Dom','Lun'], DIAS_L=['Martes','Miércoles','Jueves','Viernes','Sábado','Domingo','Lunes'];
 const EST={T:['Trabaja','--good'],D:['Descansa','--off'],F:['Faltó','--bad'],V:['Vacaciones','--vac'],I:['Incapacidad','--inc']}, CICLO=['T','D','F','V','I'];
 const MES=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
 const pd=s=>{const [y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)};
