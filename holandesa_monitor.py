@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 41            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '26.6'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 42            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '26.7'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -366,7 +366,7 @@ def comanda_bytes(ref, mesero, renglones, folio, nueva, ahora):
     t += ESC + b'!\x38' + e(modo) + b'\n' + ESC + b'!\x00'                        # letra grande: comer aquí / para llevar
     t += ESC + b'a\x01' + ESC + b'!\x18' + e(titulo) + b'\n' + ESC + b'!\x00'     # mesa: doble alto, negritas
     t += e('CUENTA NUEVA' if nueva else 'SE AGREGA A LA CUENTA') + b'\n'
-    t += ESC + b'a\x00' + e(f'Mesero: {mesero.upper()}') + b'\n'
+    t += ESC + b'a\x00' + e('Mesero: ') + ESC + b'!\x08' + e(mesero.upper()) + ESC + b'!\x00' + b'\n'   # nombre en negritas
     t += e(f'Enviado: {ahora.strftime("%d/%m/%Y %H:%M")}   Cuenta #{folio[-5:].lstrip("0")}') + b'\n'
     t += b'-' * 42 + b'\n'
     for r in renglones:
