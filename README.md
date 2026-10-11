@@ -16,7 +16,7 @@ también solo en la caja. Las fotos de tickets NO se guardan en la computadora: 
 se suben directo a la carpeta "Fotos de tickets - La Holandesa" del Drive de Jorge (con un Apps Script propio), de donde se pueden borrar todas. Los cajeros entran a `/captura` con su clave (se guarda solo la huella en `cajeros.json`). La llave de la API de Claude
 para leer tickets se guarda en config.json; nunca se sube aquí.
 
-Comandero (`/comandero`, versión 26.0): los meseros entran con una clave de 4 números que Jorge asigna en Reportes → Meseros
+Comandero (`/comandero`, versión 26.0): los meseros entran con una clave de 4 números que Jorge asigna en la pestaña COMANDERO
 (se guarda solo la huella en `meseros.json`, en la caja). Ligado al código de vendedor de MrTienda. Lee menú táctil, precios Comedor/Recoger aquí, variantes y cuentas abiertas.
 
 Versión 26.1: si Jorge enciende "Enviar pedidos a MrTienda" (config `comandero_escribe`), el comandero abre cuentas o agrega platillos
@@ -42,3 +42,7 @@ Versión 27.4 — "Enviar PDF": el panel abre el menú de compartir del teléfon
 El teléfono solo permite compartir archivos desde una dirección segura, así que al arrancar la caja activa `tailscale serve` y el panel queda también en
 https://<caja>.<red>.ts.net (requiere MagicDNS y HTTPS Certificates encendidos en Tailscale; se apaga con `"https_tailscale": false` en config.json).
 Lo que llega por esa dirección cuenta como Tailscale, nunca como WiFi del restaurante.
+
+Versión 27.6 — todo lo del comandero pasó de Reportes → Meseros a su propia pestaña COMANDERO en la barra de abajo (no aparece en la copia de Drive).
+Cada mesero muestra su clave tapada (••••) con un ojito para verla 15 segundos. La clave se guarda en `meseros.json` en la caja (nunca en data.json
+ni en Drive); las que se dieron antes de esta versión se aprenden la próxima vez que el mesero entra, o al cambiarla.

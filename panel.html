@@ -55,7 +55,7 @@ section{display:flex;flex-direction:column;gap:12px;margin-top:14px}
 
 /* barra de pestañas inferior */
 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px));box-shadow:0 -8px 24px -18px rgba(0,0,0,.35)}
-nav.tabs .tin{max-width:720px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr);gap:2px}
+nav.tabs .tin{max-width:720px;margin:0 auto;display:grid;grid-template-columns:repeat(6,1fr);gap:2px}
 nav.tabs button{border:0;background:none;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px;border-radius:12px;font:700 11px var(--display);font-stretch:85%;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;position:relative}
 nav.tabs svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 nav.tabs button[aria-selected="true"]{color:var(--green-2);background:var(--green-soft)}
@@ -235,12 +235,14 @@ footer{color:var(--muted);font-size:12px;margin-top:24px;line-height:1.5}
   <button role="tab" data-tab="cortes"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h3"/></svg>Cortes</button>
   <button role="tab" data-tab="control"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>Control<span class="dot" id="ctlDot" hidden></span></button>
   <button role="tab" data-tab="reportes"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Reportes</button>
+  <button role="tab" data-tab="cmd" id="tabCmd"><svg viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>Comandero</button>
 </div></nav>
 
 <script>
 let DATA=null, byDate={}, days=[];
 const $=s=>document.querySelector(s);
 const COPIA=!!window.__COPIA__;
+if(COPIA){document.getElementById('tabCmd').remove();document.querySelector('nav.tabs .tin').style.gridTemplateColumns='repeat(5,1fr)'}
 const fmt=n=>'$'+(Math.round(n||0)).toLocaleString('es-MX');
 const fmt2=n=>'$'+(n||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2});
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -598,7 +600,7 @@ function rMeseros(){
   return conFechas()+(L.length?`<div class="card"><h2>Venta por mesero <small>${ds.length} días</small></h2>${bars(L.filter(o=>o.tk).map(o=>({n:o.n,v:o.venta,sub:`${o.tk} tickets · promedio ${fmt(o.venta/o.tk)}${o.min.length?' · '+dur(Math.round(o.min.reduce((a,b)=>a+b,0)/o.min.length))+' por mesa':''}`})))}</div>
   <div class="card"><h2>Descuentos y borrados <small>quién los hizo o autorizó</small></h2><div class="tscroll"><table class="tk num"><thead><tr><th>Persona</th><th class="r">Desc.</th><th class="r">Importe</th><th class="r">Borr.</th><th class="r">Importe</th></tr></thead><tbody>
     ${L.filter(o=>o.ndesc||o.nborr).sort((a,b)=>(b.desc+b.borr)-(a.desc+a.borr)).map(o=>`<tr><td>${esc(o.n)}</td><td class="r">${o.ndesc}</td><td class="r">${fmt(o.desc)}</td><td class="r">${o.nborr}</td><td class="r">${fmt(o.borr)}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">Sin descuentos ni borrados.</td></tr>'}</tbody></table></div>
-    <p class="empty" style="margin-top:10px">Si alguien concentra muchos descuentos o borrados, vale la pena revisar sus tickets.</p></div>`:'<p class="empty">Sin ventas en estas fechas.</p>')+tarjetaComandero();
+    <p class="empty" style="margin-top:10px">Si alguien concentra muchos descuentos o borrados, vale la pena revisar sus tickets.</p></div>`:'<p class="empty">Sin ventas en estas fechas.</p>');
 }
 function rCalor(){
   const ds=days.filter(d=>d<=cur).slice(-56), M={}, C={};
@@ -893,7 +895,8 @@ function bloqueAcceso(){
     <div class="btns" style="margin-top:6px"><a class="btn pri" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">Mandar por WhatsApp</a><button class="btn" data-cpurl="${esc(url)}">Copiar dirección</button></div>
     <p class="empty" style="margin-top:8px">Funciona solo con el teléfono conectado al WiFi del restaurante. La clave no va en el mensaje; dásela tú en persona o aparte.${ts.length?` Tú, desde fuera, puedes probarla con Tailscale: http://${esc(ts[0])}:${ACCESO.puerto}/captura`:''}</p></div>`;
 }
-// ---- comandero: meseros con clave de 4 números (Reportes → Meseros)
+// ---- comandero: meseros con clave de 4 números (pestaña COMANDERO)
+function vComandero(){return `<h2 class="corte-h" style="text-transform:uppercase;letter-spacing:.08em;margin:6px 0 12px">Comandero</h2>`+tarjetaComandero()}
 let NUEVO_MS=null,NUEVO_MS_COD=null;
 // PDF de bienvenida: se prepara al mostrar la tarjeta para compartirlo al primer toque (iPhone pide que sea inmediato)
 const PDF_MS={};
@@ -933,6 +936,7 @@ function tarjetaComandero(){
     <p class="empty" style="margin-top:6px">${DATA.candado_rol?'Cada mesero ligado en Personal solo entra el día que le toca trabajar y dentro de su horario (30 minutos antes de entrar y hasta 1 hora después de salir). Si descansa, faltó, está de vacaciones o incapacitado, no entra. Quien no está ligado en Personal entra como siempre.':'Apagado: los meseros entran cualquier día y a cualquier hora (solo con el WiFi del restaurante).'}</p>
     ${MS.length?`<div style="margin-top:10px">${MS.map(m=>`<div style="padding:12px 0;border-top:1px solid var(--line)">
       <b>${esc(m.nombre)}</b>${m.en_mrtienda?'':' <span class="pill bad">Baja en MrTienda</span>'}${DATA.candado_rol&&!m.ligado?' <span class="pill warn">Sin ligar en Personal</span>':''}
+      <div style="display:flex;align-items:center;gap:8px;margin-top:6px;font-size:15px">Clave: <b class="num" style="letter-spacing:.25em;min-width:60px" id="msk-${esc(m.id)}">••••</b>${m.tiene_clave?`<button class="btn" data-msver="${esc(m.id)}" aria-label="Ver clave" style="padding:4px 10px;min-height:0"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>`:'<small style="color:var(--muted)">se podrá ver cuando vuelva a entrar o le cambies la clave</small>'}</div>
       <div class="meta" style="font-size:13px;color:var(--muted);margin-top:2px">${m.remoto?'<b>Puede usarlo fuera del restaurante (Tailscale)</b>':'Solo con el WiFi del restaurante'} · código ${esc(m.cod)} · alta ${m.alta?corto(m.alta.slice(0,10)):''}</div>
       <div class="btns" style="margin-top:8px"><button class="btn pri" data-msenlace="${esc(m.id)}">Mandar PDF</button><button class="btn" data-msclave="${esc(m.id)}">Cambiar clave</button><button class="btn" data-msremoto="${esc(m.id)}">${m.remoto?'Quitar Tailscale':'Permitir Tailscale'}</button><button class="btn" data-msbaja="${esc(m.id)}" style="color:var(--bad)">Quitar acceso</button></div></div>`).join('')}</div>`:'<p class="empty" style="margin-top:10px">Todavía no das de alta a nadie.</p>'}
     ${libres.length?`<div style="display:grid;grid-template-columns:1fr 110px;gap:8px;margin-top:12px">
@@ -1429,7 +1433,7 @@ function render(){
   const n=D.borrados.length+D.cancelados.length+D.precios.length; const dot=$('#ctlDot'); dot.hidden=!n; dot.textContent=n;
   const na=esHoy()?(DATA.abiertas||[]).length:0; const td=$('#tkDot'); td.hidden=!na; td.textContent=na;
   const open=[...document.querySelectorAll('#view details[open]')].map(d=>d.querySelector('summary')?.textContent);
-  $('#view').innerHTML= tab==='hoy'?vHoy(D):tab==='tickets'?vTickets(D):tab==='cortes'?vCortes(D):tab==='control'?vControl(D):tab==='rh'?vRH():vReportes();
+  $('#view').innerHTML= tab==='hoy'?vHoy(D):tab==='tickets'?vTickets(D):tab==='cortes'?vCortes(D):tab==='control'?vControl(D):tab==='rh'?vRH():tab==='cmd'?vComandero():vReportes();
   if(open.length) document.querySelectorAll('#view details').forEach(d=>{if(open.includes(d.querySelector('summary')?.textContent))d.open=true});
 }
 function irA(t){tab=t;st.tab=t;save();render();window.scrollTo(0,0)}
@@ -1438,7 +1442,7 @@ $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(b)irA(b.dataset.tab)};
 $('#view').addEventListener('click',e=>{
-  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes]');if(!t)return;
+  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes]');if(!t)return;
   const d=t.dataset;
   if(d.go) return irA(d.go);
   if(d.pm){prodModo=d.pm;return render()} if(d.pt){prodT=d.pt;return render()}
@@ -1465,6 +1469,9 @@ $('#view').addEventListener('click',e=>{
   if(d.famalta||d.fambaja){e.preventDefault();(async()=>{try{t.disabled=true;await api('/api/familia',{accion:d.famalta?'alta':'baja',nombre:d.famalta?$('#famN').value:d.fambaja});toast(d.famalta?'Agregado':'Quitado');await cargar(true)}catch(err){toast(err.message);t.disabled=false}})();return}
   if(d.msremoto||d.msenvio||d.mscandado||d.msalta||d.msbaja||d.msclave||d.cjalta||d.cjbaja||d.cjclave||d.iasave||d.iaquitar||d.leerpend||d.drconectar||d.drquitar||d.drborrar||d.drmes){e.preventDefault();accionAdmin(t,d);return}
   if(d.cpurl){(navigator.clipboard?navigator.clipboard.writeText(d.cpurl):Promise.reject()).then(()=>toast('Dirección copiada')).catch(()=>toast(d.cpurl));return}
+  if(d.msver){e.preventDefault();const el=document.getElementById('msk-'+d.msver);if(!el)return;
+    if(el.dataset.v){el.textContent='••••';delete el.dataset.v;return}
+    api('/api/meseros',{accion:'ver_clave',id:d.msver},true).then(j=>{if(j&&j.clave){el.textContent=j.clave;el.dataset.v='1';setTimeout(()=>{if(el.dataset.v){el.textContent='••••';delete el.dataset.v}},15000)}else toast('Esa clave todavía no se puede ver.')}).catch(err=>toast(err.message));return}
   if(d.mspdf){e.preventDefault();enviarPdf(d.mspdf,NUEVO_MS);return}
   if(d.msenlace){e.preventDefault();const m=(DATA.meseros||[]).find(x=>x.id===d.msenlace);NUEVO_MS=m?m.nombre:null;NUEVO_MS_COD=m?m.cod:null;fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;ACCESO.cmd=true;render();const b=document.getElementById('cmdEnlace');if(b)b.scrollIntoView({behavior:'smooth',block:'center'})}).catch(err=>toast(err.message));return}
   if(d.msacceso){e.preventDefault();NUEVO_MS=null;NUEVO_MS_COD=null;fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;ACCESO.cmd=true;render()}).catch(err=>toast(err.message));return}
@@ -1510,7 +1517,7 @@ async function cargar(force){
     $('#gen').textContent=(COPIA?'Copia del ':'')+(COPIA?new Date(DATA.generado).toLocaleDateString('es-MX',{day:'numeric',month:'short'})+' ':'')+hm(DATA.generado)+' · v'+(DATA.version||'');
     if(COPIA){$('#live').classList.add('off');$('#note').hidden=false;$('#note').textContent='Estás viendo la copia guardada en tu Google Drive, con todo hasta la hora de arriba. Para ver en vivo y quitar cuentas, abre la app normal con la caja prendida.'}
     else{const mins=(Date.now()-new Date(DATA.generado))/60000;if(mins>15){$('#live').classList.add('off');$('#note').hidden=false;$('#note').textContent='La última actualización fue hace '+Math.round(mins)+' minutos. Revisa que la computadora de la caja esté encendida y con internet.'}}
-    if(!$('#sheet')&&(force||primera||!((tab==='reportes'&&repModo==='gastos')||tab==='rh'))) render();
+    if(!$('#sheet')&&(force||primera||!((tab==='reportes'&&repModo==='gastos')||tab==='rh'||tab==='cmd'))) render();
   }catch(e){$('#live').classList.add('off');$('#gen').textContent='Sin conexión';$('#note').hidden=false;$('#note').textContent='No pude conectarme con la computadora de la caja. Revisa que esté encendida, con internet y con Tailscale activo. ('+e.message+')'}
 }
 const CAPMODE=!COPIA&&location.pathname.startsWith('/captura');

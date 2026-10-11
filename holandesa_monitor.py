@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 49            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '27.5'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 50            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '27.6'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -1214,6 +1214,10 @@ class Monitor:
     def mesero_accion(self, d):
         acc = d.get('accion'); c = self.meseros()
         emp = getattr(self, 'EMP', {})
+        if acc == 'ver_clave':
+            x = next((x for x in c if x.get('id') == d.get('id') and x.get('activo')), None)
+            if not x: raise RuntimeError('No encontré a ese mesero.')
+            return {'ok': True, 'clave': x.get('clave', '')}
         if acc == 'candado':
             self.cfg['candado_rol'] = bool(d.get('activo'))
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f: json.dump(self.cfg, f, ensure_ascii=False, indent=2)
@@ -1226,7 +1230,7 @@ class Monitor:
             if any(x.get('activo') and x.get('cod') == cod for x in c): raise ValueError(emp[cod] + ' ya tiene acceso al comandero. Si quieres, cámbiale la clave.')
             if any(x.get('activo') and verifica_pin(x, pin) for x in c): raise ValueError('Esa clave ya la tiene otra persona. Usa otra.')
             sal = secrets.token_hex(8)
-            c.append({'id': secrets.token_hex(4), 'cod': cod, 'nombre': emp[cod], 'sal': sal, 'huella': huella_pin(sal, pin), 'activo': True,
+            c.append({'id': secrets.token_hex(4), 'cod': cod, 'nombre': emp[cod], 'sal': sal, 'huella': huella_pin(sal, pin), 'clave': pin, 'activo': True,
                       'alta': datetime.datetime.now().isoformat(timespec='seconds')})
         elif acc == 'clave':
             pin = str(d.get('pin') or '').strip()
@@ -1234,7 +1238,7 @@ class Monitor:
             x = next((x for x in c if x.get('id') == d.get('id') and x.get('activo')), None)
             if not x: raise RuntimeError('No encontré a ese mesero.')
             if any(o is not x and o.get('activo') and verifica_pin(o, pin) for o in c): raise ValueError('Esa clave ya la tiene otra persona. Usa otra.')
-            x['sal'] = secrets.token_hex(8); x['huella'] = huella_pin(x['sal'], pin); x['cambio_clave'] = datetime.datetime.now().isoformat(timespec='seconds')
+            x['sal'] = secrets.token_hex(8); x['huella'] = huella_pin(x['sal'], pin); x['clave'] = pin; x['cambio_clave'] = datetime.datetime.now().isoformat(timespec='seconds')
             for t in [t for t, v in SESIONES_M.items() if v[0] == x['id']]: SESIONES_M.pop(t, None)
         elif acc == 'remoto':
             x = next((x for x in c if x.get('id') == d.get('id') and x.get('activo')), None)
@@ -1261,6 +1265,15 @@ class Monitor:
             if x.get('activo') and verifica_pin(x, str(pin or '')):
                 if emp and x.get('cod') not in emp: raise RuntimeError('Tu usuario está dado de baja en MrTienda. Avísale a Jorge.')
                 if not x.get('remoto') and not ip_del_restaurante(ip): raise RuntimeError(FUERA_WIFI)
+                if x.get('clave') != str(pin):   # claves dadas antes de la 27.6: se aprenden al entrar
+                    try:
+                        c_ = self.meseros()
+                        for y in c_:
+                            if y.get('id') == x['id']: y['clave'] = str(pin)
+                        tmp = MESEROS_FILE + '.tmp'
+                        with open(tmp, 'w', encoding='utf-8') as f: json.dump(c_, f, ensure_ascii=False, indent=1)
+                        os.replace(tmp, MESEROS_FILE)
+                    except Exception as e: log('No pude guardar la clave del mesero: ' + str(e))
                 bloqueo = self.candado_rol(x.get('cod'))
                 if bloqueo: FALLOS.pop(k, None); raise RuntimeError(bloqueo)
                 FALLOS.pop(k, None); tok = secrets.token_urlsafe(24)
@@ -1461,7 +1474,7 @@ class Monitor:
         return out
 
     def enviar_comandero(self, mesero, d):
-        if not self.cfg.get('comandero_escribe'): raise RuntimeError('El envío a MrTienda está apagado. Jorge lo enciende en Reportes → Meseros.')
+        if not self.cfg.get('comandero_escribe'): raise RuntimeError('El envío a MrTienda está apagado. Jorge lo enciende en la pestaña Comandero del panel.')
         envio = str(d.get('envio') or '')[:40]
         hechos = getattr(self, '_envios', {})
         if envio and envio in hechos: return hechos[envio]
@@ -1911,7 +1924,7 @@ class Monitor:
         try: ligados = {str(e.get('cod_mt') or '').strip() for e in self.rh()['empleados'] if e.get('cod_mt')}
         except Exception: ligados = set()
         out['meseros'] = [{'id': x['id'], 'cod': x.get('cod', ''), 'nombre': self.EMP.get(x.get('cod'), x['nombre']), 'activo': x.get('activo', True),
-                           'en_mrtienda': x.get('cod') in self.EMP, 'alta': x.get('alta', ''), 'remoto': bool(x.get('remoto')), 'ligado': x.get('cod') in ligados} for x in self.meseros()]
+                           'en_mrtienda': x.get('cod') in self.EMP, 'alta': x.get('alta', ''), 'remoto': bool(x.get('remoto')), 'ligado': x.get('cod') in ligados, 'tiene_clave': bool(x.get('clave'))} for x in self.meseros()]
         out['candado_rol'] = bool(self.cfg.get('candado_rol'))
         out['comandero_escribe'] = bool(self.cfg.get('comandero_escribe'))
         out['emp_mrtienda'] = sorted([{'cod': k, 'nombre': v} for k, v in self.EMP.items() if v], key=lambda e: e['nombre'])
