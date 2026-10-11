@@ -895,17 +895,31 @@ function bloqueAcceso(){
 }
 // ---- comandero: meseros con clave de 4 números (Reportes → Meseros)
 let NUEVO_MS=null,NUEVO_MS_COD=null;
+// PDF de bienvenida: se prepara al mostrar la tarjeta para compartirlo al primer toque (iPhone pide que sea inmediato)
+const PDF_MS={};
+const nombrePdf=n=>{const p=String(n||'').trim().split(/\s+/)[0]||'';return 'Comandero '+(p?p.charAt(0).toUpperCase()+p.slice(1).toLowerCase():'La Holandesa')+'.pdf'};
+function puedeCompartir(){try{return window.isSecureContext&&!!navigator.canShare&&navigator.canShare({files:[new File(['x'],'x.pdf',{type:'application/pdf'})]})}catch(e){return false}}
+function prepararPdf(cod,nombre){if(!cod||PDF_MS[cod]||!puedeCompartir())return;
+  PDF_MS[cod]=fetch('/api/comandero-pdf?cod='+encodeURIComponent(cod),{credentials:'same-origin'}).then(r=>{if(!r.ok)throw new Error('No pude generar el PDF');return r.blob()})
+    .then(b=>(PDF_MS[cod]=new File([b],nombrePdf(nombre),{type:'application/pdf'}))).catch(e=>{delete PDF_MS[cod];throw e})}
+async function enviarPdf(cod,nombre){
+  let f=PDF_MS[cod];
+  if(!(f instanceof File)){prepararPdf(cod,nombre);try{await PDF_MS[cod]}catch(e){return toast(e.message)}toast('PDF listo. Toca "Enviar PDF" otra vez.');return}
+  try{await navigator.share({files:[f],title:f.name.replace(/\.pdf$/,'')})}catch(e){if(e.name!=='AbortError')toast('No se pudo compartir: '+e.message)}}
 function bloqueComandero(){
   const wifi=ACCESO.ips.filter(ip=>!ip.startsWith('100.')), ts=ACCESO.ips.filter(ip=>ip.startsWith('100.'));
   const url=wifi.length?`http://${wifi[0]}:${ACCESO.puerto}/comandero`:'';
   if(!url) return `<p class="note" style="margin-top:12px">No pude saber la dirección de la computadora de la caja en el WiFi del restaurante. Avísale a Claude.</p>`;
   const quien=NUEVO_MS||'';
   const pdf=NUEVO_MS_COD?'/api/comandero-pdf?cod='+encodeURIComponent(NUEVO_MS_COD):'';
+  if(pdf)setTimeout(()=>{try{prepararPdf(NUEVO_MS_COD,quien)}catch(e){}},0);
   return `<div class="card" id="cmdEnlace" style="margin-top:12px;padding:14px;background:var(--green-soft);box-shadow:none;border-color:var(--green-3)">
     <b>${quien?'Mándale esto a '+esc(quien):'Dirección del comandero'}</b>
     <p style="margin:8px 0;font-size:17px;font-weight:700;word-break:break-all;user-select:all" class="num">${esc(url)}</p>
-    <div class="btns" style="margin-top:6px">${pdf?`<a class="btn pri" href="${pdf}" download>Descargar PDF de bienvenida</a>`:''}<button class="btn" data-cpurl="${esc(url)}">Copiar dirección</button></div>
-    <p class="empty" style="margin-top:8px">${pdf?'El PDF trae su nombre, la dirección para tocar, los pasos para entrar y dejarlo como app, y sus reglas (WiFi del restaurante'+(DATA.candado_rol?', su día y horario':'')+'). Descárgalo y mándaselo por WhatsApp como documento. ':''}La clave no va en el PDF; dásela tú en persona.${ts.length?` Tú, desde fuera, puedes probarlo con Tailscale: http://${esc(ts[0])}:${ACCESO.puerto}/comandero`:''}</p></div>`;
+    ${pdf?(puedeCompartir()?`<div class="btns" style="margin-top:6px"><button class="btn pri" data-mspdf="${esc(NUEVO_MS_COD)}">Enviar PDF</button><button class="btn" data-cpurl="${esc(url)}">Copiar dirección</button></div>
+    <p class="empty" style="margin-top:8px">Se abre el menú para compartir con el PDF "${esc(nombrePdf(quien))}" ya cargado: toca WhatsApp y elige a ${esc(quien||'la persona')}. `
+      :`<div class="btns" style="margin-top:6px">${ACCESO.https?`<a class="btn pri" href="${esc(ACCESO.https)}/" target="_blank" rel="noopener">Abrir el panel seguro para enviar</a>`:''}<button class="btn" data-cpurl="${esc(url)}">Copiar dirección</button></div>
+    <p class="note" style="margin-top:8px">${ACCESO.https?`Para mandar el PDF directo a WhatsApp, el teléfono pide la dirección segura del panel: <b>${esc(ACCESO.https)}</b>. Ábrela (entras con tu misma clave) y agrégala a tu pantalla de inicio en lugar de la actual.`:'Para mandar el PDF directo a WhatsApp falta encender la dirección segura de Tailscale en la caja (MagicDNS y HTTPS Certificates en el panel de Tailscale). Avísale a Claude.'}</p><p class="empty" style="margin-top:8px">`):'<p class="empty" style="margin-top:8px">'}La clave no va en el PDF; dásela tú en persona.${ts.length?` Tú, desde fuera, puedes probarlo con Tailscale: http://${esc(ts[0])}:${ACCESO.puerto}/comandero`:''}</p></div>`;
 }
 function tarjetaComandero(){
   if(COPIA) return '';
@@ -1424,7 +1438,7 @@ $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(b)irA(b.dataset.tab)};
 $('#view').addEventListener('click',e=>{
-  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes]');if(!t)return;
+  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes]');if(!t)return;
   const d=t.dataset;
   if(d.go) return irA(d.go);
   if(d.pm){prodModo=d.pm;return render()} if(d.pt){prodT=d.pt;return render()}
@@ -1451,6 +1465,7 @@ $('#view').addEventListener('click',e=>{
   if(d.famalta||d.fambaja){e.preventDefault();(async()=>{try{t.disabled=true;await api('/api/familia',{accion:d.famalta?'alta':'baja',nombre:d.famalta?$('#famN').value:d.fambaja});toast(d.famalta?'Agregado':'Quitado');await cargar(true)}catch(err){toast(err.message);t.disabled=false}})();return}
   if(d.msremoto||d.msenvio||d.mscandado||d.msalta||d.msbaja||d.msclave||d.cjalta||d.cjbaja||d.cjclave||d.iasave||d.iaquitar||d.leerpend||d.drconectar||d.drquitar||d.drborrar||d.drmes){e.preventDefault();accionAdmin(t,d);return}
   if(d.cpurl){(navigator.clipboard?navigator.clipboard.writeText(d.cpurl):Promise.reject()).then(()=>toast('Dirección copiada')).catch(()=>toast(d.cpurl));return}
+  if(d.mspdf){e.preventDefault();enviarPdf(d.mspdf,NUEVO_MS);return}
   if(d.msenlace){e.preventDefault();const m=(DATA.meseros||[]).find(x=>x.id===d.msenlace);NUEVO_MS=m?m.nombre:null;NUEVO_MS_COD=m?m.cod:null;fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;ACCESO.cmd=true;render();const b=document.getElementById('cmdEnlace');if(b)b.scrollIntoView({behavior:'smooth',block:'center'})}).catch(err=>toast(err.message));return}
   if(d.msacceso){e.preventDefault();NUEVO_MS=null;NUEVO_MS_COD=null;fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;ACCESO.cmd=true;render()}).catch(err=>toast(err.message));return}
   if(d.acceso){NUEVO_CJ=null;fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;render()}).catch(err=>toast(err.message));return}

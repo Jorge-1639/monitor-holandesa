@@ -37,3 +37,8 @@ Descanso, falta, vacaciones o incapacidad = no entra. Quien no está ligado en P
 Versión 27.3 — PDF de bienvenida: en Reportes → Meseros, "Mandar PDF" (o al dar de alta / cambiar clave) descarga un PDF con el nombre del mesero,
 la dirección del comandero en el WiFi del restaurante (se toca para abrir), los pasos para entrar y dejarlo como app, y sus reglas (su horario
 si está ligado en Personal). Se genera en la caja sin paquetes extra (`/api/comandero-pdf?cod=`, solo con la clave del panel). La clave nunca va en el PDF.
+
+Versión 27.4 — "Enviar PDF": el panel abre el menú de compartir del teléfono con "Comandero <Nombre>.pdf" ya cargado (se elige WhatsApp y la persona).
+El teléfono solo permite compartir archivos desde una dirección segura, así que al arrancar la caja activa `tailscale serve` y el panel queda también en
+https://<caja>.<red>.ts.net (requiere MagicDNS y HTTPS Certificates encendidos en Tailscale; se apaga con `"https_tailscale": false` en config.json).
+Lo que llega por esa dirección cuenta como Tailscale, nunca como WiFi del restaurante.

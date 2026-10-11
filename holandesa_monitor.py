@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 47            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '27.3'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 48            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '27.4'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -627,7 +627,7 @@ def pdf_comandero(nombre, url, horario='', candado=False, logo=None):
     for k, b in enumerate(objs, 1): pos.append(len(out)); out += b'%d 0 obj\n' % k + b + b'\nendobj\n'
     x = len(out)
     out += b'xref\n0 %d\n0000000000 65535 f \n' % (len(objs) + 1) + b''.join(b'%010d 00000 n \n' % p for p in pos)
-    out += b'trailer\n<< /Size %d /Root %d 0 R /Info << /Title (' % (len(objs) + 1, cat) + _pdf_txt('Comandero La Holandesa - ' + nombre.title()) + b') >> >>\nstartxref\n%d\n%%%%EOF\n' % x
+    out += b'trailer\n<< /Size %d /Root %d 0 R /Info << /Title (' % (len(objs) + 1, cat) + _pdf_txt('Comandero ' + (nombre.split() or [''])[0].title()) + b') >> >>\nstartxref\n%d\n%%%%EOF\n' % x
     return bytes(out)
 
 def _circulo(cx, cy, r):
@@ -2020,6 +2020,7 @@ def make_handler(mon, cfg):
             if gz: self.send_header('Content-Encoding', 'gzip')
             self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
         def do_POST(self):
+            self._por_tailscale_serve()
             if self.path == '/api/caja-login':
                 try:
                     n = min(int(self.headers.get('Content-Length', '0') or 0), 2048)
@@ -2099,7 +2100,12 @@ def make_handler(mon, cfg):
                 log('No se pudo completar '+self.path+': '+str(e))
                 body=json.dumps({'ok':False,'error':str(e)},ensure_ascii=False).encode('utf-8')
                 self.send_response(409); self.send_header('Content-Type','application/json; charset=utf-8'); self.send_header('Cache-Control','no-store'); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)
+        def _por_tailscale_serve(self):
+            # tailscale serve entrega la petición desde 127.0.0.1; sin esto parecería la misma computadora (WiFi)
+            if self.headers.get('Tailscale-User-Login') or self.headers.get('Host', '').split(':')[0].lower().rstrip('.').endswith('.ts.net'):
+                self.client_address = ('100.64.0.1', 0)
         def do_GET(self):
+            self._por_tailscale_serve()
             p0 = self.path.split('?')[0]
             if p0 in ('/captura', '/captura/'):
                 return self._send(page, 'text/html; charset=utf-8')   # la página no trae datos; pide la clave del cajero
@@ -2154,12 +2160,12 @@ def make_handler(mon, cfg):
                 if not x or not wifi: self.send_response(404); self.end_headers(); return
                 nombre = mon.EMP.get(cod, x['nombre'])
                 pdf = pdf_comandero(nombre, 'http://%s:%s/comandero' % (wifi[0], cfg['puerto']), mon.horario_mesero(cod), bool(mon.cfg.get('candado_rol')), logo_cmd)
-                arch = 'Comandero La Holandesa - ' + nombre.title() + '.pdf'
+                arch = 'Comandero ' + (nombre.split() or ['La Holandesa'])[0].title() + '.pdf'
                 self.send_response(200); self.send_header('Content-Type', 'application/pdf'); self.send_header('Cache-Control', 'no-store')
                 self.send_header('Content-Disposition', "attachment; filename=\"Comandero.pdf\"; filename*=UTF-8''" + urllib.parse.quote(arch))
                 self.send_header('Content-Length', str(len(pdf))); self.end_headers(); self.wfile.write(pdf); return
             if p0 == '/api/acceso':
-                body = json.dumps({'ok': True, 'puerto': cfg['puerto'], 'ips': ips_locales()}, ensure_ascii=False).encode('utf-8')
+                body = json.dumps({'ok': True, 'puerto': cfg['puerto'], 'ips': ips_locales(), 'https': HTTPS_TS.get('url', '')}, ensure_ascii=False).encode('utf-8')
                 return self._send(body, 'application/json; charset=utf-8')
             if p0.startswith('/foto/'):
                 nom = re.sub(r'[^0-9A-Za-z_.-]', '', p0[6:])
@@ -2257,6 +2263,33 @@ def responde(puerto):
         with socket.create_connection(('127.0.0.1', int(puerto)), timeout=3): return True
     except OSError: return False
 
+HTTPS_TS = {}   # dirección segura https://<caja>.<red>.ts.net (tailscale serve), para que el teléfono pueda compartir archivos
+def tailscale_exe():
+    for c in (shutil.which('tailscale'), r'C:\Program Files\Tailscale\tailscale.exe', r'C:\Program Files (x86)\Tailscale\tailscale.exe'):
+        if c and os.path.exists(c): return c
+    return None
+def activar_https(cfg):
+    if cfg.get('https_tailscale') is False: return
+    ts = tailscale_exe()
+    if not ts: log('HTTPS: no encontré Tailscale en esta computadora.'); return
+    kw = {'capture_output': True, 'text': True, 'timeout': 25}
+    if os.name == 'nt': kw['creationflags'] = 0x08000000   # sin ventana
+    try:
+        st = json.loads(subprocess.run([ts, 'status', '--json'], **kw).stdout or '{}')
+        dns = ((st.get('Self') or {}).get('DNSName') or '').rstrip('.')
+        if not dns: log('HTTPS: Tailscale no tiene nombre (MagicDNS apagado).'); return
+        ver = lambda: subprocess.run([ts, 'serve', 'status', '--json'], **kw).stdout or ''
+        actual = ver()
+        if not (dns in actual and str(cfg['puerto']) in actual):
+            r = subprocess.run([ts, 'serve', '--bg', str(cfg['puerto'])], **kw)
+            log('HTTPS: tailscale serve -> ' + re.sub(r'\s+', ' ', (r.stdout + ' ' + r.stderr).strip())[:300])
+            actual = ver()
+        if dns in actual and str(cfg['puerto']) in actual:
+            HTTPS_TS['url'] = 'https://' + dns; log('HTTPS listo: ' + HTTPS_TS['url'])
+        else: log('HTTPS: no quedó activo. Revisa que en el panel de Tailscale estén encendidos MagicDNS y "HTTPS Certificates".')
+    except subprocess.TimeoutExpired: log('HTTPS: Tailscale tardó demasiado (quizá pide encender HTTPS Certificates en su panel).')
+    except Exception as e: log('HTTPS: ' + str(e))
+
 def instalar_vigilante():
     # tarea de Windows que cada 10 minutos revisa que el monitor esté prendido y, si no, lo arranca
     if os.name != 'nt': return
@@ -2300,6 +2333,7 @@ def main():
     if srv is None: log('El puerto sigue ocupado; no pude arrancar.'); sys.exit(1)
     log(f"Monitor versión {VERSION_TXT} (#{VERSION}) listo en el puerto {cfg['puerto']} (usuario: {cfg['usuario']})")
     threading.Thread(target=instalar_vigilante, daemon=True).start()
+    threading.Thread(target=activar_https, args=(cfg,), daemon=True).start()
     srv.serve_forever()
 
 if __name__ == '__main__':
