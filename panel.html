@@ -63,6 +63,11 @@ nav.tabs .dot{position:absolute;top:2px;right:calc(50% - 22px);min-width:17px;he
 
 /* tarjetas */
 .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px;min-width:0;box-shadow:var(--shadow)}
+/* Personal (Recursos Humanos): tarjetas con contorno azul clarito */
+:root{--rh-borde:#a8d1f0}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--rh-borde:#3d6688}}
+:root[data-theme="dark"]{--rh-borde:#3d6688}
+body.rh .card,body.rh .kpi{border:1.5px solid var(--rh-borde)}
 .card h2{font:800 14px var(--display);text-transform:uppercase;letter-spacing:.08em;margin:0 0 12px;color:var(--green-2);display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
 .card h2 small{font:500 12px var(--body);color:var(--muted);text-transform:none;letter-spacing:0}
 .hero{background:linear-gradient(150deg,#ea580c 0%,#f97316 100%);color:#fff;border-radius:20px;padding:20px;box-shadow:0 14px 30px -18px rgba(234,88,12,.8);position:relative;overflow:hidden}
@@ -1565,6 +1570,7 @@ async function cargar(force){
 }
 const CAPMODE=!COPIA&&location.pathname.startsWith('/captura');
 if(RHMODE){
+  document.body.classList.add('rh');
   document.title='Personal Holandesa';document.querySelector('link[rel=manifest]').href='/manifest-personal.webmanifest';
   document.querySelector('link[rel=apple-touch-icon]').href='/icon_personal.png';document.querySelector('meta[name=theme-color]').content='#1d5c3b';
   const r=document.documentElement.style;[['--green','#1d5c3b'],['--green-2','#2f7d52'],['--green-3','#2f7d52'],['--green-soft','#e2efe5'],['--bar','#2f7d52'],['--bar-dim','#cfe5d6'],['--hero-small','#d9f0e1']].forEach(([k,v])=>r.setProperty(k,v));
