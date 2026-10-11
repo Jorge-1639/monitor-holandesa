@@ -68,6 +68,12 @@ nav.tabs .dot{position:absolute;top:2px;right:calc(50% - 22px);min-width:17px;he
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--rh-borde:#3d6688}}
 :root[data-theme="dark"]{--rh-borde:#3d6688}
 body.rh .card,body.rh .kpi{border:1.5px solid var(--rh-borde)}
+/* Personal en blancos y grises (29.2) */
+body.rh{--bg:#f3f3f4;--surface:#ffffff;--surface-2:#f4f4f5;--ink:#1c1c1f;--muted:#6b6b73;--line:#e3e3e6;--green:#3f3f46;--green-2:#3f3f46;--green-3:#71717a;--green-soft:#ececee;--bar:#52525b;--bar-dim:#d4d4d8;--hero-small:#71717a;--hero-ink:#1c1c1f;--gold:#52525b;--rh-borde:#d4d4d8;--shadow:0 1px 2px rgba(0,0,0,.04),0 6px 18px -12px rgba(0,0,0,.14)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) body.rh{--bg:#111113;--surface:#1b1b1e;--surface-2:#232327;--ink:#f4f4f5;--muted:#a1a1aa;--line:#2e2e33;--green:#d4d4d8;--green-2:#d4d4d8;--green-3:#a1a1aa;--green-soft:#2a2a2e;--bar:#a1a1aa;--bar-dim:#3f3f46;--hero-small:#a1a1aa;--hero-ink:#f4f4f5;--gold:#a1a1aa;--rh-borde:#3a3a40}}
+:root[data-theme="dark"] body.rh{--bg:#111113;--surface:#1b1b1e;--surface-2:#232327;--ink:#f4f4f5;--muted:#a1a1aa;--line:#2e2e33;--green:#d4d4d8;--green-2:#d4d4d8;--green-3:#a1a1aa;--green-soft:#2a2a2e;--bar:#a1a1aa;--bar-dim:#3f3f46;--hero-small:#a1a1aa;--hero-ink:#f4f4f5;--gold:#a1a1aa;--rh-borde:#3a3a40}
+body.rh .live i{background:var(--muted);box-shadow:0 0 0 3px var(--line)}
+body.rh header.top{background:var(--surface);color:var(--ink);box-shadow:0 1px 0 var(--line),0 6px 16px -14px rgba(0,0,0,.3)}
 .rhhr input[type=time]::-webkit-calendar-picker-indicator{display:none}.rhhr input[type=time]{font-variant-numeric:tabular-nums;text-align:center}
 .card h2{font:800 14px var(--display);text-transform:uppercase;letter-spacing:.08em;margin:0 0 12px;color:var(--green-2);display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
 .card h2 small{font:500 12px var(--body);color:var(--muted);text-transform:none;letter-spacing:0}
@@ -1723,8 +1729,7 @@ const CAPMODE=!COPIA&&location.pathname.startsWith('/captura');
 if(RHMODE){
   document.body.classList.add('rh');
   document.title='Personal Holandesa';document.querySelector('link[rel=manifest]').href='/manifest-personal.webmanifest';
-  document.querySelector('link[rel=apple-touch-icon]').href='/icon_personal.png';document.querySelector('meta[name=theme-color]').content='#1d5c3b';
-  const r=document.documentElement.style;[['--green','#1d5c3b'],['--green-2','#2f7d52'],['--green-3','#2f7d52'],['--green-soft','#e2efe5'],['--bar','#2f7d52'],['--bar-dim','#cfe5d6'],['--hero-small','#d9f0e1']].forEach(([k,v])=>r.setProperty(k,v));
+  document.querySelector('link[rel=apple-touch-icon]').href='/icon_personal.png';document.querySelector('meta[name=theme-color]').content='#ffffff';
   document.querySelector('.datebar').hidden=true;document.querySelector('nav.tabs').hidden=true;document.querySelector('footer').hidden=true;
   document.querySelector('.brand h1').innerHTML='La Holandesa <span style="display:inline">· Personal</span>';
   $('#gen').textContent='Recursos Humanos';

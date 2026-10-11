@@ -75,3 +75,5 @@ Versión 29.1 — la semana del rol y de la nómina va de martes a lunes (lo ya 
 Préstamos y vales: "Vales de dinero" (los que no pasaron por caja) y "Vales de comida": lista de lo que comió cada empleado esa semana
 con un cuadrito para el descuento que Jorge decide, más vales de comida a mano (consumo y descuento). Lo capturado pasa solo a la nómina;
 si la nómina ya estaba guardada, avisa "ahora suman…".
+
+Versión 29.2 — Personal (/personal) en blancos y grises (encabezado blanco, botones grises); los colores del rol (T, F, V…) se quedan porque dicen algo.
