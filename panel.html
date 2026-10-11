@@ -225,6 +225,7 @@ footer{color:var(--muted);font-size:12px;margin-top:24px;line-height:1.5}
   </div>
 </div></header>
 <div class="wrap">
+  <div class="card" id="segAviso" hidden style="background:var(--green-soft);border-color:var(--green-3);box-shadow:none;margin-bottom:12px"></div>
   <p class="note" id="note" hidden></p>
   <main id="view"></main>
   <footer>Se actualiza cada 2 minutos. Venta = lo cobrado en tickets, sin propinas ni entradas de caja. Dólares al tipo de cambio que registró la caja. Las ventas se leen de MrTienda sin modificarlas; solo "Quitar cuenta" toca una cuenta abierta y antes la respalda.</footer>
@@ -722,6 +723,14 @@ function rCompara(){
 }
 
 // ---------- compras, gastos y estado de resultados
+// Aviso: ya existe la dirección segura (https) del panel; se ofrece una sola vez por visita hasta que la uses
+function avisoSeguro(){
+  if(COPIA||CAPMODE||window.isSecureContext)return;
+  fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{
+    if(!j||!j.https){setTimeout(avisoSeguro,300000);return}
+    const url=j.https+(location.pathname||'/'),el=document.getElementById('segAviso');
+    el.innerHTML=`<b>Tu panel ya tiene dirección segura</b><p style="margin:6px 0 10px;font-size:14px">Ábrelo con este botón y agrégalo a tu pantalla de inicio (⋮ → Agregar a pantalla de inicio). Con esa dirección funciona "Enviar PDF". Entras con tu misma clave.</p><a class="btn pri" href="${url}">Abrir panel seguro</a>`;
+    el.hidden=false}).catch(()=>setTimeout(avisoSeguro,300000))}
 let cajaG=st.cajaG2===true, gImp=null, gNeg='todos', ACCESO=null;
 const CATS=()=>DATA&&DATA.categorias_gasto||(CAP&&CAP.categorias)||['Insumos y compras','Sueldos','Seguro social','Luz','Agua','Gas','Renta','Mantenimiento','Comisiones','Otros gastos'];
 const GA=()=>{const g=DATA.gastos||{};return {movs:g.movs||[],fijos:g.fijos||[],recibos:g.recibos||[]}};
@@ -1529,7 +1538,7 @@ if(RHMODE){
   document.querySelector('.brand h1').innerHTML='La Holandesa <span style="display:inline">· Personal</span>';
   $('#gen').textContent='Recursos Humanos';
   document.querySelector('.wrap').style.paddingBottom='40px';
-  tab='rh';render();
+  tab='rh';render();setTimeout(avisoSeguro,3000);
 }else if(CAPMODE){
   document.title='Compras Holandesa';document.querySelector('link[rel=manifest]').href='/manifest-caja.webmanifest';
   document.querySelector('.datebar').hidden=true;document.querySelector('nav.tabs').hidden=true;document.querySelector('footer').hidden=true;
@@ -1538,6 +1547,7 @@ if(RHMODE){
   cargarCaptura();
 }else{
   cargar(); if(!COPIA) setInterval(cargar,120000);
+  setTimeout(avisoSeguro,3000);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!COPIA)cargar()});
 }
 </script>
