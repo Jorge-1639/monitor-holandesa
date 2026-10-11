@@ -28,3 +28,8 @@ Recursos Humanos (pestaña Personal, versión 27.0): catálogo de empleados con 
 nómina (sueldo semanal menos faltas, comida, vales, abono de préstamo, transferencia/efectivo y recibo por WhatsApp), vales y préstamos con saldo,
 vacaciones, prima vacacional y aguinaldo según la LFT. Los datos (incluye NSS, CURP, RFC) se guardan solo en la caja en `personal.json`,
 con una copia diaria en `respaldos_personal\`; nunca van en data.json, en la copia de Drive ni en este repositorio.
+
+Versión 27.2 — candado del rol: si Jorge enciende "Revisar rol de descansos" (Reportes → Meseros, config `candado_rol`), el mesero
+ligado a un empleado de Personal (código de MrTienda) solo entra al comandero el día que le toca trabajar según el rol de la semana
+y dentro de su horario (30 min antes de entrar y hasta 60 min después de salir; config `candado_antes_min` y `candado_despues_min`).
+Descanso, falta, vacaciones o incapacidad = no entra. Quien no está ligado en Personal no tiene este candado.

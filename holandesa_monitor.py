@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 45            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '27.1'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 46            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '27.2'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -1074,6 +1074,11 @@ class Monitor:
     def mesero_accion(self, d):
         acc = d.get('accion'); c = self.meseros()
         emp = getattr(self, 'EMP', {})
+        if acc == 'candado':
+            self.cfg['candado_rol'] = bool(d.get('activo'))
+            with open(CONFIG_FILE, 'w', encoding='utf-8') as f: json.dump(self.cfg, f, ensure_ascii=False, indent=2)
+            log('Candado del rol de descansos ' + ('ENCENDIDO' if self.cfg['candado_rol'] else 'apagado'))
+            self.refresh(); return {'ok': True}
         if acc == 'alta':
             cod = str(d.get('cod') or '').strip(); pin = str(d.get('pin') or '').strip()
             if cod not in emp: raise ValueError('Elige a la persona de la lista de MrTienda.')
@@ -1116,6 +1121,8 @@ class Monitor:
             if x.get('activo') and verifica_pin(x, str(pin or '')):
                 if emp and x.get('cod') not in emp: raise RuntimeError('Tu usuario está dado de baja en MrTienda. Avísale a Jorge.')
                 if not x.get('remoto') and not ip_del_restaurante(ip): raise RuntimeError(FUERA_WIFI)
+                bloqueo = self.candado_rol(x.get('cod'))
+                if bloqueo: FALLOS.pop(k, None); raise RuntimeError(bloqueo)
                 FALLOS.pop(k, None); tok = secrets.token_urlsafe(24)
                 SESIONES_M[tok] = (x['id'], ahora + 14 * 3600)
                 return {'ok': True, 'token': tok, 'nombre': emp.get(x['cod'], x['nombre']), 'cod': x['cod']}
@@ -1131,7 +1138,48 @@ class Monitor:
         emp = getattr(self, 'EMP', {})
         if not x or (emp and x.get('cod') not in emp): SESIONES_M.pop(tok, None); return None
         if not x.get('remoto') and not ip_del_restaurante(ip): SESIONES_M.pop(tok, None); return None   # candado: solo WiFi del restaurante
+        bloqueo = self.candado_rol(x.get('cod'))
+        if bloqueo: SESIONES_M.pop(tok, None); return {'bloqueo': bloqueo}             # candado: rol de descansos y horario
         return {'id': x['id'], 'cod': x['cod'], 'nombre': emp.get(x['cod'], x['nombre'])}
+
+    # Candado del rol de descansos (versión 27.2): el mesero ligado a un empleado de Personal solo entra
+    # si ese día le toca trabajar (T) y está dentro de su horario, con tolerancia antes y después.
+    # Quien no está ligado a ningún empleado de Personal (por ejemplo Jorge) no tiene este candado.
+    DIAS_RH = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+    def candado_rol(self, cod, ahora=None):
+        if not self.cfg.get('candado_rol') or not cod: return None
+        try: rh = self.rh()
+        except Exception as e: log('Candado del rol: no pude leer personal.json: ' + str(e)); return None
+        es = [e for e in rh['empleados'] if str(e.get('cod_mt') or '').strip() == str(cod).strip()]
+        if not es: return None
+        e = next((e for e in es if e.get('activo', True)), None)
+        if not e: return 'Estás dado de baja en Personal. Avísale a Jorge o a la encargada.'
+        ahora = ahora or datetime.datetime.now()
+        def codigo(f):
+            r = (rh['roles'].get((f - datetime.timedelta(days=f.weekday())).isoformat()) or {}).get(e['id'])
+            if isinstance(r, list) and len(r) == 7: return r[f.weekday()]
+            return 'D' if e.get('descanso') == self.DIAS_RH[f.weekday()] else 'T'
+        def hm(v):
+            m = re.fullmatch(r'(\d{1,2}):(\d{2})', str(v or '').strip())
+            return (int(m.group(1)), int(m.group(2))) if m and int(m.group(1)) < 24 and int(m.group(2)) < 60 else None
+        hoy = ahora.date(); c = codigo(hoy); ent, sal = hm(e.get('entrada')), hm(e.get('salida'))
+        if not (ent and sal):
+            if c == 'T': return None
+        else:
+            antes = datetime.timedelta(minutes=int(self.cfg.get('candado_antes_min', 30)))
+            despues = datetime.timedelta(minutes=int(self.cfg.get('candado_despues_min', 60)))
+            for f in (hoy, hoy - datetime.timedelta(days=1)):     # ayer cuenta si su turno pasa de la medianoche
+                if codigo(f) != 'T': continue
+                a = datetime.datetime.combine(f, datetime.time(*ent)); b = datetime.datetime.combine(f, datetime.time(*sal))
+                if b <= a: b += datetime.timedelta(days=1)
+                if a - antes <= ahora <= b + despues: return None
+        msg = {'D': 'Hoy es tu día de descanso. El comandero no está disponible.',
+               'F': 'Hoy estás marcado con falta. Si viniste a trabajar, avísale a la encargada.',
+               'V': 'Hoy estás de vacaciones. El comandero no está disponible.',
+               'I': 'Hoy estás marcado con incapacidad. El comandero no está disponible.'}
+        if c in msg: return msg[c]
+        return ('Estás fuera de tu horario (%d:%02d a %d:%02d). El comandero abre %d minutos antes de tu entrada.' %
+                (ent[0], ent[1], sal[0], sal[1], int(self.cfg.get('candado_antes_min', 30))))
 
     def menu_comandero(self):
         """Menú táctil de MrTienda (TOUCHDPT = secciones, TOUCHART = botones) con precios de Comedor (01) y Recoger aquí (02)."""
@@ -1711,8 +1759,11 @@ class Monitor:
         out['empleados'] = self.empleados()
         out['gastos'] = self.gastos(); out['categorias_gasto'] = CATEGORIAS_GASTO
         out['cajeros'] = [{'id': x['id'], 'nombre': x['nombre'], 'activo': x.get('activo', True), 'alta': x.get('alta', '')} for x in self.cajeros()]
+        try: ligados = {str(e.get('cod_mt') or '').strip() for e in self.rh()['empleados'] if e.get('cod_mt')}
+        except Exception: ligados = set()
         out['meseros'] = [{'id': x['id'], 'cod': x.get('cod', ''), 'nombre': self.EMP.get(x.get('cod'), x['nombre']), 'activo': x.get('activo', True),
-                           'en_mrtienda': x.get('cod') in self.EMP, 'alta': x.get('alta', ''), 'remoto': bool(x.get('remoto'))} for x in self.meseros()]
+                           'en_mrtienda': x.get('cod') in self.EMP, 'alta': x.get('alta', ''), 'remoto': bool(x.get('remoto')), 'ligado': x.get('cod') in ligados} for x in self.meseros()]
+        out['candado_rol'] = bool(self.cfg.get('candado_rol'))
         out['comandero_escribe'] = bool(self.cfg.get('comandero_escribe'))
         out['emp_mrtienda'] = sorted([{'cod': k, 'nombre': v} for k, v in self.EMP.items() if v], key=lambda e: e['nombre'])
         out['ia'] = {'activa': bool(self.cfg.get('ia_llave')), 'modelo': self.cfg.get('ia_modelo') or IA_MODELO}
@@ -1841,6 +1892,7 @@ def make_handler(mon, cfg):
             if self.path == '/api/comandero/enviar':
                 m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'), self.client_address[0])
                 try:
+                    if m_ and m_.get('bloqueo'): raise PermissionError(m_['bloqueo'])
                     if not m_: raise PermissionError('Tu sesion termino. Vuelve a entrar con tu clave.' if ip_del_restaurante(self.client_address[0]) else FUERA_WIFI)
                     n = min(int(self.headers.get('Content-Length', '0') or 0), 65536)
                     d = json.loads(self.rfile.read(n).decode('utf-8'))
@@ -1921,8 +1973,8 @@ def make_handler(mon, cfg):
                 return self._send(logo_cmd, 'image/png')
             if p0 == '/api/comandero':
                 m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'), self.client_address[0])
-                if not m_:
-                    body = json.dumps({'ok': False, 'sesion': False, 'error': 'Tu sesión terminó. Vuelve a entrar con tu clave.' if ip_del_restaurante(self.client_address[0]) else FUERA_WIFI}, ensure_ascii=False).encode('utf-8')
+                if not m_ or m_.get('bloqueo'):
+                    body = json.dumps({'ok': False, 'sesion': False, 'error': m_['bloqueo'] if m_ else 'Tu sesión terminó. Vuelve a entrar con tu clave.' if ip_del_restaurante(self.client_address[0]) else FUERA_WIFI}, ensure_ascii=False).encode('utf-8')
                     self.send_response(401); self.send_header('Content-Type', 'application/json'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
                 try:
                     out = {'ok': True, 'mesero': m_, 'cuentas': mon.cuentas_comandero(), 'hora': datetime.datetime.now().strftime('%H:%M'), 'escribe': bool(mon.cfg.get('comandero_escribe'))}
