@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 36            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '26.1'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 37            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '26.2'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -460,6 +460,16 @@ function autorizar() { carpeta_(); }
 SESIONES = {}   # token -> (nombre, vence)
 SESIONES_M = {} # comandero: token -> (id del mesero, vence)
 FALLOS = {}     # ip -> [intentos, bloqueado_hasta]
+def ip_del_restaurante(ip):
+    # WiFi del restaurante (red local) o la misma computadora. Tailscale (100.64.0.0/10) y fuera NO cuentan.
+    import ipaddress
+    try: a = ipaddress.ip_address((ip or '').split('%')[0])
+    except ValueError: return False
+    if getattr(a, 'ipv4_mapped', None): a = a.ipv4_mapped
+    if a.version == 4 and a in ipaddress.ip_network('100.64.0.0/10'): return False        # Tailscale IPv4
+    if a.version == 6 and a in ipaddress.ip_network('fd7a:115c:a1e0::/48'): return False  # Tailscale IPv6
+    return a.is_loopback or a.is_private
+FUERA_WIFI = 'El comandero solo funciona conectado al WiFi del restaurante.'
 def huella_pin(sal, pin): return hashlib.sha256((sal + ':' + pin).encode()).hexdigest()
 def verifica_pin(c, pin): return bool(c.get('sal')) and secrets.compare_digest(c.get('huella', ''), huella_pin(c['sal'], pin))
 def sesion(tok):
@@ -1046,6 +1056,12 @@ class Monitor:
             if any(o is not x and o.get('activo') and verifica_pin(o, pin) for o in c): raise ValueError('Esa clave ya la tiene otra persona. Usa otra.')
             x['sal'] = secrets.token_hex(8); x['huella'] = huella_pin(x['sal'], pin); x['cambio_clave'] = datetime.datetime.now().isoformat(timespec='seconds')
             for t in [t for t, v in SESIONES_M.items() if v[0] == x['id']]: SESIONES_M.pop(t, None)
+        elif acc == 'remoto':
+            x = next((x for x in c if x.get('id') == d.get('id') and x.get('activo')), None)
+            if not x: raise RuntimeError('No encontré a ese mesero.')
+            x['remoto'] = bool(d.get('activo'))
+            if not x['remoto']:
+                for t in [t for t, v in SESIONES_M.items() if v[0] == x['id']]: SESIONES_M.pop(t, None)
         elif acc == 'baja':
             for x in c:
                 if x.get('id') == d.get('id') and x.get('activo'): x['activo'] = False; x['baja'] = datetime.datetime.now().isoformat(timespec='seconds')
@@ -1064,6 +1080,7 @@ class Monitor:
         for x in self.meseros():
             if x.get('activo') and verifica_pin(x, str(pin or '')):
                 if emp and x.get('cod') not in emp: raise RuntimeError('Tu usuario está dado de baja en MrTienda. Avísale a Jorge.')
+                if not x.get('remoto') and not ip_del_restaurante(ip): raise RuntimeError(FUERA_WIFI)
                 FALLOS.pop(k, None); tok = secrets.token_urlsafe(24)
                 SESIONES_M[tok] = (x['id'], ahora + 14 * 3600)
                 return {'ok': True, 'token': tok, 'nombre': emp.get(x['cod'], x['nombre']), 'cod': x['cod']}
@@ -1072,12 +1089,13 @@ class Monitor:
         FALLOS[k] = f
         raise RuntimeError('Clave incorrecta.')
 
-    def mesero_de(self, tok):
+    def mesero_de(self, tok, ip=''):
         s_ = SESIONES_M.get(tok or '')
         if not s_ or s_[1] < time.time(): SESIONES_M.pop(tok or '', None); return None
         x = next((x for x in self.meseros() if x.get('id') == s_[0] and x.get('activo')), None)
         emp = getattr(self, 'EMP', {})
         if not x or (emp and x.get('cod') not in emp): SESIONES_M.pop(tok, None); return None
+        if not x.get('remoto') and not ip_del_restaurante(ip): SESIONES_M.pop(tok, None); return None   # candado: solo WiFi del restaurante
         return {'id': x['id'], 'cod': x['cod'], 'nombre': emp.get(x['cod'], x['nombre'])}
 
     def menu_comandero(self):
@@ -1572,7 +1590,7 @@ class Monitor:
         out['gastos'] = self.gastos(); out['categorias_gasto'] = CATEGORIAS_GASTO
         out['cajeros'] = [{'id': x['id'], 'nombre': x['nombre'], 'activo': x.get('activo', True), 'alta': x.get('alta', '')} for x in self.cajeros()]
         out['meseros'] = [{'id': x['id'], 'cod': x.get('cod', ''), 'nombre': self.EMP.get(x.get('cod'), x['nombre']), 'activo': x.get('activo', True),
-                           'en_mrtienda': x.get('cod') in self.EMP, 'alta': x.get('alta', '')} for x in self.meseros()]
+                           'en_mrtienda': x.get('cod') in self.EMP, 'alta': x.get('alta', ''), 'remoto': bool(x.get('remoto'))} for x in self.meseros()]
         out['comandero_escribe'] = bool(self.cfg.get('comandero_escribe'))
         out['emp_mrtienda'] = sorted([{'cod': k, 'nombre': v} for k, v in self.EMP.items() if v], key=lambda e: e['nombre'])
         out['ia'] = {'activa': bool(self.cfg.get('ia_llave')), 'modelo': self.cfg.get('ia_modelo') or IA_MODELO}
@@ -1697,9 +1715,9 @@ def make_handler(mon, cfg):
                     body = json.dumps({'ok': False, 'error': str(e)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(403); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
             if self.path == '/api/comandero/enviar':
-                m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'))
+                m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'), self.client_address[0])
                 try:
-                    if not m_: raise PermissionError('Tu sesion termino. Vuelve a entrar con tu clave.')
+                    if not m_: raise PermissionError('Tu sesion termino. Vuelve a entrar con tu clave.' if ip_del_restaurante(self.client_address[0]) else FUERA_WIFI)
                     n = min(int(self.headers.get('Content-Length', '0') or 0), 65536)
                     d = json.loads(self.rfile.read(n).decode('utf-8'))
                     body = json.dumps(mon.enviar_comandero(m_, d), ensure_ascii=False).encode('utf-8')
@@ -1773,9 +1791,9 @@ def make_handler(mon, cfg):
             if p0 == '/logo_comandero.png' and logo_cmd:
                 return self._send(logo_cmd, 'image/png')
             if p0 == '/api/comandero':
-                m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'))
+                m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'), self.client_address[0])
                 if not m_:
-                    body = b'{"ok":false,"error":"Tu sesion termino. Vuelve a entrar con tu clave.","sesion":false}'
+                    body = json.dumps({'ok': False, 'sesion': False, 'error': 'Tu sesión terminó. Vuelve a entrar con tu clave.' if ip_del_restaurante(self.client_address[0]) else FUERA_WIFI}, ensure_ascii=False).encode('utf-8')
                     self.send_response(401); self.send_header('Content-Type', 'application/json'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
                 try:
                     out = {'ok': True, 'mesero': m_, 'cuentas': mon.cuentas_comandero(), 'hora': datetime.datetime.now().strftime('%H:%M'), 'escribe': bool(mon.cfg.get('comandero_escribe'))}
