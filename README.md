@@ -33,3 +33,7 @@ Versión 27.2 — candado del rol: si Jorge enciende "Revisar rol de descansos" 
 ligado a un empleado de Personal (código de MrTienda) solo entra al comandero el día que le toca trabajar según el rol de la semana
 y dentro de su horario (30 min antes de entrar y hasta 60 min después de salir; config `candado_antes_min` y `candado_despues_min`).
 Descanso, falta, vacaciones o incapacidad = no entra. Quien no está ligado en Personal no tiene este candado.
+
+Versión 27.3 — PDF de bienvenida: en Reportes → Meseros, "Mandar PDF" (o al dar de alta / cambiar clave) descarga un PDF con el nombre del mesero,
+la dirección del comandero en el WiFi del restaurante (se toca para abrir), los pasos para entrar y dejarlo como app, y sus reglas (su horario
+si está ligado en Personal). Se genera en la caja sin paquetes extra (`/api/comandero-pdf?cod=`, solo con la clave del panel). La clave nunca va en el PDF.

@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 46            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '27.2'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 47            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '27.3'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -495,6 +495,146 @@ function autorizar() { carpeta_(); }
 SESIONES = {}   # token -> (nombre, vence)
 SESIONES_M = {} # comandero: token -> (id del mesero, vence)
 FALLOS = {}     # ip -> [intentos, bloqueado_hasta]
+# ------------------------------------------------ PDF de bienvenida al comandero (sin paquetes extra)
+# Anchos de Helvetica (1/1000 de punto) para acomodar renglones; lo que no esté vale 556.
+_HW = dict(zip(' !"#$%&\'()*+,-./0123456789:;<=>?@', [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278] + [556]*10 + [278,278,584,584,584,556,1015]))
+_HW.update(dict(zip('ABCDEFGHIJKLMNOPQRSTUVWXYZ', [667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611])))
+_HW.update(dict(zip('abcdefghijklmnopqrstuvwxyz', [556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500])))
+_HWB = dict(_HW); _HWB.update(dict(zip('abcdefghijklmnopqrstuvwxyz', [556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500])))
+_HWB.update({k: 722 for k in 'ABCDEFGHKNRUV'})
+def _ancho(t, tam, negrita=False):
+    w = _HWB if negrita else _HW
+    import unicodedata
+    return sum(w.get(unicodedata.normalize('NFD', c)[0], 556) for c in t) * tam / 1000.0
+def _renglones(t, tam, ancho, negrita=False):
+    out, cur = [], ''
+    for p in t.split(' '):
+        prueba = (cur + ' ' + p).strip()
+        if cur and _ancho(prueba, tam, negrita) > ancho: out.append(cur); cur = p
+        else: cur = prueba
+    if cur: out.append(cur)
+    return out
+def _pdf_txt(t):
+    b = t.encode('cp1252', 'replace')
+    return b.replace(b'\\', b'\\\\').replace(b'(', b'\\(').replace(b')', b'\\)')
+
+def _png_rgb_alfa(png):
+    """Abre un PNG de 8 bits (RGB o RGBA, sin entrelazar) y regresa ancho, alto, RGB y alfa sin filtros."""
+    import zlib
+    if png[:8] != b'\x89PNG\r\n\x1a\n': raise ValueError('No es PNG')
+    i, idat, w = 8, b'', 0
+    while i < len(png):
+        n = struct.unpack('>I', png[i:i + 4])[0]; t = png[i + 4:i + 8]; c = png[i + 8:i + 8 + n]; i += 12 + n
+        if t == b'IHDR': w, h, bits, tipo, _, _, inter = struct.unpack('>IIBBBBB', c)
+        elif t == b'IDAT': idat += c
+        elif t == b'IEND': break
+    if bits != 8 or tipo not in (2, 6) or inter: raise ValueError('PNG no compatible')
+    bpp = 4 if tipo == 6 else 3; fila = w * bpp; raw = zlib.decompress(idat)
+    prev = bytearray(fila); px = bytearray()
+    for y in range(h):
+        f = raw[y * (fila + 1)]; cur = bytearray(raw[y * (fila + 1) + 1:(y + 1) * (fila + 1)])
+        for x in range(fila):
+            a = cur[x - bpp] if x >= bpp else 0; b = prev[x]; c = prev[x - bpp] if x >= bpp else 0
+            if f == 1: cur[x] = (cur[x] + a) & 255
+            elif f == 2: cur[x] = (cur[x] + b) & 255
+            elif f == 3: cur[x] = (cur[x] + ((a + b) >> 1)) & 255
+            elif f == 4:
+                p = a + b - c; pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                cur[x] = (cur[x] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        px += cur; prev = cur
+    if bpp == 3: return w, h, bytes(px), None
+    return w, h, bytes(b for k in range(0, len(px), 4) for b in px[k:k + 3]), bytes(px[3::4])
+
+def pdf_comandero(nombre, url, horario='', candado=False, logo=None):
+    """Hoja de bienvenida al comandero para mandarla por WhatsApp. La clave NUNCA va aquí."""
+    import zlib
+    W, H, M = 612, 792, 54
+    VERDE, VERDE_S, NARANJA, TINTA, GRIS = (0.114, 0.361, 0.231), (0.886, 0.937, 0.898), (0.886, 0.443, 0.114), (0.082, 0.137, 0.102), (0.365, 0.431, 0.384)
+    c = []; ann = []
+    col = lambda rgb, op='rg': c.append('%.3f %.3f %.3f %s' % (rgb + (op,)))
+    def texto(x, y, t, tam=12, negrita=False, rgb=TINTA):
+        col(rgb); c.append(('BT /%s %g Tf %.1f %.1f Td (' % ('F2' if negrita else 'F1', tam, x, y)).encode() + _pdf_txt(t) + b') Tj ET')
+    def parrafo(x, y, t, tam=12, ancho=W - 2 * M, negrita=False, rgb=TINTA, inter=1.38):
+        for r in _renglones(t, tam, ancho, negrita): texto(x, y, r, tam, negrita, rgb); y -= tam * inter
+        return y
+    # encabezado verde con el logo
+    col(VERDE); c.append('0 %d %d %d re f' % (H - 150, W, 150))
+    hay_logo = False
+    if logo:
+        try: lw, lh, rgb_, alfa = _png_rgb_alfa(logo); hay_logo = True
+        except Exception as e: log('PDF comandero: no pude usar el logo: ' + str(e))
+    tx = M
+    if hay_logo:
+        alto = 112; ancho_l = alto * lw / lh
+        c.append('q %.1f 0 0 %.1f %.1f %.1f cm /Im1 Do Q' % (ancho_l, alto, M, H - 131)); tx = M + ancho_l + 20
+    texto(tx, H - 72, 'Comandero', 30, True, (1, 1, 1))
+    texto(tx, H - 98, 'Restaurante La Holandesa', 15, False, (1, 1, 1))
+    y = H - 196
+    texto(M, y, 'Hola, ' + nombre.title(), 22, True); y -= 26
+    y = parrafo(M, y, 'Ya tienes acceso al comandero. Desde tu teléfono puedes ver el menú, abrir cuentas y mandar los pedidos a cocina. Las cuentas salen a tu nombre en la caja.', 12, rgb=GRIS) - 14
+    # caja con la dirección (se toca para abrir)
+    col(VERDE_S); c.append('%d %.1f %d 74 re f' % (M, y - 62, W - 2 * M))
+    col(VERDE, 'RG'); c.append('1.5 w %d %.1f %d 74 re S' % (M, y - 62, W - 2 * M))
+    texto(M + 16, y - 10 - 8, 'TU DIRECCIÓN (tócala para abrir)', 10, True, VERDE)
+    tam_u = 17 if _ancho(url, 17, True) < W - 2 * M - 32 else 13
+    texto(M + 16, y - 46, url, tam_u, True, TINTA)
+    ann.append((M, y - 62, W - M, y + 12, url)); y -= 100
+    texto(M, y, 'Cómo entrar', 16, True, VERDE); y -= 26
+    pasos = ['Conéctate al WiFi del restaurante. Sin ese WiFi el comandero no abre.',
+             'Toca la dirección de arriba. Se abre en el navegador de tu teléfono.',
+             'Escribe tu clave de 4 números. Te la da Jorge en persona; no viene en este documento.',
+             'Déjalo como app: en Android toca los tres puntitos y "Agregar a pantalla de inicio"; en iPhone toca Compartir y "Agregar a inicio".']
+    for k, p in enumerate(pasos, 1):
+        col(NARANJA); c.append('%.1f %.1f m %.1f %.1f %.1f %.1f %.1f %.1f c %.1f %.1f %.1f %.1f %.1f %.1f c %.1f %.1f %.1f %.1f %.1f %.1f c %.1f %.1f %.1f %.1f %.1f %.1f c f' % _circulo(M + 10, y + 4, 10))
+        texto(M + 6.5, y, str(k), 12, True, (1, 1, 1))
+        y = parrafo(M + 30, y, p, 12, W - 2 * M - 30) - 10
+    y -= 8
+    texto(M, y, 'Importante', 16, True, VERDE); y -= 26
+    reglas = ['Tu clave es personal. No la compartas: todo lo que se mande con ella sale a tu nombre.']
+    if candado: reglas.append('Solo entras el día que te toca trabajar y en tu horario: abre 30 minutos antes de tu entrada y se cierra 1 hora después de tu salida. En tu día de descanso, falta o vacaciones no entra.')
+    if horario: reglas.append('Tu horario: ' + horario + '.')
+    reglas.append('Si algo no funciona, avísale a la encargada o a Jorge.')
+    for r in reglas:
+        col(VERDE); c.append('%.1f %.1f 5 5 re f' % (M + 2, y + 2))
+        y = parrafo(M + 18, y, r, 12, W - 2 * M - 18) - 8
+    col(VERDE_S, 'RG'); c.append('0.8 w %d 58 m %d 58 l S' % (M, W - M))
+    texto(M, 40, 'La Holandesa · Av. Reforma 1366, Ensenada · ' + datetime.date.today().strftime('%d/%m/%Y'), 9, False, GRIS)
+    cont = b'\n'.join(x if isinstance(x, bytes) else x.encode('latin-1') for x in c)
+    # armar el PDF
+    objs = []
+    def obj(b): objs.append(b); return len(objs)
+    cat = obj(None); pags = obj(None)
+    f1 = obj(b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>')
+    f2 = obj(b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>')
+    xo = b''
+    if hay_logo:
+        smask = ''
+        if alfa:
+            z = zlib.compress(alfa, 9)
+            sm = obj(b'<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length %d >>\nstream\n' % (lw, lh, len(z)) + z + b'\nendstream')
+            smask = ' /SMask %d 0 R' % sm
+        z = zlib.compress(rgb_, 9)
+        im = obj(b'<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode%s /Length %d >>\nstream\n' % (lw, lh, smask.encode(), len(z)) + z + b'\nendstream')
+        xo = b' /XObject << /Im1 %d 0 R >>' % im
+    z = zlib.compress(cont, 9)
+    st = obj(b'<< /Filter /FlateDecode /Length %d >>\nstream\n' % len(z) + z + b'\nendstream')
+    an = [obj(b'<< /Type /Annot /Subtype /Link /Rect [%.1f %.1f %.1f %.1f] /Border [0 0 0] /A << /S /URI /URI (' % a[:4] + _pdf_txt(a[4]) + b') >> >>') for a in ann]
+    pg = obj(b'<< /Type /Page /Parent %d 0 R /MediaBox [0 0 %d %d] /Resources << /Font << /F1 %d 0 R /F2 %d 0 R >>%s >> /Contents %d 0 R /Annots [%s] >>' %
+             (pags, W, H, f1, f2, xo, st, b' '.join(b'%d 0 R' % a for a in an)))
+    objs[cat - 1] = b'<< /Type /Catalog /Pages %d 0 R >>' % pags
+    objs[pags - 1] = b'<< /Type /Pages /Kids [%d 0 R] /Count 1 >>' % pg
+    out = bytearray(b'%PDF-1.4\n%\xe2\xe3\xcf\xd3\n'); pos = []
+    for k, b in enumerate(objs, 1): pos.append(len(out)); out += b'%d 0 obj\n' % k + b + b'\nendobj\n'
+    x = len(out)
+    out += b'xref\n0 %d\n0000000000 65535 f \n' % (len(objs) + 1) + b''.join(b'%010d 00000 n \n' % p for p in pos)
+    out += b'trailer\n<< /Size %d /Root %d 0 R /Info << /Title (' % (len(objs) + 1, cat) + _pdf_txt('Comandero La Holandesa - ' + nombre.title()) + b') >> >>\nstartxref\n%d\n%%%%EOF\n' % x
+    return bytes(out)
+
+def _circulo(cx, cy, r):
+    k = 0.5523 * r
+    return (cx + r, cy, cx + r, cy + k, cx + k, cy + r, cx, cy + r, cx - k, cy + r, cx - r, cy + k, cx - r, cy,
+            cx - r, cy - k, cx - k, cy - r, cx, cy - r, cx + k, cy - r, cx + r, cy - k, cx + r, cy)
+
 def ip_del_restaurante(ip):
     # WiFi del restaurante (red local) o la misma computadora. Tailscale (100.64.0.0/10) y fuera NO cuentan.
     import ipaddress
@@ -1180,6 +1320,15 @@ class Monitor:
         if c in msg: return msg[c]
         return ('Estás fuera de tu horario (%d:%02d a %d:%02d). El comandero abre %d minutos antes de tu entrada.' %
                 (ent[0], ent[1], sal[0], sal[1], int(self.cfg.get('candado_antes_min', 30))))
+
+    def horario_mesero(self, cod):
+        try: e = next((e for e in self.rh()['empleados'] if e.get('activo', True) and str(e.get('cod_mt') or '').strip() == str(cod).strip()), None)
+        except Exception: e = None
+        if not e: return ''
+        h = lambda v: re.sub(r'^0(\d)', r'\1', str(v or '').strip())
+        t = ('de ' + h(e['entrada']) + ' a ' + h(e['salida'])) if e.get('entrada') and e.get('salida') else ''
+        if e.get('descanso'): t += (', ' if t else '') + 'descansas el ' + e['descanso'].lower() + ' (o el día que marque el rol de la semana)'
+        return t
 
     def menu_comandero(self):
         """Menú táctil de MrTienda (TOUCHDPT = secciones, TOUCHART = botones) con precios de Comedor (01) y Recoger aquí (02)."""
@@ -1997,6 +2146,18 @@ def make_handler(mon, cfg):
             if p0 == '/api/rh':
                 body = json.dumps({'ok': True, 'rh': mon.rh_info()}, ensure_ascii=False).encode('utf-8')
                 return self._send(body, 'application/json; charset=utf-8')
+            if p0 == '/api/comandero-pdf':
+                import urllib.parse
+                q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query); cod = (q.get('cod') or [''])[0]
+                x = next((x for x in mon.meseros() if x.get('activo') and x.get('cod') == cod), None)
+                wifi = [ip for ip in ips_locales() if not ip.startswith('100.')]
+                if not x or not wifi: self.send_response(404); self.end_headers(); return
+                nombre = mon.EMP.get(cod, x['nombre'])
+                pdf = pdf_comandero(nombre, 'http://%s:%s/comandero' % (wifi[0], cfg['puerto']), mon.horario_mesero(cod), bool(mon.cfg.get('candado_rol')), logo_cmd)
+                arch = 'Comandero La Holandesa - ' + nombre.title() + '.pdf'
+                self.send_response(200); self.send_header('Content-Type', 'application/pdf'); self.send_header('Cache-Control', 'no-store')
+                self.send_header('Content-Disposition', "attachment; filename=\"Comandero.pdf\"; filename*=UTF-8''" + urllib.parse.quote(arch))
+                self.send_header('Content-Length', str(len(pdf))); self.end_headers(); self.wfile.write(pdf); return
             if p0 == '/api/acceso':
                 body = json.dumps({'ok': True, 'puerto': cfg['puerto'], 'ips': ips_locales()}, ensure_ascii=False).encode('utf-8')
                 return self._send(body, 'application/json; charset=utf-8')
