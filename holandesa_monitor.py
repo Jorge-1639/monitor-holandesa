@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 48            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '27.4'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 49            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '27.5'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -2333,7 +2333,12 @@ def main():
     if srv is None: log('El puerto sigue ocupado; no pude arrancar.'); sys.exit(1)
     log(f"Monitor versión {VERSION_TXT} (#{VERSION}) listo en el puerto {cfg['puerto']} (usuario: {cfg['usuario']})")
     threading.Thread(target=instalar_vigilante, daemon=True).start()
-    threading.Thread(target=activar_https, args=(cfg,), daemon=True).start()
+    def _https_hasta_que_quede():   # reintenta cada 10 min hasta que Jorge encienda HTTPS en Tailscale
+        while not HTTPS_TS.get('url'):
+            activar_https(cfg)
+            if HTTPS_TS.get('url') or cfg.get('https_tailscale') is False: break
+            time.sleep(600)
+    threading.Thread(target=_https_hasta_que_quede, daemon=True).start()
     srv.serve_forever()
 
 if __name__ == '__main__':
