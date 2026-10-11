@@ -144,7 +144,8 @@ async function enviar(body){
 const baseDe=e=>Array.isArray(e.base)&&e.base.length===7?e.base:DIAS.map(()=>['','']);
 const rolDe=e=>{const b=baseDe(e),r=INFO.rol[e.id],hs=(INFO.horas||{})[e.id],h=b.map((x,i)=>Array.isArray(hs)&&hs[i]?hs[i]:x);
   return r?{d:r,g:true,h}:{d:b.map(x=>x?'T':'D'),g:false,h}};
-const h12=v=>String(v||'').replace(/^0(\d)/,'$1');
+// 7:30a, 3:30p (como lo maneja La Holandesa)
+const h12=v=>{const m=/^(\d{1,2}):(\d{2})$/.exec(String(v||'').trim());if(!m)return String(v||'');const H=+m[1];return (H%12||12)+':'+m[2]+(H<12?'a':'p')};
 const hora=s=>{if(!s)return '';const d=new Date(s);let h=d.getHours(),m=String(d.getMinutes()).padStart(2,'0'),ap=h<12?'am':'pm';h=h%12||12;return corta(iso(d))+', '+h+':'+m+' '+ap};
 
 // ---------- editar un día: si trabaja, descansa, faltó… y de qué hora a qué hora

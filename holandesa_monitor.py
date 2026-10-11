@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 61            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '29.3'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 62            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '29.4'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -103,7 +103,10 @@ def horas_list(v):
 
 def horario_texto(base):
     # "Lun a Vie 7:30–15:30 · Dom 12:30–20:30 · descansa Sáb"
-    c = lambda v: re.sub(r'^0(\d)', r'\1', v)
+    def c(v):   # 15:30 -> 3:30 pm (como lo maneja La Holandesa)
+        m = re.fullmatch(r'(\d{1,2}):(\d{2})', str(v or ''))
+        if not m: return str(v or '')
+        H = int(m.group(1)); return '%d:%s %s' % (H % 12 or 12, m.group(2), 'am' if H < 12 else 'pm')
     cortos = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']; partes = []; i = 0
     while i < 7:
         j = i

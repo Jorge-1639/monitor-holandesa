@@ -79,3 +79,5 @@ si la nómina ya estaba guardada, avisa "ahora suman…".
 Versión 29.2 — Personal (/personal) en blancos y grises (encabezado blanco, botones grises); los colores del rol (T, F, V…) se quedan porque dicen algo.
 
 Versión 29.3 — rol de descansos (panel y página de la encargada): Trabaja en gris clarito con letras negras para que se lean las horas; Descansa en verde.
+
+Versión 29.4 — horas en formato de 12 horas: en el rol 7:30a / 3:30p y en los textos 7:30 am–3:30 pm (panel y página de la encargada).
