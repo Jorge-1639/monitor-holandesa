@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 35            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '26.0'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 36            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '26.1'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -90,6 +90,7 @@ def read_dbf(path, enc='latin-1'):
     flds = []; i = 32
     while i < hl and b[i] != 0x0D:
         name = b[i:i+11].split(b'\0')[0].decode('latin-1'); t = chr(b[i+11]); ln = b[i+16]
+        if t == 'C': ln += b[i+17] * 256   # texto de más de 255 (ej. OBSERVAR): el tamaño usa dos bytes
         flds.append((name, t, ln)); i += 32
     rows = []
     for r in range(n):
@@ -98,7 +99,7 @@ def read_dbf(path, enc='latin-1'):
         d = {'_del': rec[0:1] == b'*'}; p = 1
         for name, t, ln in flds:
             v = rec[p:p+ln]; p += ln
-            if t in 'CM': v = v.decode(enc, 'ignore').strip()
+            if t in 'CM': v = v.decode(enc, 'ignore').rstrip() if name == 'VARIAASCII' else v.decode(enc, 'ignore').strip()   # VARIAASCII: la posición importa
             elif t in 'NF':
                 v = v.strip()
                 try: v = float(v) if v else None
@@ -119,6 +120,263 @@ def safe_rows(path):
         except (PermissionError, OSError) as e:
             time.sleep(1.5)
     log('No se pudo leer ' + path); return []
+
+# ---------------------------------------------------------------- escritura DBF (solo la usa el comandero)
+RESPALDO_COMANDERO = os.path.join(AQUI, 'respaldos_comandero')
+# Valores fijos tal como MrTienda los dejó en la cuenta de prueba (los demás campos van en blanco)
+DEF_DET = {'XTIEMPO': '1', 'V_PUNTOS': 0, 'L_ORDEN': 0, 'SUBSIDIO': False, 'FRACCION_S': 0, 'PREC_VAR': 0, 'COST_VAR': 0, 'CADUCIDAD': False,
+           'DCTO': 0, 'NOTAGUIA': False, 'FOODSTAMP': False, 'NOFRACCION': False, 'OFERTA': 0, 'COMISION': 0, 'SERVICIO': False, 'ULTIMO': False,
+           'CTRLVER': 'O', 'DEVOLUCI': False, 'CUPON': False, 'BASCULA': False, 'VARIANTE': b'\x00\x00\x00\x00 ', 'CANTADO': True, 'NUMSERIE': False,
+           'PEDIMENTO': False, 'IEPS': 0, 'VALIDAR_EX': False, 'MCOMBOS': False, 'BASE_PROD': False, 'SIN_DCTO': False, 'LMAX_DCTO': 0, 'NODCTO': False,
+           'FPGC': 0, 'F_COMANDA': 0, 'MR_PERSONA': 1, 'NODISPARAR': False, 'C_ENROJO': False, 'RECARGA': False, 'MNTR_EN_Z': False,
+           'BOLETAJE': False, 'EX_PUNTOS': False, 'M_PSUB_TL': False, 'V_PSUB_TL': 0, 'SAT_EXENTO': False, 'LIM1_ESC1': 0, 'LIM2_ESC2': 0, 'LIM3_ESC3': 0,
+           'MC_3X2': False, 'A_OFER123': False, 'L_OFER123': 0, 'D_OFER123': 0, 'N_AF_CORTE': False, 'L_NEGRA': False, 'XML_NOI': False}
+DEF_PEND = {'PAGADO': False, 'IMPRESOS': 0, 'AHORRO': 0, 'ADOMICILIO': False, 'MCSUBSIDIO': 0, 'CXSUBSIDIO': b'\x00', 'CTE_DCTO': 0, 'CAMBIODE': 0,
+            'COMENSALES': 1, 'BABYS': 0, 'NUM_CONT': '0000', 'CARGO1': 0, 'CARGO2': 0, 'CARGO3': 0, 'VCARGO1': 0, 'VCARGO2': 0, 'VCARGO3': 0,
+            'ENTREGAR': False, 'ORIGEN': b'\x00', 'ENRUTA': False, 'ENV_WEB': False, 'YA_VISTA': True, 'CTE_QIVA': False, 'BLOQUEADO': False}
+CAMPOS_DET = ('COD_ESCALA', 'COD_PROD', 'DES_PROD', 'DES_CANTAR', 'PRECIO_O', 'PRECIO', 'CANTIDAD', 'IMPORTE', 'VARIAASCII', 'SUB_VARIA', 'PUERTO', 'CANTADO', 'VAR_LIBRE')
+CAMPOS_PEND = ('PAGADO', 'FECHA_AP', 'HORA_AP', 'FILE', 'FOL_CTA_P', 'REF', 'ARTS', 'COD_VENDED', 'DES_VENDED', 'IMPORTE_MN', 'IVA', 'COD_ESCALA')
+
+def _layout(b):
+    if len(b) < 32: raise RuntimeError('Archivo DBF vacío o dañado.')
+    n, hl, rl = struct.unpack('<IHH', b[4:12]); flds = {}; i = 32; off = 1
+    while i < hl and b[i] != 0x0D:
+        t = chr(b[i+11]); ln, dec = b[i+16], b[i+17]
+        if t == 'C': ln, dec = ln + dec * 256, 0   # texto de más de 255: el tamaño usa dos bytes
+        name = b[i:i+11].split(b'\0')[0].decode('latin-1'); flds[name] = (t, ln, dec, off); off += ln; i += 32
+    if off != rl: raise RuntimeError('La estructura del archivo no es la esperada.')
+    return n, hl, rl, flds
+
+def _campo(rec, flds, name):
+    t, ln, dec, o = flds[name]; return bytes(rec[o:o+ln])
+
+def _pon(rec, flds, name, v):
+    if name not in flds: return
+    t, ln, dec, o = flds[name]
+    if isinstance(v, (bytes, bytearray)): raw = bytes(v)
+    elif t == 'L': raw = b'T' if v else b'F'
+    elif t in 'NF':
+        raw = (f'{float(v):{ln}.{dec}f}' if dec else f'{int(round(float(v))):{ln}d}').encode()
+        if len(raw) > ln: raise ValueError(f'El valor {v} no cabe en {name}.')
+    else: raw = str(v).encode('latin-1', 'replace')
+    rec[o:o+ln] = raw[:ln].ljust(ln, b' ')
+
+def _fecha_hdr(b, ahora):
+    b[1], b[2], b[3] = ahora.year % 100, ahora.month, ahora.day   # MrTienda escribe el año con dos dígitos
+
+def _escribe_en(path, pos, datos, intentos=6):
+    for k in range(intentos):
+        try:
+            with open(path, 'r+b') as f: f.seek(pos); f.write(datos); f.flush(); os.fsync(f.fileno())
+            return
+        except PermissionError:
+            if k == intentos - 1: raise RuntimeError('MrTienda tiene ocupado ' + os.path.basename(path) + '. Intenta en unos segundos.')
+            time.sleep(0.5)
+
+def _plantilla(com, patrones, campos, rl=None):
+    """Encabezado de un archivo que MrTienda ya creó: de los más recientes, el de la estructura más nueva (más campos)."""
+    mejor = None
+    for patron in patrones:
+        for p in sorted(glob.glob(os.path.join(com, patron)), key=lambda p: os.path.getmtime(p), reverse=True)[:30]:
+            try:
+                with open(p, 'rb') as f: b = f.read()
+                n, hl, rl_, fl = _layout(b)
+                if all(c in fl for c in campos) and (rl is None or rl_ == rl) and (mejor is None or len(fl) > len(mejor[1])): mejor = (bytearray(b[:hl]), fl, rl_)
+            except Exception: continue
+    if mejor: return mejor
+    raise RuntimeError('No encontré un archivo de MrTienda que sirva de modelo (' + patrones[0] + ').')
+
+def _respaldar(archivos, etiqueta):
+    sello = datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')[:-3]
+    d = os.path.join(RESPALDO_COMANDERO, sello + '_' + etiqueta); os.makedirs(d, exist_ok=False)
+    for a in archivos:
+        if os.path.isfile(a): shutil.copy2(a, os.path.join(d, os.path.basename(a)))
+    try:
+        viejos = sorted(os.listdir(RESPALDO_COMANDERO))[:-800]
+        for v in viejos: shutil.rmtree(os.path.join(RESPALDO_COMANDERO, v), ignore_errors=True)
+    except OSError: pass
+    return d
+
+def _renglon_det(fl, rl, r):
+    rec = bytearray(b' ' * rl)
+    for k, v in DEF_DET.items(): _pon(rec, fl, k, v)
+    for k, v in r.items():
+        if k.startswith('_'): continue
+        if k == 'COD_PLU': v = str(v).rjust(fl['COD_PLU'][1]) if 'COD_PLU' in fl else v
+        _pon(rec, fl, k, v)
+    return bytes(rec)
+
+def _totales(detalle_b, tc):
+    n, hl, rl, fl = _layout(detalle_b); tot = iva = arts = 0.0
+    for k in range(n):
+        rec = detalle_b[hl + k*rl: hl + (k+1)*rl]
+        if rec[0:1] == b'*': continue
+        num = lambda c: float(_campo(rec, fl, c).strip() or 0)
+        imp = num('IMPORTE'); tasa = num('IVA'); tot += imp; arts += num('CANTIDAD')
+        iva += imp - imp / (1 + tasa / 100) if tasa else 0
+    return round(tot, 2), round(iva, 2), int(round(arts)), (round(tot / tc, 2) if tc else 0)
+
+def _abrir_cuenta(com, pend, folios, ref, cod, nombre, escala, ren, tc, ahora):
+    with open(pend, 'rb') as f: pb = bytearray(f.read())
+    pn, phl, prl, pfl = _layout(pb)
+    if not all(c in pfl for c in CAMPOS_PEND): raise RuntimeError('PENDIENT.DBF no tiene la estructura esperada.')
+    with open(folios, 'rb') as f: fb = bytearray(f.read())
+    fn, fhl, frl, ffl = _layout(fb)
+    if fn < 1 or 'FOL_CTA_P' not in ffl: raise RuntimeError('FOLIOS.DBF no tiene la estructura esperada.')
+    fol_raw = _campo(fb[fhl:fhl+frl], ffl, 'FOL_CTA_P').decode('latin-1')
+    nuevo = int(fol_raw.strip() or 0) + 1
+    ln_f = ffl['FOL_CTA_P'][1]
+    # el folio de la cuenta lleva adelante el número de caja (10021025 = caja 1, folio 21025); se copia de las cuentas de MrTienda
+    pref, mejor = '1', -1
+    for k in range(pn):
+        v = _campo(pb[phl + k*prl: phl + (k+1)*prl], pfl, 'FOL_CTA_P').decode('latin-1').strip()
+        if v.isdigit() and int(v[1:] or 0) > mejor: mejor, pref = int(v[1:] or 0), v[0]
+    fol_cta = pref + str(nuevo).zfill(ln_f - 1)[-(ln_f - 1):]
+    # número de orden: MrTienda le suma uno a la última cuenta abierta y vuelve a empezar después del 20
+    # (en la prueba: ... 14, 15 → la cuenta PRUEBA quedó con 16; antes una cuenta con 20 y la siguiente con 2)
+    orden, ult = 0, ''
+    for k in range(pn):
+        rr = pb[phl + k*prl: phl + (k+1)*prl]
+        if 'FOL_ORDEN' not in pfl: break
+        cuando = _campo(rr, pfl, 'FECHA_AP').decode('latin-1') + _campo(rr, pfl, 'HORA_AP').decode('latin-1')
+        if cuando.strip() and cuando > ult:
+            try: orden, ult = int(_campo(rr, pfl, 'FOL_ORDEN').strip() or 0), cuando
+            except ValueError: pass
+    plant = None
+    for k in range(pn - 1, -1, -1):
+        rec = pb[phl + k*prl: phl + (k+1)*prl]
+        if _campo(rec, pfl, 'COD_CTE').strip(): plant = rec; break
+    while True:
+        archivo = 'PD' + str(secrets.randbelow(900000) + 100000)
+        if not any(os.path.exists(os.path.join(com, archivo + e)) for e in ('.DBF', '.BAK', '.ENC')): break
+    dh, dfl, drl = _plantilla(com, ('PD*.DBF', 'PD*.BAK'), CAMPOS_DET)
+    eh, efl, erl = _plantilla(com, ('PD*.ENC',), CAMPOS_PEND, prl)
+    if set(efl) != set(pfl): raise RuntimeError('El encabezado de cuenta (.ENC) no coincide con PENDIENT.DBF.')
+    # detalle
+    dets = b''.join(_renglon_det(dfl, drl, r) for r in ren)
+    struct.pack_into('<I', dh, 4, len(ren)); _fecha_hdr(dh, ahora)
+    detalle = bytes(dh) + dets + b'\x1a'
+    total, iva, arts, dl = _totales(detalle, tc)
+    # renglón de PENDIENT
+    rec = bytearray(b' ' * prl)
+    for k, v in DEF_PEND.items(): _pon(rec, pfl, k, v)
+    for c in ('COD_ALMA', 'COD_CTE', 'DES_CTE'):
+        if plant is not None and c in pfl: rec[pfl[c][3]:pfl[c][3] + pfl[c][1]] = _campo(plant, pfl, c)
+    if not _campo(rec, pfl, 'COD_ALMA').strip(): _pon(rec, pfl, 'COD_ALMA', '001')
+    vals = {'FECHA_AP': ahora.strftime('%Y%m%d'), 'HORA_AP': ahora.strftime('%H:%M'), 'FECHA': ahora.strftime('%Y%m%d'), 'FILE': archivo, 'FOL_CTA_P': fol_cta,
+            'REF': ref, 'HORA': ahora.strftime('%H:%M'), 'ARTS': arts, 'COD_CAJERO': cod, 'COD_VENDED': cod, 'DES_CAJERO': nombre[:15], 'DES_VENDED': nombre[:15],
+            'IVA': iva, 'IMPORTE_MN': total, 'IMPORTE_DL': dl, 'COD_ESCALA': escala, 'FECHA_ENT': ahora.strftime('%Y%m%d'), 'HORA_ENT': ahora.strftime('%H:%M'),
+            'FOL_ORDEN': orden + 1 if 0 < orden < 20 else 1}
+    for k, v in vals.items(): _pon(rec, pfl, k, v)
+    enc_rec = bytearray(rec)
+    for c in ('IVA2', 'IVA3', 'IVA4', 'IVA5'): _pon(enc_rec, efl, c, 0)
+    for c in ('FACTURAR', 'ENVTICKET', 'DECONTADO'): _pon(enc_rec, efl, c, False)
+    struct.pack_into('<I', eh, 4, 1); _fecha_hdr(eh, ahora)
+    resp = _respaldar([pend, folios], archivo)
+    rutas = [os.path.join(com, archivo + e) for e in ('.DBF', '.BAK', '.ENC')]
+    try:
+        for r_, datos in zip(rutas, (detalle, detalle, bytes(eh) + bytes(enc_rec) + b'\x1a')):
+            with open(r_, 'xb') as f: f.write(datos); f.flush(); os.fsync(f.fileno())
+        frec = bytearray(fb[fhl:fhl+frl]); _pon(frec, ffl, 'FOL_CTA_P', str(nuevo).zfill(ln_f))
+        _escribe_en(folios, fhl + ffl['FOL_CTA_P'][3], _campo(frec, ffl, 'FOL_CTA_P'))
+        if 'HORA_ENT' in ffl:   # MrTienda deja aquí la hora del último movimiento
+            _pon(frec, ffl, 'HORA_ENT', ahora.strftime('%H:%M')); _escribe_en(folios, fhl + ffl['HORA_ENT'][3], _campo(frec, ffl, 'HORA_ENT'))
+        hdr = bytearray(fb[:4]); _fecha_hdr(hdr, ahora); _escribe_en(folios, 0, bytes(hdr))
+        # MrTienda reutiliza el primer renglón borrado; si no hay, agrega al final
+        with open(pend, 'rb') as f: pb = bytearray(f.read())
+        pn, phl, prl, pfl = _layout(pb)
+        slot = next((k for k in range(pn) if pb[phl + k*prl: phl + k*prl + 1] == b'*'), None)
+        if slot is None:
+            _escribe_en(pend, phl + pn*prl, bytes(rec) + b'\x1a')
+            hdr = bytearray(pb[:8]); struct.pack_into('<I', hdr, 4, pn + 1)
+        else:
+            _escribe_en(pend, phl + slot*prl, bytes(rec))
+            hdr = bytearray(pb[:8])
+        _fecha_hdr(hdr, ahora); _escribe_en(pend, 0, bytes(hdr))
+    except Exception:
+        for r_ in rutas:
+            try:
+                if os.path.exists(r_): os.remove(r_)
+            except OSError: pass
+        for a in (pend, folios):
+            try: shutil.copy2(os.path.join(resp, os.path.basename(a)), a)
+            except OSError: pass
+        raise
+    return {'archivo': archivo, 'ref': ref, 'folio': fol_cta, 'total': total, 'agregado': total, 'respaldo': os.path.basename(resp)}
+
+def _agregar_a_cuenta(com, pend, archivo, cod, ren, tc, ahora):
+    with open(pend, 'rb') as f: pb = bytearray(f.read())
+    pn, phl, prl, pfl = _layout(pb)
+    slot = None
+    for k in range(pn):
+        rec = pb[phl + k*prl: phl + (k+1)*prl]
+        if rec[0:1] != b'*' and _campo(rec, pfl, 'FILE').decode('latin-1').strip().upper() == archivo.upper(): slot = k; break
+    if slot is None: raise RuntimeError('Esa cuenta ya no está abierta (¿ya la cobraron?). Actualiza el comandero.')
+    rec = bytearray(pb[phl + slot*prl: phl + (slot+1)*prl])
+    if _campo(rec, pfl, 'PAGADO') in (b'T', b't'): raise RuntimeError('Esa cuenta ya está pagada.')
+    if _campo(rec, pfl, 'COD_VENDED').decode('latin-1').strip() != cod: raise RuntimeError('Esa cuenta es de otro mesero.')
+    det = os.path.join(com, archivo + '.DBF'); bak = os.path.join(com, archivo + '.BAK'); enc = os.path.join(com, archivo + '.ENC')
+    if not os.path.isfile(det): raise RuntimeError('No encontré el detalle de esa cuenta en MrTienda.')
+    with open(det, 'rb') as f: db = bytearray(f.read())
+    dn, dhl, drl, dfl = _layout(db)
+    if not all(c in dfl for c in CAMPOS_DET): raise RuntimeError('El detalle de la cuenta no tiene la estructura esperada.')
+    nuevos = b''.join(_renglon_det(dfl, drl, r) for r in ren)
+    agregado = round(sum(r['IMPORTE'] for r in ren), 2)
+    resp = _respaldar([pend, det, bak, enc], archivo)
+    try:
+        _escribe_en(det, dhl + dn*drl, nuevos + b'\x1a')
+        hdr = bytearray(db[:8]); struct.pack_into('<I', hdr, 4, dn + len(ren)); _fecha_hdr(hdr, ahora); _escribe_en(det, 0, bytes(hdr))
+        with open(det, 'rb') as f: nuevo_det = f.read()
+        dn2, dhl2, drl2, _ = _layout(nuevo_det)
+        nuevo_det = nuevo_det[:dhl2 + dn2*drl2] + b'\x1a'
+        with open(det, 'r+b') as f: f.truncate(len(nuevo_det))
+        tmp = bak + '.holtmp'
+        with open(tmp, 'wb') as f: f.write(nuevo_det)
+        os.replace(tmp, bak)
+        total, iva, arts, dl = _totales(nuevo_det, tc)
+        for k, v in {'ARTS': arts, 'IVA': iva, 'IMPORTE_MN': total, 'IMPORTE_DL': dl, 'HORA': ahora.strftime('%H:%M')}.items(): _pon(rec, pfl, k, v)
+        _escribe_en(pend, phl + slot*prl, bytes(rec))
+        hdr = bytearray(pb[:4]); _fecha_hdr(hdr, ahora); _escribe_en(pend, 0, bytes(hdr))
+        if os.path.isfile(enc):
+            with open(enc, 'rb') as f: eb = bytearray(f.read())
+            en, ehl, erl, efl = _layout(eb)
+            if en >= 1:
+                er = bytearray(eb[ehl:ehl+erl])
+                for k, v in {'ARTS': arts, 'IVA': iva, 'IMPORTE_MN': total, 'IMPORTE_DL': dl, 'HORA': ahora.strftime('%H:%M')}.items(): _pon(er, efl, k, v)
+                _escribe_en(enc, ehl, bytes(er))
+    except Exception:
+        for a in (pend, det, bak, enc):
+            try:
+                if os.path.isfile(os.path.join(resp, os.path.basename(a))): shutil.copy2(os.path.join(resp, os.path.basename(a)), a)
+            except OSError: pass
+        raise
+    return {'archivo': archivo, 'ref': _campo(rec, pfl, 'REF').decode('latin-1').strip(), 'folio': _campo(rec, pfl, 'FOL_CTA_P').decode('latin-1').strip(),
+            'total': total, 'agregado': agregado, 'respaldo': os.path.basename(resp)}
+
+def _imprimir_raw(impresora, datos):
+    """Manda bytes ESC/POS tal cual a una impresora de Windows (como el 'driver Windows' de MrTienda)."""
+    if os.name != 'nt': raise RuntimeError('Solo se puede imprimir en la computadora de la caja.')
+    import ctypes
+    from ctypes import wintypes
+    ws = ctypes.WinDLL('winspool.drv', use_last_error=True)
+    class DOC_INFO_1(ctypes.Structure): _fields_ = [('pDocName', wintypes.LPWSTR), ('pOutputFile', wintypes.LPWSTR), ('pDatatype', wintypes.LPWSTR)]
+    ws.OpenPrinterW.argtypes = [wintypes.LPWSTR, ctypes.POINTER(wintypes.HANDLE), ctypes.c_void_p]; ws.OpenPrinterW.restype = wintypes.BOOL
+    ws.StartDocPrinterW.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(DOC_INFO_1)]; ws.StartDocPrinterW.restype = wintypes.DWORD
+    ws.StartPagePrinter.argtypes = [wintypes.HANDLE]; ws.EndPagePrinter.argtypes = [wintypes.HANDLE]
+    ws.EndDocPrinter.argtypes = [wintypes.HANDLE]; ws.ClosePrinter.argtypes = [wintypes.HANDLE]
+    ws.WritePrinter.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]; ws.WritePrinter.restype = wintypes.BOOL
+    h = wintypes.HANDLE()
+    if not ws.OpenPrinterW(impresora, ctypes.byref(h), None): raise RuntimeError('No encontré la impresora "' + impresora + '"')
+    try:
+        di = DOC_INFO_1('Comanda', None, 'RAW')
+        if not ws.StartDocPrinterW(h, 1, ctypes.byref(di)): raise RuntimeError('La impresora no aceptó el trabajo (' + str(ctypes.get_last_error()) + ')')
+        try:
+            ws.StartPagePrinter(h)
+            buf = ctypes.create_string_buffer(datos, len(datos)); n = wintypes.DWORD()
+            if not ws.WritePrinter(h, buf, len(datos), ctypes.byref(n)): raise RuntimeError('No se pudo mandar a la impresora (' + str(ctypes.get_last_error()) + ')')
+            ws.EndPagePrinter(h)
+        finally: ws.EndDocPrinter(h)
+    finally: ws.ClosePrinter(h)
 
 # ---------------------------------------------------------------- reglas del negocio
 FORMAS = {'001': 'Efectivo', '004': 'Tarjeta crédito', '006': 'Tarjeta débito', '009': 'Transferencia', '012': 'Tarjeta crédito/débito'}
@@ -322,7 +580,7 @@ class Monitor:
     def detalle_variantes(self, v, var=None, svar=None):
         """Texto de las variantes de un renglón de cuenta, como lo guarda MrTienda.
         SUB_VARIA: bloques de 4 dígitos grupo+opción (0801 = grupo 08, opción 01).
-        VARIAASCII: un "1" en la posición de cada variante sencilla (posición 1 = variante 01)."""
+        VARIAASCII: un "1" en la posición de cada variante sencilla (posición 1 = variante 01; la posición 0 va en blanco)."""
         if var is None: var, svar = self._variantes()
         cp = v.get('COD_PROD') or ''
         grupos = {x['COD_VAR'] for x in var.get(cp, []) if svar.get((cp, x['COD_VAR']))}
@@ -334,8 +592,8 @@ class Monitor:
             if n: out.append(n.strip().capitalize())
         va = v.get('VARIAASCII') or ''
         for i, ch in enumerate(va):
-            if ch != '1': continue
-            cv = '%02d' % (i + 1)
+            if ch != '1' or i == 0: continue
+            cv = '%02d' % i
             if cv in grupos: continue
             n = next((x['DES_VAR'] for x in var.get(cp, []) if x['COD_VAR'] == cv), '')
             if n: out.append(re.sub(r'(?<=\b\w) (?=\w\b)', '', n).strip().capitalize())
@@ -761,7 +1019,7 @@ class Monitor:
         raise RuntimeError('Clave incorrecta.')
 
     # ------------------------------------------------ comandero (meseros con clave de 4 números)
-    # Versión 1: solo lee de MrTienda (menú, precios, variantes y cuentas abiertas). Todavía no escribe.
+    # Lee de MrTienda menú, precios, variantes y cuentas abiertas; envía pedidos solo si Jorge lo enciende.
     def meseros(self):
         try:
             with open(MESEROS_FILE, encoding='utf-8') as f: c = json.load(f)
@@ -872,6 +1130,157 @@ class Monitor:
                         'llevar': a['llevar'], 'pers': a['pers'], 'total': a['total'],
                         'items': [{'n': i['n'], 'q': i['q'], 'imp': i['imp'], 'det': i.get('det', ''), 'h': i['h'], 'llevar': i['llevar']} for i in a['items']]})
         return out
+
+    # ------------------------------------------------ comandero: enviar pedidos a MrTienda (versión 2)
+    # Replica lo que hizo MrTienda en la prueba del 9-oct-2026 (respaldos ACTUAL → CON_COMANDA_ABIERTA):
+    #  cuenta nueva = renglón en COMUNES\PENDIENT.DBF + COMUNES\PDxxxxxx.DBF (detalle) con su .BAK y .ENC + FOL_CTA_P+1 en REGISTRO\FOLIOS.DBF.
+    #  agregar = renglones nuevos al final de PDxxxxxx.DBF/.BAK y totales del renglón de PENDIENT/.ENC.
+    # Antes de tocar nada respalda los archivos en respaldos_comandero\. Solo funciona si Jorge lo enciende en el panel.
+    def _catalogo_envio(self):
+        prod = {x['COD_PROD']: x for x in self.rows(self._cat('PRODUCTO.DBF'))}
+        precio = {}
+        for x in self.rows(self._cat('PRECIOS.DBF')):
+            v = x.get('ACTIVO') if x.get('ACTIVO') is not None else x.get('PRECIO')
+            precio[(x['COD_PROD'], x['COD_ESCALA'])] = round(v or 0, 2)
+        ivas = {x['COD_IVA']: x.get('IVA') or 0 for x in self.rows(self._cat('IVA.DBF'))}
+        deptos = {(x['COD_FAMILI'], x['COD_DEPTO']): x.get('COD_IVA') or '04' for x in self.rows(self._cat('DEPTOS.DBF'))}
+        plu = {}
+        for x in self.rows(self._cat('CODIGOS.DBF')):
+            if (x.get('SIZE') or '00') in ('00', '') and (x.get('ATRIB') or '00') in ('00', '') and x['COD_PROD'] not in plu: plu[x['COD_PROD']] = x.get('COD_PLU') or ''
+        var, svar = self._variantes()
+        emp_raw = {x['COD_EMPLEA']: (x.get('DES_EMPLEA') or '').strip().upper() for x in self.rows(self._cat('PAREA.DBF'))}
+        return prod, precio, ivas, deptos, plu, var, svar, emp_raw
+
+    def _renglones(self, items, cat, ahora):
+        """Convierte lo que mandó el teléfono en renglones de MrTienda. Precios y datos salen del catálogo, no del teléfono."""
+        prod, precio, ivas, deptos, plu, var, svar, _ = cat
+        out = []
+        for it in items[:40]:
+            cp = str(it.get('id') or '')
+            p = prod.get(cp)
+            if not p: raise ValueError('Un platillo ya no existe en MrTienda. Actualiza el comandero.')
+            esc = '02' if it.get('llevar') else '01'
+            base = precio.get((cp, esc), precio.get((cp, '01')))
+            if base is None: raise ValueError((p.get('DES_PROD') or cp).strip() + ' no tiene precio en MrTienda.')
+            try: q = int(it.get('qty') or 1)
+            except (TypeError, ValueError): q = 1
+            q = max(1, min(q, 50))
+            grupos = {v['COD_VAR']: v for v in var.get(cp, []) if svar.get((cp, v['COD_VAR']))}
+            simples = {v['COD_VAR']: v for v in var.get(cp, []) if v['COD_VAR'] not in grupos}
+            sub, msub, nombres, extra = '', '', [], 0.0
+            elegidos = {}
+            for par in it.get('g') or []:
+                if not (isinstance(par, (list, tuple)) and len(par) == 2): continue
+                cv, cs = str(par[0]), str(par[1])
+                s = next((s for s in svar.get((cp, cv), []) if s['COD_SVAR'] == cs), None)
+                if cv not in grupos or not s: raise ValueError('Una opción de ' + (p.get('DES_PROD') or '').strip() + ' ya no existe. Actualiza el comandero.')
+                elegidos[cv] = s
+            faltan = [g for cv, g in grupos.items() if g.get('OBLIGADO') and cv not in elegidos]
+            if faltan: raise ValueError('Falta elegir ' + faltan[0]['DES_VAR'].strip().lower() + ' en ' + (p.get('DES_PROD') or '').strip() + '.')
+            for cv in sorted(elegidos):
+                s = elegidos[cv]; sub += cv + s['COD_SVAR']; msub += cv + s['COD_SVAR'] + '00'; extra += s.get('PRECIO') or 0
+                nombres.append(s['DES_VAR'].strip().capitalize())
+            va = [' '] * 60
+            if elegidos:   # así lo guardó MrTienda en la prueba (Huevos con jamón): posición 1 y una posición antes de cada grupo
+                va[1] = '1'
+                for cv in elegidos:
+                    k = int(cv) - 1
+                    if 0 < k < 60: va[k] = '1'
+            for cv in sorted({str(x) for x in (it.get('o') or [])}):
+                v = simples.get(cv)
+                if not v: raise ValueError('Una opción de ' + (p.get('DES_PROD') or '').strip() + ' ya no existe. Actualiza el comandero.')
+                k = int(cv)
+                if 0 < k < 60: va[k] = '1'
+                extra += v.get('PRECIO') or 0
+                nombres.append(re.sub(r'(?<=\b\w) (?=\w\b)', '', v['DES_VAR']).strip().capitalize())
+            if extra > 0.001: raise ValueError((p.get('DES_PROD') or '').strip() + ' lleva una opción con costo extra. Por ahora captúralo en la caja.')
+            nota = re.sub(r'\s+', ' ', str(it.get('nota') or '')).strip().upper()[:44]
+            cod_iva = deptos.get((p.get('COD_FAMILI'), p.get('COD_DEPTO')), '04')
+            cont = p.get('CONTENIDO') or 1
+            obl, lim = int(p.get('V_OBLIGDS') or 0), int(p.get('V_LIMITAR') or 0)
+            out.append({'COD_ESCALA': esc, 'COD_PROD': cp, 'DES_PROD': (p.get('DES_PROD') or '').strip(), 'DES_CANTAR': (p.get('DES_CANTAR') or p.get('DES_PROD') or '').strip(),
+                        'HORACAPTUR': ahora.strftime('%H:%M'), 'HORA': ahora.strftime('%H:%M'), 'FECHA': ahora.strftime('%Y%m%d'),
+                        'COSTO': (p.get('COSTO') or 0) / (cont if cont > 0 else 1), 'PRECIO_O': base, 'PRECIO': base, 'CANTIDAD': q, 'IMPORTE': round(base * q, 5),
+                        'ID_SAT_COD': p.get('ID_SAT_COD') or '', 'ID_SAT_UNI': p.get('ID_SAT_UNI') or '', 'UNIDAD': (p.get('PAQ_UNID') or p.get('UNIDAD') or '').strip(),
+                        'IVA': ivas.get(cod_iva, 8.0), 'COD_IVA': cod_iva, 'COD_FAMILI': p.get('COD_FAMILI') or '', 'COD_DEPTO': p.get('COD_DEPTO') or '',
+                        'VARIAASCII': ''.join(va).rstrip(), 'SUB_VARIA': sub, 'MSUB_VARIA': msub, 'VBLOQUE': '0' if elegidos else ' ',
+                        'PUERTO': (p.get('PUERTO') or '').strip(), 'COD_PLU': (plu.get(cp) or '').strip(), 'RECETA': bool(p.get('RECETA')),
+                        'V_OBLIGDS': obl, 'V_LIMITAR': lim, 'MNTR_EN_Z': bool(p.get('MNTR_EN_Z')), 'VAR_LIBRE': nota,
+                        '_det': ' · '.join(nombres)})
+        if not out: raise ValueError('No hay platillos para enviar.')
+        return out
+
+    def enviar_comandero(self, mesero, d):
+        if not self.cfg.get('comandero_escribe'): raise RuntimeError('El envío a MrTienda está apagado. Jorge lo enciende en Reportes → Meseros.')
+        envio = str(d.get('envio') or '')[:40]
+        hechos = getattr(self, '_envios', {})
+        if envio and envio in hechos: return hechos[envio]
+        ahora = datetime.datetime.now()
+        cat = self._catalogo_envio()
+        ren = self._renglones(d.get('items') or [], cat, ahora)
+        nombre = cat[7].get(mesero['cod']) or mesero['nombre'].upper()
+        for r in ren: r['COD_VENDED'] = mesero['cod']
+        com = os.path.join(self.base, 'COMUNES'); pend = os.path.join(com, 'PENDIENT.DBF')
+        folios = os.path.join(self.base, 'REGISTRO', 'FOLIOS.DBF')
+        with self.write_lock:
+            if d.get('k'):
+                archivo = re.sub(r'[^A-Za-z0-9]', '', str(d['k']))[:11]
+                res = _agregar_a_cuenta(com, pend, archivo, mesero['cod'], ren, self._tc(), ahora)
+            else:
+                if d.get('mesa'):
+                    m = re.sub(r'\D', '', str(d['mesa']))[:2]
+                    if not m: raise ValueError('Mesa no válida.')
+                    for a in self.abiertas():
+                        n_ = re.match(r'^(?:M|MESA)\s*-?\s*(\d{1,2})$', a['ref'], re.I)
+                        if n_ and str(int(n_.group(1))) == str(int(m)): raise RuntimeError(f'La mesa {int(m)} ya tiene cuenta abierta ({a["mesero"]}). Actualiza el comandero.')
+                    ref = 'M ' + str(int(m))
+                else:
+                    ref = re.sub(r'\s+', ' ', str(d.get('nombre') or '')).strip().upper()[:10]
+                    if not ref: raise ValueError('Escribe para quién es el pedido.')
+                res = _abrir_cuenta(com, pend, folios, ref, mesero['cod'], nombre, '02' if d.get('llevar') else '01', ren, self._tc(), ahora)
+            with self.rows_lock:
+                self.cache = {k: v for k, v in self.cache.items() if not k[0].upper().startswith(com.upper())}
+        log(f'COMANDERO: {mesero["nombre"]} {"agregó a" if d.get("k") else "abrió"} {res["ref"]} ({res["archivo"]}) · {len(ren)} renglones · ${res["agregado"]:.2f}. Respaldo: {res["respaldo"]}')
+        imp = self.imprimir_comanda(res['ref'], mesero['nombre'], ren, res['folio'], nueva=not d.get('k'), ahora=ahora)
+        out = {'ok': True, 'archivo': res['archivo'], 'ref': res['ref'], 'total': res['total'], 'impreso': imp.get('ok', False), 'aviso': imp.get('error', '')}
+        hechos[envio] = out; self._envios = dict(list(hechos.items())[-50:])
+        return out
+
+    def _tc(self):
+        for x in self.rows(os.path.join(self.base, 'REGISTRO', 'VALORES.DBF')):
+            if x.get('TC'): return x['TC']
+        return 0
+
+    def imprimir_comanda(self, ref, mesero, ren, folio, nueva, ahora):
+        """Imprime en la impresora de cocina solo los platillos del puerto de cocina (1), como MrTienda."""
+        cocina = [r for r in ren if r['PUERTO'][:1] == str(self.cfg.get('puerto_cocina', '1'))]
+        if not cocina: return {'ok': True, 'nada': True}
+        nombre = self.cfg.get('impresora_cocina') or 'EPSON TM-T88V ReceiptE4'
+        n_ = re.match(r'^M\s*(\d+)$', ref)
+        titulo = ('MESA ' + n_.group(1)) if n_ else ('LLEVAR ' + ref if not ref.startswith(('D-', 'DIDI', 'UBER')) else ref)
+        ESC, GS = b'\x1b', b'\x1d'
+        t = ESC + b'@' + ESC + b't\x02' + ESC + b'a\x01' + ESC + b'!\x30' + titulo.encode('cp850', 'replace') + b'\n' + ESC + b'!\x00'
+        t += (('CUENTA NUEVA' if nueva else 'SE AGREGA A LA CUENTA') + '\n').encode('cp850', 'replace')
+        t += f'{mesero.upper()}  {ahora.strftime("%d/%m %H:%M")}  #{folio[-4:]}\n'.encode('cp850', 'replace') + ESC + b'a\x00' + b'-' * 42 + b'\n'
+        for r in cocina:
+            t += ESC + b'!\x10' + f'{r["CANTIDAD"]} {r["DES_CANTAR"]}'.encode('cp850', 'replace') + b'\n' + ESC + b'!\x00'
+            if r.get('_det'): t += ('   ' + r['_det'].replace(' · ', ', ').upper() + '\n').encode('cp850', 'replace')
+            if r.get('VAR_LIBRE'): t += ('   NOTA: ' + r['VAR_LIBRE'] + '\n').encode('cp850', 'replace')
+            if r['COD_ESCALA'] == '02' and not ref.startswith(('D-', 'DIDI', 'UBER')) and n_: t += b'   PARA LLEVAR\n'
+        t += b'-' * 42 + b'\n' + ESC + b'a\x01' + b'COMANDERO\n' + b'\n' * 6 + GS + b'VB\x0a'
+        try:
+            _imprimir_raw(nombre, t)
+            return {'ok': True}
+        except Exception as e:
+            log('No pude imprimir la comanda en ' + nombre + ': ' + str(e))
+            return {'ok': False, 'error': 'La cuenta sí quedó en MrTienda, pero no se imprimió la comanda. Avísale a la caja.'}
+
+    def comandero_interruptor(self, d):
+        self.cfg['comandero_escribe'] = bool(d.get('activo'))
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f: json.dump(self.cfg, f, ensure_ascii=False, indent=2)
+        log('Envío del comandero a MrTienda ' + ('ENCENDIDO' if self.cfg['comandero_escribe'] else 'apagado'))
+        self.refresh()
+        return {'ok': True}
 
     # ------------------------------------------------ lectura de tickets con la API de Claude
     def catalogo_insumos(self):
@@ -1164,6 +1573,7 @@ class Monitor:
         out['cajeros'] = [{'id': x['id'], 'nombre': x['nombre'], 'activo': x.get('activo', True), 'alta': x.get('alta', '')} for x in self.cajeros()]
         out['meseros'] = [{'id': x['id'], 'cod': x.get('cod', ''), 'nombre': self.EMP.get(x.get('cod'), x['nombre']), 'activo': x.get('activo', True),
                            'en_mrtienda': x.get('cod') in self.EMP, 'alta': x.get('alta', '')} for x in self.meseros()]
+        out['comandero_escribe'] = bool(self.cfg.get('comandero_escribe'))
         out['emp_mrtienda'] = sorted([{'cod': k, 'nombre': v} for k, v in self.EMP.items() if v], key=lambda e: e['nombre'])
         out['ia'] = {'activa': bool(self.cfg.get('ia_llave')), 'modelo': self.cfg.get('ia_modelo') or IA_MODELO}
         out['drive'] = {'conectado': bool(self.cfg.get('drive_url')), 'mensual': bool(self.cfg.get('drive_mensual')), 'ultimo_borrado': self.cfg.get('drive_ultimo_borrado') or ''}
@@ -1286,8 +1696,20 @@ def make_handler(mon, cfg):
                 except Exception as e:
                     body = json.dumps({'ok': False, 'error': str(e)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(403); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
+            if self.path == '/api/comandero/enviar':
+                m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'))
+                try:
+                    if not m_: raise PermissionError('Tu sesion termino. Vuelve a entrar con tu clave.')
+                    n = min(int(self.headers.get('Content-Length', '0') or 0), 65536)
+                    d = json.loads(self.rfile.read(n).decode('utf-8'))
+                    body = json.dumps(mon.enviar_comandero(m_, d), ensure_ascii=False).encode('utf-8')
+                    return self._send(body, 'application/json; charset=utf-8')
+                except Exception as e:
+                    if not isinstance(e, (ValueError, PermissionError)): log('Comandero, no se pudo enviar: ' + traceback.format_exc())
+                    body = json.dumps({'ok': False, 'error': str(e), 'sesion': not isinstance(e, PermissionError)}, ensure_ascii=False).encode('utf-8')
+                    self.send_response(409); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
             if not self._auth(caja_ok=(self.path in ('/api/compra', '/api/leer-ticket'))): return
-            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia'): self.send_response(404); self.end_headers(); return
+            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/comandero-envio', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return
             try:
@@ -1299,6 +1721,7 @@ def make_handler(mon, cfg):
                 elif self.path == '/api/leer-ticket': out={'ok': True, 'lectura': mon.leer_ticket(d.get('foto') or '')}
                 elif self.path == '/api/cajeros': out=mon.cajero_accion(d)
                 elif self.path == '/api/meseros': out=mon.mesero_accion(d)
+                elif self.path == '/api/comandero-envio': out=mon.comandero_interruptor(d)
                 elif self.path == '/api/leer-pendientes': out=mon.leer_pendientes()
                 elif self.path == '/api/drive':
                     acc = d.get('accion')
@@ -1355,7 +1778,7 @@ def make_handler(mon, cfg):
                     body = b'{"ok":false,"error":"Tu sesion termino. Vuelve a entrar con tu clave.","sesion":false}'
                     self.send_response(401); self.send_header('Content-Type', 'application/json'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
                 try:
-                    out = {'ok': True, 'mesero': m_, 'cuentas': mon.cuentas_comandero(), 'hora': datetime.datetime.now().strftime('%H:%M'), 'escribe': False}
+                    out = {'ok': True, 'mesero': m_, 'cuentas': mon.cuentas_comandero(), 'hora': datetime.datetime.now().strftime('%H:%M'), 'escribe': bool(mon.cfg.get('comandero_escribe'))}
                     if 'menu=1' in self.path: out['menu'] = mon.menu_comandero()
                     body = json.dumps(out, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
                     if 'gzip' in self.headers.get('Accept-Encoding', ''): return self._send(gzip.compress(body, 6), 'application/json; charset=utf-8', True)

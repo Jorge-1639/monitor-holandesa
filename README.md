@@ -17,5 +17,9 @@ se suben directo a la carpeta "Fotos de tickets - La Holandesa" del Drive de Jor
 para leer tickets se guarda en config.json; nunca se sube aquí.
 
 Comandero (`/comandero`, versión 26.0): los meseros entran con una clave de 4 números que Jorge asigna en Reportes → Meseros
-(se guarda solo la huella en `meseros.json`, en la caja). Ligado al código de vendedor de MrTienda. Por ahora solo lee:
-menú táctil, precios Comedor/Recoger aquí, variantes y cuentas abiertas. Todavía no escribe en MrTienda.
+(se guarda solo la huella en `meseros.json`, en la caja). Ligado al código de vendedor de MrTienda. Lee menú táctil, precios Comedor/Recoger aquí, variantes y cuentas abiertas.
+
+Versión 26.1: si Jorge enciende "Enviar pedidos a MrTienda" (config `comandero_escribe`), el comandero abre cuentas o agrega platillos
+replicando exactamente lo que hace MrTienda (PENDIENT.DBF, PDxxxxxx.DBF/.BAK/.ENC y FOL_CTA_P en FOLIOS.DBF) e imprime la comanda
+de cocina (puerto 1) en la impresora `impresora_cocina` (por omisión EPSON TM-T88V ReceiptE4). Antes de cada envío respalda los
+archivos en `respaldos_comandero\` (en la caja). Platillos con opciones de costo extra todavía se capturan en la caja.

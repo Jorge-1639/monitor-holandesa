@@ -352,6 +352,28 @@ function agregar(){
     g:p.g.map((g,gi)=>cur.g[gi]==null?null:[g.cv,g.o[cur.g[gi]].cs]).filter(Boolean),o:[...cur.o].map(i=>p.o[i].cv)});
   cur=null;drawSheet();toast('Agregado');render();
 }
+let enviando=false;
+async function enviar(btn){
+  if(enviando||!S.draft.length)return;
+  enviando=true;document.querySelectorAll('[data-act="enviar"]').forEach(b=>{b.disabled=true;b.textContent='Enviando…'});
+  if(!S.envio)S.envio=Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+  const body={envio:S.envio,llevar:!!S.sel.llevar,items:S.draft.map(i=>({id:i.id,qty:i.qty,llevar:i.llevar,g:i.g,o:i.o,nota:i.nota}))};
+  if(S.sel.k)body.k=S.sel.k;else if(S.sel.mesa)body.mesa=S.sel.mesa;else body.nombre=S.sel.nombre;
+  try{
+    const r=await fetch('/api/comandero/enviar',{method:'POST',headers:{'Content-Type':'application/json','X-Mesero-Token':S.tok||''},body:JSON.stringify(body)});
+    const j=await r.json().catch(()=>({ok:false,error:'Sin respuesta de la caja. Revisa en la caja si llegó antes de volver a enviar.'}));
+    if(j.sesion===false){enviando=false;return salir(j.error)}
+    if(!j.ok){S.envio=null;throw new Error(j.error||'No se pudo enviar')}
+    S.draft=[];S.envio=null;S.sel={k:j.archivo,llevar:S.sel.llevar};
+    try{await cargar(false)}catch(e){}
+    S.view='cuenta';render();
+    if(j.aviso){$('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Enviado, pero sin imprimir</h2><p style="margin:0">${esc(j.aviso)}</p><button class="big" data-act="cerrar">Entendido</button></div></div>`}
+    else toast(j.impreso?'Enviado a cocina':'Enviado a la caja');
+  }catch(e){
+    $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>No se envió</h2><p style="margin:0">${esc(e.message)}</p><p style="margin:0" class="empty">Tus platillos siguen aquí como "Nuevo".</p><button class="big" data-act="cerrar">Entendido</button></div></div>`;
+    render();
+  }finally{enviando=false}
+}
 function abrir(sel){S.sel=sel;S.draft=[];S.warned=false;S.grp=null;S.sub=null;S.q='';S.modo=sel.llevar?'llevar':'aqui';S.view=sel.k?'cuenta':'menu';window.scrollTo(0,0);render()}
 document.addEventListener('click',e=>{
   const t=e.target.closest('button,[data-act]');if(!t)return;
@@ -390,8 +412,8 @@ document.addEventListener('click',e=>{
   if(a==='subs'){S.sub=null;window.scrollTo(0,0);return render()}
   if(a==='cuenta'){S.view='cuenta';return render()}
   if(a==='enviar'){
-    if(!ESCRIBE){$('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Todavía no se envía</h2><p style="margin:0">Esta es la versión de prueba del comandero: el menú y las cuentas son los de MrTienda, pero el pedido todavía se tiene que capturar en la caja.</p><p style="margin:0" class="empty">Tus platillos siguen en la cuenta como "Nuevo" para que los captures.</p><button class="big" data-act="cerrar">Entendido</button></div></div>`;return}
-    return}
+    if(!ESCRIBE){$('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Todavía no se envía</h2><p style="margin:0">El envío a MrTienda está apagado. El pedido se tiene que capturar en la caja.</p><p style="margin:0" class="empty">Tus platillos siguen en la cuenta como "Nuevo" para que los captures.</p><button class="big" data-act="cerrar">Entendido</button></div></div>`;return}
+    return enviar(t)}
 });
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refrescar()});
 if(S.tok)inicio();else render();
