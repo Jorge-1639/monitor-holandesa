@@ -68,6 +68,7 @@ nav.tabs .dot{position:absolute;top:2px;right:calc(50% - 22px);min-width:17px;he
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--rh-borde:#3d6688}}
 :root[data-theme="dark"]{--rh-borde:#3d6688}
 body.rh .card,body.rh .kpi{border:1.5px solid var(--rh-borde)}
+.rhhr input[type=time]::-webkit-calendar-picker-indicator{display:none}.rhhr input[type=time]{font-variant-numeric:tabular-nums;text-align:center}
 .card h2{font:800 14px var(--display);text-transform:uppercase;letter-spacing:.08em;margin:0 0 12px;color:var(--green-2);display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
 .card h2 small{font:500 12px var(--body);color:var(--muted);text-transform:none;letter-spacing:0}
 .hero{background:linear-gradient(150deg,#ea580c 0%,#f97316 100%);color:#fff;border-radius:20px;padding:20px;box-shadow:0 14px 30px -18px rgba(234,88,12,.8);position:relative;overflow:hidden}
@@ -1205,10 +1206,10 @@ function rhHorarioTxt(e){const b=rhBase(e),c=['Lun','Mar','Mié','Jue','Vie','S�
 function rhForm(e){
   const c=e.contrato||{}, mt=[['','— Ninguno —'],...(RH.emp_mrtienda||[]).map(x=>[x.cod,x.nombre+' ('+x.cod+')'])];
   const base=rhBase(e), diario=e.diario||(e.sueldo?Math.round(e.sueldo/7*100)/100:''), comida=e.id?(e.comida_min??0):30;
-  const filas=RH_DIAS_L.map((d,i)=>{const h=base[i];return `<div class="rhhr" style="display:grid;grid-template-columns:76px 1fr 1fr 52px;gap:6px;align-items:center;margin-top:6px">
+  const filas=RH_DIAS_L.map((d,i)=>{const h=base[i];return `<div class="rhhr" style="display:grid;grid-template-columns:54px 1fr 1fr 40px;gap:4px;align-items:center;margin-top:6px">
       <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600"><input type="checkbox" id="rfHd${i}" ${h?'':'checked'} style="width:18px;height:18px">${d.slice(0,3)}</label>
-      <input type="time" id="rfHe${i}" value="${h?esc(h[0]):''}" aria-label="${d}: entra" ${h?'':'disabled'} style="height:40px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--ink);padding:0 6px;min-width:0">
-      <input type="time" id="rfHs${i}" value="${h?esc(h[1]):''}" aria-label="${d}: sale" ${h?'':'disabled'} style="height:40px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--ink);padding:0 6px;min-width:0">
+      <input type="time" id="rfHe${i}" value="${h?esc(h[0]):''}" aria-label="${d}: entra" ${h?'':'disabled'} style="height:40px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--ink);padding:0 3px;min-width:0;font-size:14px">
+      <input type="time" id="rfHs${i}" value="${h?esc(h[1]):''}" aria-label="${d}: sale" ${h?'':'disabled'} style="height:40px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--ink);padding:0 3px;min-width:0;font-size:14px">
       <small id="rfHh${i}" class="num" style="text-align:right;color:var(--muted)"></small></div>`}).join('');
   const docs=(e.archivos||[]).slice().reverse();
   return `<div class="card" id="rhForm"><h2>${e.id?'Expediente':'Nuevo empleado'} <small>${e.id&&e.alta?'alta '+rhCorta(e.alta.slice(0,10)):''}</small></h2>
@@ -1219,7 +1220,7 @@ function rhForm(e){
     <h2 style="margin-top:20px">Sueldo</h2>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">${rhIn('rfDia','Sueldo por día',diario,'inputmode="decimal" placeholder="Ej. 500"')}${rhIn('rfInc','Incentivo por semana',e.incentivo||'','inputmode="decimal" placeholder="Ej. 300"')}</div>
     <h2 style="margin-top:20px">Horario de la semana <small>marca los días que descansa</small></h2>
-    <div style="display:grid;grid-template-columns:76px 1fr 1fr 52px;gap:6px;font-size:12px;color:var(--muted)"><span>Descansa</span><span>Entra</span><span>Sale</span><span style="text-align:right">Pagado</span></div>
+    <div style="display:grid;grid-template-columns:54px 1fr 1fr 40px;gap:4px;font-size:12px;color:var(--muted)"><span>Descansa</span><span>Entra</span><span>Sale</span><span style="text-align:right">Pagado</span></div>
     ${filas}
     <div class="btns" style="margin-top:8px"><button class="btn" data-rh="copialunes">Copiar el lunes a martes–viernes</button></div>
     ${rhIn('rfCom','Minutos de comida que no se pagan',comida,'inputmode="numeric" placeholder="Ej. 30"')}

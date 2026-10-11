@@ -62,3 +62,5 @@ Versión 28.3 — expediente: sueldo diario, prima dominical (25% del diario si 
 horario por día (entra/sale, descansa) y minutos de comida que no se pagan. Contratos: botón de cámara que primero pregunta si es por tiempo
 determinado o indeterminado; foto, PDF o Word se guardan en la caja en `expedientes\<empleado>\` (nunca en el repositorio). Rol de descansos con
 horas por día que Jorge y la encargada (/descansos) pueden cambiar. Orden de la lista: meseros, cocineros, ayudantes generales.
+
+Versión 28.4 — horario del expediente más compacto para que en el teléfono se vea completa la hora con a.m./p.m.
