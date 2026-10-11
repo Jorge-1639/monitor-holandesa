@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 39            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '26.4'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 40            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '26.5'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -352,6 +352,35 @@ def _agregar_a_cuenta(com, pend, archivo, cod, ren, tc, ahora):
         raise
     return {'archivo': archivo, 'ref': _campo(rec, pfl, 'REF').decode('latin-1').strip(), 'folio': _campo(rec, pfl, 'FOL_CTA_P').decode('latin-1').strip(),
             'total': total, 'agregado': agregado, 'respaldo': os.path.basename(resp)}
+
+def comanda_bytes(ref, mesero, renglones, folio, nueva, ahora):
+    """Comanda de cocina en ESC/POS: letra normal como las de MrTienda, una variante por renglón,
+    la nota abajo y si es para comer aquí o para llevar."""
+    ESC, GS = b'\x1b', b'\x1d'
+    e = lambda x: x.encode('cp850', 'replace')
+    n_ = re.match(r'^M\s*(\d+)$', ref)
+    titulo = ('MESA ' + n_.group(1)) if n_ else ref
+    t = ESC + b'@' + ESC + b't\x02' + ESC + b'a\x01'
+    t += ESC + b'!\x18' + e(titulo) + b'\n' + ESC + b'!\x00'                       # título: doble alto, negritas
+    t += e('CUENTA NUEVA' if nueva else 'SE AGREGA A LA CUENTA') + b'\n'
+    t += ESC + b'a\x00' + e(f'Mesero: {mesero.upper()}') + b'\n'
+    t += e(f'Enviado: {ahora.strftime("%d/%m/%Y %H:%M")}   Cuenta #{folio[-5:].lstrip("0")}') + b'\n'
+    t += b'-' * 42 + b'\n'
+    for r in renglones:
+        cant = int(r['CANTIDAD']) if float(r['CANTIDAD']).is_integer() else r['CANTIDAD']
+        t += ESC + b'!\x08' + e(f'{cant}  {r["DES_CANTAR"]}') + b'\n' + ESC + b'!\x00'  # platillo en negritas
+        for v in [v for v in (r.get('_det') or '').split(' · ') if v]:
+            t += e('     - ' + v.upper()) + b'\n'
+        if r.get('VAR_LIBRE'): t += e('     * NOTA: ' + r['VAR_LIBRE']) + b'\n'
+        t += e('     > ' + ('PARA LLEVAR' if r['COD_ESCALA'] == '02' else 'COMER AQUI')) + b'\n\n'
+    t += b'-' * 42 + b'\n' + ESC + b'a\x01' + e('Enviado desde el COMANDERO') + b'\n' + b'\n' * 6 + GS + b'VB\x0a'
+    return t
+
+def comanda_texto(datos):
+    # vista previa en texto de la comanda (para revisarla sin impresora)
+    out = re.sub(rb'\x1d.{3}$', b'', datos, flags=re.S)
+    out = re.sub(rb'\x1b[@]|\x1b[ta!E].', b'', out)
+    return out.decode('cp850', 'replace')
 
 def _imprimir_raw(impresora, datos):
     """Manda bytes ESC/POS tal cual a una impresora de Windows (como el 'driver Windows' de MrTienda)."""
@@ -1274,18 +1303,7 @@ class Monitor:
         cocina = [r for r in ren if r['PUERTO'][:1] == str(self.cfg.get('puerto_cocina', '1'))]
         if not cocina: return {'ok': True, 'nada': True}
         nombre = self.cfg.get('impresora_cocina') or 'EPSON TM-T88V ReceiptE4'
-        n_ = re.match(r'^M\s*(\d+)$', ref)
-        titulo = ('MESA ' + n_.group(1)) if n_ else ('LLEVAR ' + ref if not ref.startswith(('D-', 'DIDI', 'UBER')) else ref)
-        ESC, GS = b'\x1b', b'\x1d'
-        t = ESC + b'@' + ESC + b't\x02' + ESC + b'a\x01' + ESC + b'!\x30' + titulo.encode('cp850', 'replace') + b'\n' + ESC + b'!\x00'
-        t += (('CUENTA NUEVA' if nueva else 'SE AGREGA A LA CUENTA') + '\n').encode('cp850', 'replace')
-        t += f'{mesero.upper()}  {ahora.strftime("%d/%m %H:%M")}  #{folio[-4:]}\n'.encode('cp850', 'replace') + ESC + b'a\x00' + b'-' * 42 + b'\n'
-        for r in cocina:
-            t += ESC + b'!\x10' + f'{r["CANTIDAD"]} {r["DES_CANTAR"]}'.encode('cp850', 'replace') + b'\n' + ESC + b'!\x00'
-            if r.get('_det'): t += ('   ' + r['_det'].replace(' · ', ', ').upper() + '\n').encode('cp850', 'replace')
-            if r.get('VAR_LIBRE'): t += ('   NOTA: ' + r['VAR_LIBRE'] + '\n').encode('cp850', 'replace')
-            if r['COD_ESCALA'] == '02' and not ref.startswith(('D-', 'DIDI', 'UBER')) and n_: t += b'   PARA LLEVAR\n'
-        t += b'-' * 42 + b'\n' + ESC + b'a\x01' + b'COMANDERO\n' + b'\n' * 6 + GS + b'VB\x0a'
+        t = comanda_bytes(ref, mesero, cocina, folio, nueva, ahora)
         try:
             _imprimir_raw(nombre, t)
             return {'ok': True}
