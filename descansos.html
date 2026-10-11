@@ -55,7 +55,17 @@ button:focus-visible{outline:2px solid var(--green-2);outline-offset:2px}
 .emp .sub{font-size:13px;color:var(--muted);margin-top:2px}
 .dias{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-top:10px}
 .dias div{text-align:center;font-size:11px;color:var(--muted);font-weight:600}
-.dias button{width:100%;height:46px;border-radius:10px;border:1.5px solid;font:800 17px var(--display);margin-top:3px}
+.dias button{width:100%;height:58px;border-radius:10px;border:1.5px solid;font:800 17px var(--display);margin-top:3px;padding:3px 0;line-height:1.05}
+.dias button small{display:block;font:600 9.5px var(--body);margin-top:3px}
+.dias button.sel{outline:3px solid var(--ink);outline-offset:1px}
+.edit{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:10px}
+.edit .est4{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.edit .est4 button{border:1.5px solid var(--line);background:var(--surface);border-radius:20px;padding:7px 12px;font-size:14px;font-weight:700}
+.edit .est4 button[aria-pressed="true"]{background:var(--green);color:var(--on-green);border-color:var(--green)}
+.edit .hrs{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.edit label{font-size:13px;color:var(--muted);display:block;margin-bottom:4px}
+.edit input{width:100%;height:44px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:500 16px var(--body);padding:0 10px}
+.edit .dos{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .dias button:disabled{opacity:.6;cursor:default}
 .est{font-size:12px;margin-top:8px;color:var(--muted)}
 .est.no{color:var(--bad);font-weight:600}
@@ -80,7 +90,7 @@ const corta=s=>{const d=pd(s);return d.getDate()+' '+MES[d.getMonth()]};
 const tok=()=>{try{return localStorage.getItem('hol_rol_tok')||''}catch(e){return ''}};
 const setTok=t=>{try{t?localStorage.setItem('hol_rol_tok',t):localStorage.removeItem('hol_rol_tok')}catch(e){}};
 function toast(t){const o=document.createElement('div');o.className='toast';o.textContent=t;document.body.appendChild(o);setTimeout(()=>o.remove(),3000)}
-let INFO=null, SEM=null, PIN='', OCUPADO=false;
+let INFO=null, SEM=null, PIN='', OCUPADO=false, ED=null;   // ED: día que se está editando {e, i, k}
 
 // ---------- entrar con la clave
 function pintarLogin(msg){
@@ -114,9 +124,18 @@ async function enviar(body){
   if(j.sesion===false){setTok('');pintarLogin(j.error);throw new Error('')}
   if(!j.ok)throw new Error(j.error||'No se pudo guardar.');INFO=j;SEM=j.semana;return j;
 }
-const rolDe=e=>{const r=INFO.rol[e.id];if(r)return {d:r,g:true};const i=DIAS_L.indexOf(e.descanso);return {d:DIAS.map((_,k)=>k===i?'D':'T'),g:false}};
+const baseDe=e=>Array.isArray(e.base)&&e.base.length===7?e.base:DIAS.map(()=>['','']);
+const rolDe=e=>{const b=baseDe(e),r=INFO.rol[e.id],hs=(INFO.horas||{})[e.id],h=b.map((x,i)=>Array.isArray(hs)&&hs[i]?hs[i]:x);
+  return r?{d:r,g:true,h}:{d:b.map(x=>x?'T':'D'),g:false,h}};
+const h12=v=>String(v||'').replace(/^0(\d)/,'$1');
 const hora=s=>{if(!s)return '';const d=new Date(s);let h=d.getHours(),m=String(d.getMinutes()).padStart(2,'0'),ap=h<12?'am':'pm';h=h%12||12;return corta(iso(d))+', '+h+':'+m+' '+ap};
 
+// ---------- editar un día: si trabaja, descansa, faltó… y de qué hora a qué hora
+function editor(e,r){const i=ED.i,h=r.h[i]||['',''];
+  return `<div class="edit"><b>${DIAS_L[i]} ${pd(mas(SEM,i)).getDate()}</b>
+    <div class="est4">${CICLO.map(k=>`<button data-k="${k}" aria-pressed="${ED.k===k}">${k} · ${EST[k][0]}</button>`).join('')}</div>
+    <div class="hrs" ${ED.k==='T'?'':'hidden'}><div><label for="edE">Entra</label><input type="time" id="edE" value="${h[0]||''}"></div><div><label for="edS">Sale</label><input type="time" id="edS" value="${h[1]||''}"></div></div>
+    <div class="dos"><button class="btn pri" data-guardar="1">Guardar</button><button class="btn" data-cerrar="1">Cerrar</button></div></div>`}
 // ---------- pantalla principal
 function pintar(){
   const E=INFO.empleados, falta=E.filter(e=>!INFO.rol[e.id]&&!e.pagada).length;
@@ -127,11 +146,11 @@ function pintar(){
       :!r.g?'<div class="est no">Sin guardar · se propone con su día de descanso</div>'
       :`<div class="est si">✓ Guardado${m?' · '+esc(m.por)+' · '+hora(m.cuando):''}</div>`;
     return `<div class="emp"><h3>${esc(e.nombre)}</h3><div class="sub">${esc(e.puesto)}${e.horario?' · '+esc(e.horario):''}</div>
-      <div class="dias">${r.d.map((c,i)=>`<div>${DIAS[i]} ${pd(mas(SEM,i)).getDate()}<button data-e="${e.id}" data-i="${i}" ${e.pagada?'disabled':''} aria-label="${DIAS_L[i]}: ${EST[c][0]}" style="color:var(${EST[c][1]});background:var(${EST[c][1]}-bg);border-color:var(${EST[c][1]})">${c}</button></div>`).join('')}</div>${est}</div>`}).join('');
+      <div class="dias">${r.d.map((c,i)=>{const h=r.h[i];return `<div>${DIAS[i]} ${pd(mas(SEM,i)).getDate()}<button class="${ED&&ED.e===e.id&&ED.i===i?'sel':''}" data-e="${e.id}" data-i="${i}" ${e.pagada?'disabled':''} aria-label="${DIAS_L[i]}: ${EST[c][0]}${c==='T'&&h&&h[0]?' de '+h[0]+' a '+h[1]:''}" style="color:var(${EST[c][1]});background:var(${EST[c][1]}-bg);border-color:var(${EST[c][1]})">${c}${c==='T'&&h&&h[0]?`<small>${h12(h[0])}<br>${h12(h[1])}</small>`:''}</button></div>`}).join('')}</div>${ED&&ED.e===e.id?editor(e,r):''}${est}</div>`}).join('');
   $('#app').innerHTML=`<div class="top"><div class="fila"><div><h1>Rol de descansos</h1><small>${esc(INFO.nombre)}</small></div><button class="salir" data-salir="1">Salir</button></div>
     <div class="sem"><button data-sem="-7" aria-label="Semana anterior">‹</button><b>Semana del ${corta(SEM)} al ${corta(mas(SEM,6))}</b><button data-sem="7" aria-label="Semana siguiente">›</button></div></div>
     <div class="ley">${ley}</div>
-    <p class="nota" style="margin-top:4px">Toca un día para cambiarlo. Se guarda solo.</p>
+    <p class="nota" style="margin-top:4px">Toca un día para cambiar si trabaja, descansa o faltó, y su horario de ese día.</p>
     ${E.length?tarjetas:'<div class="aviso">Todavía no hay empleados dados de alta. Avísale a Jorge.</div>'}
     ${INFO.anterior_tiene?'<button class="btn" data-copiar="1">Copiar la semana anterior</button>':''}
     ${falta?`<button class="btn pri" data-confirmar="1">${falta===1?'Guardar el que falta como está':'Guardar los '+falta+' que faltan como están'}</button>`:E.length?'<p class="nota" style="text-align:center;font-weight:600;color:var(--good)">✓ Toda la semana está capturada</p>':''}
@@ -145,8 +164,13 @@ document.addEventListener('click',async ev=>{
   if(d.sem){return cargar(mas(SEM,+d.sem))}
   if(OCUPADO)return;OCUPADO=true;
   try{
-    if(d.e){const e=INFO.empleados.find(x=>x.id===d.e),r=rolDe(e).d.slice();r[+d.i]=CICLO[(CICLO.indexOf(r[+d.i])+1)%CICLO.length];
-      t.textContent=r[+d.i];await enviar({accion:'guardar',emp:d.e,dias:r});pintar()}
+    if(d.e){const e=INFO.empleados.find(x=>x.id===d.e);ED={e:d.e,i:+d.i,k:rolDe(e).d[+d.i]};pintar();OCUPADO=false;return}
+    else if(d.k&&ED){ED.k=d.k;document.querySelectorAll('.edit [data-k]').forEach(b=>b.setAttribute('aria-pressed',b===t));const hr=document.querySelector('.edit .hrs');if(hr)hr.hidden=d.k!=='T';OCUPADO=false;return}
+    else if(d.cerrar){ED=null;pintar();OCUPADO=false;return}
+    else if(d.guardar&&ED){const e=INFO.empleados.find(x=>x.id===ED.e),r=rolDe(e),dias=r.d.slice(),hs=r.h.map(x=>x&&x[0]?x:null);dias[ED.i]=ED.k;
+      const en=($('#edE')||{}).value,sa=($('#edS')||{}).value;if(ED.k==='T'&&en&&sa)hs[ED.i]=[en,sa];
+      if(ED.k==='T'&&(!en||!sa)){toast('Pon la hora de entrada y de salida.');OCUPADO=false;return}
+      await enviar({accion:'guardar',emp:ED.e,dias,horas:hs});ED=null;pintar();toast('Guardado')}
     else if(d.copiar){if(Object.keys(INFO.rol).length&&!confirm('¿Copiar la semana anterior? Lo que ya capturaste esta semana se reemplaza.')){OCUPADO=false;return}
       await enviar({accion:'copiar'});pintar();toast('Semana copiada')}
     else if(d.confirmar){t.disabled=true;for(const e of INFO.empleados.filter(e=>!INFO.rol[e.id]&&!e.pagada))await enviar({accion:'guardar',emp:e.id,dias:rolDe(e).d});pintar();toast('Semana guardada')}

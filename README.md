@@ -55,3 +55,10 @@ en grande. Al quitar una cuenta de Didi o Uber en el panel ya viene marcado el m
 
 Versión 28.1 — comanda por canal: abajo, en grande, "DIDI 4821" / "UBER 4821", o "RECOGER AQUI" / "SERVICIO A DOMICILIO" con el nombre de la persona debajo.
 No imprime efectivo/tarjeta (se sigue preguntando en Didi y se guarda para el panel) ni el teléfono. Datos de domicilio (calles, ubicación, cambio): pendiente, con el formato de Jorge.
+
+Versión 28.2 — Personal (/personal) con contorno azul claro en todas las tarjetas.
+
+Versión 28.3 — expediente: sueldo diario, prima dominical (25% del diario si trabaja domingo), incentivo semanal prorrateado por días trabajados,
+horario por día (entra/sale, descansa) y minutos de comida que no se pagan. Contratos: botón de cámara que primero pregunta si es por tiempo
+determinado o indeterminado; foto, PDF o Word se guardan en la caja en `expedientes\<empleado>\` (nunca en el repositorio). Rol de descansos con
+horas por día que Jorge y la encargada (/descansos) pueden cambiar. Orden de la lista: meseros, cocineros, ayudantes generales.

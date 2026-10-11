@@ -1150,7 +1150,18 @@ const rhCorta=s=>{const d=rhPd(s);return d.getDate()+' '+['ene','feb','mar','abr
 const rhNorm=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/[^A-Z ]/g,' ').replace(/\s+/g,' ').trim();
 const rhAct=()=>(RH.empleados||[]).filter(e=>e.activo).sort((a,b)=>(RH.puestos.indexOf(a.puesto)-RH.puestos.indexOf(b.puesto))||a.nombre.localeCompare(b.nombre));
 const rhEmp=id=>(RH.empleados||[]).find(e=>e.id===id);
-const rhDiario=e=>(+e.sueldo||0)/7;
+const rhDiario=e=>(+e.diario||0)||(+e.sueldo||0)/7;
+const RH_DIAS_L=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+const rhHm=v=>{const m=/^(\d{1,2}):(\d{2})$/.exec(String(v||'').trim());return m?(+m[1])*60+(+m[2]):null};
+const rhH12=v=>String(v||'').replace(/^0(\d)/,'$1');
+function rhBase(e){ // horario base de la semana: [entra, sale] o null si descansa
+  if(Array.isArray(e.horario)&&e.horario.length===7)return e.horario.map(x=>Array.isArray(x)&&x.length===2?x:null);
+  const d=RH_DIAS_L.indexOf(e.descanso);return RH_DIAS_L.map((_,i)=>i===d?null:[e.entrada||'',e.salida||'']);
+}
+function rhHoras(h,comida){ // horas pagadas de un día: de la entrada a la salida, menos la comida que no se paga
+  if(!h)return 0;const a=rhHm(h[0]),b=rhHm(h[1]);if(a==null||b==null)return 0;let m=b-a;if(m<=0)m+=1440;return Math.max(0,(m-(+comida||0))/60);
+}
+const rhHtxt=n=>{const h=Math.floor(n+1e-9),m=Math.round((n-h)*60);return h+(m?':'+String(m).padStart(2,'0'):'')+' h'};
 function rhQuien(texto){ // a quién corresponde un vale o comida escrito con nombre libre
   const t=' '+rhNorm(texto).replace(/^VALES? /,'')+' ', A=rhAct();
   let m=A.filter(e=>t.includes(' '+rhNorm(e.nombre)+' '));
@@ -1184,20 +1195,36 @@ function rhEmpleados(){
   let h=`<div class="kpis"><div class="kpi"><b class="num">${A.length}</b><span>empleados activos</span></div><div class="kpi"><b class="num" style="color:${pend?'var(--warn)':'var(--good)'}">${pend}</b><span>contratos pendientes</span></div></div>`;
   if(rhEdit)h+=rhForm(rhEdit==='nuevo'?{contrato:{}}:rhEmp(rhEdit));
   else h+=`<div class="btns"><button class="btn pri" data-rh="nuevo">+ Agregar empleado</button></div>`;
-  h+=`<div class="card"><h2>Catálogo de empleados <small>${A.length}</small></h2>${A.length?`<div class="list">${A.map(e=>{const an=rhAntig(e.ingreso),c=e.contrato||{};return `<div class="item"><span><b>${esc(e.nombre)}</b> <span class="pill ${c.estado==='firmado'?'good':'warn'}">${c.estado==='firmado'?'Contrato firmado':'Contrato pendiente'}</span></span><span><a href="#" data-rh="editar" data-id="${e.id}" style="color:var(--green-2);font-size:13px">Expediente</a></span><span class="meta">${esc(e.puesto)}${e.sueldo?' · '+fmt2(e.sueldo)+' por semana':''}${an?' · '+an.txt:' · sin fecha de ingreso'}${e.descanso?' · descansa '+esc(e.descanso):''}</span></div>`}).join('')}</div>`:'<p class="empty">Todavía no hay empleados. Toca "Agregar empleado".</p>'}</div>`;
+  h+=`<div class="card"><h2>Catálogo de empleados <small>${A.length}</small></h2>${A.length?`<div class="list">${A.map(e=>{const an=rhAntig(e.ingreso),c=e.contrato||{};return `<div class="item"><span><b>${esc(e.nombre)}</b> <span class="pill ${c.estado==='firmado'?'good':'warn'}">${c.estado==='firmado'?'Contrato firmado':'Contrato pendiente'}</span></span><span><a href="#" data-rh="editar" data-id="${e.id}" style="color:var(--green-2);font-size:13px">Expediente</a></span><span class="meta">${esc(e.puesto)}${e.diario?' · '+fmt2(+e.diario)+' por día':e.sueldo?' · '+fmt2(e.sueldo)+' por semana':''}${an?' · '+an.txt:' · sin fecha de ingreso'}${rhHorarioTxt(e)?'<br>'+esc(rhHorarioTxt(e)):''}</span></div>`}).join('')}</div>`:'<p class="empty">Todavía no hay empleados. Toca "Agregar empleado".</p>'}</div>`;
   if(B.length)h+=`<div class="card"><h2>Dados de baja <small><a href="#" data-rh="bajas" style="color:var(--green-2)">${rhBajas?'Ocultar':'Ver '+B.length}</a></small></h2>${rhBajas?`<div class="list">${B.map(e=>`<div class="item"><span>${esc(e.nombre)}</span><span><a href="#" data-rh="reactivar" data-id="${e.id}" style="color:var(--green-2);font-size:13px">Reactivar</a></span><span class="meta">${esc(e.puesto)} · baja ${e.fecha_baja?rhCorta(e.fecha_baja):''}</span></div>`).join('')}</div>`:''}</div>`;
   return h;
 }
+function rhHorarioTxt(e){const b=rhBase(e),c=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'],p=[];let i=0;
+  while(i<7){let j=i;while(j<6&&JSON.stringify(b[j+1])===JSON.stringify(b[i]))j++;if(b[i]&&b[i][0])p.push((i===j?c[i]:c[i]+(j===i+1?' y ':' a ')+c[j])+' '+rhH12(b[i][0])+'–'+rhH12(b[i][1]));i=j+1}
+  const d=c.filter((_,k)=>!b[k]);return p.join(' · ')+(d.length?' · descansa '+d.join(', '):'')}
 function rhForm(e){
   const c=e.contrato||{}, mt=[['','— Ninguno —'],...(RH.emp_mrtienda||[]).map(x=>[x.cod,x.nombre+' ('+x.cod+')'])];
+  const base=rhBase(e), diario=e.diario||(e.sueldo?Math.round(e.sueldo/7*100)/100:''), comida=e.id?(e.comida_min??0):30;
+  const filas=RH_DIAS_L.map((d,i)=>{const h=base[i];return `<div class="rhhr" style="display:grid;grid-template-columns:76px 1fr 1fr 52px;gap:6px;align-items:center;margin-top:6px">
+      <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600"><input type="checkbox" id="rfHd${i}" ${h?'':'checked'} style="width:18px;height:18px">${d.slice(0,3)}</label>
+      <input type="time" id="rfHe${i}" value="${h?esc(h[0]):''}" aria-label="${d}: entra" ${h?'':'disabled'} style="height:40px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--ink);padding:0 6px;min-width:0">
+      <input type="time" id="rfHs${i}" value="${h?esc(h[1]):''}" aria-label="${d}: sale" ${h?'':'disabled'} style="height:40px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--ink);padding:0 6px;min-width:0">
+      <small id="rfHh${i}" class="num" style="text-align:right;color:var(--muted)"></small></div>`}).join('');
+  const docs=(e.archivos||[]).slice().reverse();
   return `<div class="card" id="rhForm"><h2>${e.id?'Expediente':'Nuevo empleado'} <small>${e.id&&e.alta?'alta '+rhCorta(e.alta.slice(0,10)):''}</small></h2>
     ${rhIn('rfNom','Nombre completo',e.nombre,'autocomplete="off" style="text-transform:uppercase"')}
     ${rhSel('rfPue','Puesto',RH.puestos.map(p=>[p,p]),e.puesto||'Mesero')}
     ${rhSel('rfMt','Usuario en MrTienda (para el comandero y sus ventas)',mt,e.cod_mt||'')}
     ${rhIn('rfIng','Fecha de ingreso',e.ingreso,'type="date"')}
-    ${rhIn('rfSue','Sueldo por semana',e.sueldo||'','inputmode="decimal" placeholder="Ej. 3500"')}
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${rhIn('rfEnt','Entra',e.entrada,'type="time"')}${rhIn('rfSal','Sale',e.salida,'type="time"')}</div>
-    ${rhSel('rfDes','Día de descanso',[['',' — '],...['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'].map(d=>[d,d])],e.descanso||'')}
+    <h2 style="margin-top:20px">Sueldo</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">${rhIn('rfDia','Sueldo por día',diario,'inputmode="decimal" placeholder="Ej. 500"')}${rhIn('rfInc','Incentivo por semana',e.incentivo||'','inputmode="decimal" placeholder="Ej. 300"')}</div>
+    <h2 style="margin-top:20px">Horario de la semana <small>marca los días que descansa</small></h2>
+    <div style="display:grid;grid-template-columns:76px 1fr 1fr 52px;gap:6px;font-size:12px;color:var(--muted)"><span>Descansa</span><span>Entra</span><span>Sale</span><span style="text-align:right">Pagado</span></div>
+    ${filas}
+    <div class="btns" style="margin-top:8px"><button class="btn" data-rh="copialunes">Copiar el lunes a martes–viernes</button></div>
+    ${rhIn('rfCom','Minutos de comida que no se pagan',comida,'inputmode="numeric" placeholder="Ej. 30"')}
+    <div id="rfRes" class="note" style="background:var(--surface-2);color:var(--ink)"></div>
+    <h2 style="margin-top:20px">Datos personales</h2>
     ${rhIn('rfTel','Teléfono',e.telefono,'inputmode="tel"')}
     ${rhIn('rfNss','Número de seguro social (NSS)',e.nss,'inputmode="numeric"')}
     ${rhIn('rfCurp','CURP',e.curp,'style="text-transform:uppercase"')}
@@ -1208,13 +1235,29 @@ function rhForm(e){
     ${rhSel('rfCt','Tipo de contrato',[['',' — '],...RH_CONTRATOS.map(t=>[t,t])],c.tipo||'')}
     ${rhIn('rfCf','Fecha de firma',c.fecha,'type="date"')}
     ${rhIn('rfCn','Nota del contrato',c.nota,'placeholder="Ej. original en la carpeta de la oficina"')}
-    <p class="empty" style="margin-top:8px">Cuando me mandes tu formato de contrato, aquí aparecerá el botón "Generar contrato" con los datos de este empleado ya llenos.</p>
+    ${e.id?`<div class="note" style="background:var(--surface-2);color:var(--ink)"><b>Subir el contrato que ya tiene</b><br>
+      ${rhSel('rfAt','¿El contrato es por tiempo…?',[['','Elige antes de subirlo'],['Tiempo indeterminado','Indeterminado'],['Tiempo determinado','Determinado'],['Periodo de prueba','Periodo de prueba'],['Capacitación inicial','Capacitación inicial']],'')}
+      <input type="file" id="rfArch" accept="image/*,.pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+      <div class="btns" style="margin-top:10px"><button class="btn pri" data-rh="subir"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg> Tomar foto o subir Word / PDF</button></div>
+      ${docs.length?`<div class="list" style="margin-top:10px">${docs.map(f=>`<div class="item"><span>${esc(f.nombre)}</span><span style="font-size:13px;white-space:nowrap"><a href="/api/rh-archivo?emp=${e.id}&id=${f.id}" target="_blank" rel="noopener" style="color:var(--green-2)">Ver</a> · <a href="#" data-rh="borrardoc" data-id="${e.id}" data-doc="${f.id}" style="color:var(--bad)">Borrar</a></span><span class="meta">${esc(f.tipo)} · subido ${rhCorta(f.fecha)}</span></div>`).join('')}</div>`:'<p class="empty" style="margin-top:8px">Todavía no hay contratos subidos.</p>'}</div>`
+    :'<p class="empty" style="margin-top:8px">Guarda el expediente y después podrás subir su contrato con foto, Word o PDF.</p>'}
     ${rhIn('rfNot','Notas del expediente',e.notas,'placeholder="Memorándums, actas, observaciones"')}
     <div class="btns"><button class="btn pri" data-rh="guardar" data-id="${e.id||''}">Guardar</button><button class="btn" data-rh="cancelar">Cancelar</button>${e.id?`<button class="btn" data-rh="baja" data-id="${e.id}" style="color:var(--bad)">Dar de baja</button>`:''}</div>
-    <p class="empty" style="margin-top:10px">Estos datos se guardan solo en la computadora de la caja.</p></div>`;
+    <p class="empty" style="margin-top:10px">Estos datos y los contratos se guardan solo en la computadora de la caja.</p></div>`;
+}
+function rhLeeHorario(){return RH_DIAS_L.map((_,i)=>{const d=$('#rfHd'+i);return d&&d.checked?null:[($('#rfHe'+i)||{}).value||'',($('#rfHs'+i)||{}).value||'']})}
+function rhResumenForm(){ // horas y sueldo de la semana, se recalcula al escribir
+  if(!$('#rfRes'))return;const h=rhLeeHorario(),com=+($('#rfCom')||{}).value||0,dia=+String(($('#rfDia')||{}).value||'').replace(/[$,]/g,'')||0,inc=+String(($('#rfInc')||{}).value||'').replace(/[$,]/g,'')||0;
+  let hs=0,n=0;h.forEach((x,i)=>{const e_=$('#rfHe'+i),s_=$('#rfHs'+i),t=$('#rfHh'+i);if(e_)e_.disabled=!x;if(s_)s_.disabled=!x;const v=rhHoras(x,com);if(x){n++;hs+=v}if(t)t.textContent=x&&v?rhHtxt(v):x?'':'—'});
+  const dom=!!h[6];
+  $('#rfRes').innerHTML=`Trabaja <b>${n} ${n===1?'día':'días'}</b> · <b>${rhHtxt(hs)}</b> pagadas a la semana${com?' (sin '+com+' min de comida por día)':''}`+
+    (dia?`<br>Sueldo de la semana: <b>${fmt2(dia*n)}</b>${inc?' + incentivo '+fmt2(inc)+' = <b>'+fmt2(dia*n+inc)+'</b>':''}`+(dom?`<br>Trabaja domingo: prima dominical de <b>${fmt2(dia*0.25)}</b> por domingo (25% del sueldo diario).`:'')+(inc?`<br>Si falta un día, el incentivo baja a ${fmt2(inc*(n-1)/Math.max(1,n))}.`:''):'');
 }
 // ---- Rol de descansos
-function rhRolDe(e,sem){const r=(RH.roles[sem]||{})[e.id];if(r)return {d:r,g:true};const di=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'].indexOf(e.descanso);return {d:RH_DIAS.map((_,i)=>i===di?'D':'T'),g:false}}
+function rhRolDe(e,sem){const b=rhBase(e),r=(RH.roles[sem]||{})[e.id],hs=((RH.roles_h||{})[sem]||{})[e.id];
+  const h=b.map((x,i)=>Array.isArray(hs)&&hs[i]?hs[i]:x);
+  return r?{d:r,g:true,h,hs:!!hs}:{d:b.map(x=>x?'T':'D'),g:false,h,hs:false}}
+let rhDia=null; // día que se está editando en el rol: {id, i}
 const rhSemNav=()=>`<div class="card"><div style="display:flex;align-items:center;gap:8px;justify-content:space-between"><button class="btn" data-rh="semant" aria-label="Semana anterior">‹</button><b style="text-align:center">Semana del ${rhCorta(rhSem)} al ${rhCorta(rhMas(rhSem,6))}</b><button class="btn" data-rh="semsig" aria-label="Semana siguiente">›</button></div></div>`;
 // quién capturó el rol de cada empleado (27.8): la encargada desde /descansos o Jorge desde aquí
 function rhQuienRol(e){const m=((RH.roles_meta||{})[rhSem]||{})[e.id];if(!m)return '';
@@ -1246,13 +1289,21 @@ Toca cada día para cambiarlo: T trabaja, D descansa, F faltó, V vacaciones, I 
 }
 function rhRol(){
   const A=rhAct(); if(!A.length)return '<p class="empty">Primero da de alta a los empleados.</p>';
-  const dias=RH_DIAS.map((d,i)=>{const f=rhMas(rhSem,i);return `<th style="text-align:center;padding:4px 1px">${d.slice(0,2)}<br><small style="font-weight:500">${rhPd(f).getDate()}</small></th>`}).join('');
-  const filas=A.map(e=>{const r=rhRolDe(e,rhSem);return `<tr><td style="padding:6px 2px;max-width:92px"><b style="font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.nombre.split(' ').slice(0,2).join(' '))}</b><small style="color:var(--muted);font-size:11px">${esc(e.puesto)}${r.g?'':' · sin guardar'}</small>${rhQuienRol(e)}</td>${r.d.map((c,i)=>{const s=RH_EST[c];return `<td style="text-align:center;padding:4px 1px"><button data-rh="dia" data-id="${e.id}" data-i="${i}" title="${s[0]}" aria-label="${RH_DIAS[i]}: ${s[0]}" style="width:30px;height:34px;border-radius:9px;border:1px solid ${s[1]};background:${s[2]};color:${s[1]};font:800 13px var(--body);cursor:pointer">${c}</button></td>`}).join('')}</tr>`}).join('');
+  const dias=RH_DIAS.map((d,i)=>{const f=rhMas(rhSem,i);return `<th style="text-align:center;padding:4px 0">${d.slice(0,2)}<small style="display:block;font-weight:500">${rhPd(f).getDate()}</small></th>`}).join('');
+  const filas=A.map(e=>{const r=rhRolDe(e,rhSem);return `<tr><td style="padding:6px 2px 6px 0;overflow:hidden"><b style="font-size:12px;display:block;width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.nombre.split(' ').slice(0,2).join(' '))}</b><small style="color:var(--muted);font-size:11px">${esc(e.puesto)}${r.g?'':' · sin guardar'}</small>${rhQuienRol(e)}</td>${r.d.map((c,i)=>{const s=RH_EST[c],h=r.h[i],sel=rhDia&&rhDia.id===e.id&&rhDia.i===i;return `<td style="text-align:center;padding:4px 0.5px"><button data-rh="dia" data-id="${e.id}" data-i="${i}" title="${s[0]}" aria-label="${RH_DIAS[i]}: ${s[0]}${c==='T'&&h&&h[0]?' de '+h[0]+' a '+h[1]:''}" style="width:30px;height:52px;border-radius:8px;border:${sel?'2.5px':'1px'} solid ${s[1]};background:${s[2]};color:${s[1]};font:800 13px var(--body);cursor:pointer;padding:2px 0;line-height:1.05">${c}${c==='T'&&h&&h[0]?`<span style="display:block;font:600 8px var(--body);letter-spacing:-.03em;margin-top:2px"><span style="display:block">${rhH12(h[0])}</span><span style="display:block">${rhH12(h[1])}</span></span>`:''}</button></td>`}).join('')}</tr>`}).join('');
   return rhSemNav()+`<div class="card"><h2>Rol de descansos <small>toca un día para cambiarlo</small></h2>${rhResumenRol()}
-    <div class="tscroll"><table class="tk"><thead><tr><th>Empleado</th>${dias}</tr></thead><tbody>${filas}</tbody></table></div>
+    <div class="tscroll"><table class="tk" style="table-layout:fixed;min-width:300px"><thead><tr><th style="width:68px;padding:5px 2px 5px 0">Empleado</th>${dias}</tr></thead><tbody>${filas}</tbody></table></div>${rhEditorDia()}
     <p class="empty" style="margin-top:10px">${Object.entries(RH_EST).map(([k,v])=>`<b style="color:${v[1]}">${k}</b> ${v[0]}`).join(' · ')}</p>
     <div class="btns"><button class="btn" data-rh="copiar">Copiar la semana anterior</button></div>
     <p class="empty" style="margin-top:10px">Si no has guardado la semana, se propone según el día de descanso de cada empleado. Con el candado del rol encendido (pestaña COMANDERO), quien descanse, falte o esté de vacaciones no puede usar el comandero ese día.</p></div>`+rhAccesoRol();
+}
+function rhEditorDia(){
+  if(!rhDia)return '';const e=rhEmp(rhDia.id);if(!e){rhDia=null;return ''}const r=rhRolDe(e,rhSem),i=rhDia.i,c=r.d[i],h=r.h[i]||['',''];
+  return `<div class="note" id="rhEdDia" style="background:var(--surface-2);color:var(--ink);margin-top:10px"><b>${esc(e.nombre.split(' ').slice(0,2).join(' '))} · ${RH_DIAS_L[i]} ${rhPd(rhMas(rhSem,i)).getDate()}</b>
+    <div class="seg" style="margin-top:8px;flex-wrap:wrap">${RH_CICLO.map(k=>`<button data-rh="diaest" data-k="${k}" aria-pressed="${c===k}">${k} · ${RH_EST[k][0]}</button>`).join('')}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">${rhIn('rdE','Entra',h[0],'type="time"')}${rhIn('rdS','Sale',h[1],'type="time"')}</div>
+    <div class="btns"><button class="btn pri" data-rh="diaguardar">Guardar</button><button class="btn" data-rh="diacerrar">Cerrar</button></div>
+    <p class="empty" style="margin-top:6px">El horario solo cuenta los días que trabaja (T). Si no lo cambias, se usa el de su expediente.</p></div>`;
 }
 // ---- Nómina
 function rhNomCalc(e,sem){
@@ -1262,17 +1313,22 @@ function rhNomCalc(e,sem){
   const valesC=(RH.vales_caja||[]).filter(v=>enSem(v)&&rhQuien(v.ref)===e).reduce((a,v)=>a+(+v.monto||0),0);
   const comidas=(RH.comidas||[]).filter(c=>enSem(c)&&rhQuien(c.persona)===e).reduce((a,c)=>a+(+c.total||0),0);
   const pr=rhPrest(e.id), abonoSug=Math.min(pr.saldo+(g?g.abono:0),pr.sug||0);
-  const v=g||{base:Math.round(((+e.sueldo||0)-f*rhDiario(e))*100)/100,extras:0,comida:0,vales:Math.round((valesM+valesC)*100)/100,abono:abonoSug,otros:0,transfer:0,nota:'',pagada:false};
-  return {v,g:!!g,f,t,valesM,valesC,comidas,pr};
+  const vac=r.filter(c=>c==='V').length, prog=rhBase(e).filter(Boolean).length||1, dom=r[6]==='T', d=+e.diario||0;
+  // con sueldo diario: días trabajados y vacaciones × sueldo diario; prima dominical 25% si trabajó domingo; incentivo proporcional a los días trabajados
+  const base=d?Math.round(d*(t+vac)*100)/100:Math.round(((+e.sueldo||0)-f*rhDiario(e))*100)/100;
+  const prima=d&&dom?Math.round(d*0.25*100)/100:0, inc=+e.incentivo?Math.round((+e.incentivo)*Math.min(1,t/prog)*100)/100:0;
+  const v=g||{base,prima_dom:prima,incentivo:inc,extras:0,comida:0,vales:Math.round((valesM+valesC)*100)/100,abono:abonoSug,otros:0,transfer:0,nota:'',pagada:false};
+  return {v,g:!!g,f,t,vac,prog,dom,valesM,valesC,comidas,pr};
 }
-const rhTot=v=>(+v.base||0)+(+v.extras||0)-(+v.comida||0)-(+v.vales||0)-(+v.abono||0)-(+v.otros||0);
+const rhTot=v=>(+v.base||0)+(+v.prima_dom||0)+(+v.incentivo||0)+(+v.extras||0)-(+v.comida||0)-(+v.vales||0)-(+v.abono||0)-(+v.otros||0);
 function rhNomina(){
-  const A=rhAct().filter(e=>e.sueldo>0||(RH.nominas[rhSem]||{})[e.id]); let T=0,TR=0;
+  const A=rhAct().filter(e=>e.diario>0||e.sueldo>0||(RH.nominas[rhSem]||{})[e.id]); let T=0,TR=0;
   const cards=A.map(e=>{const c=rhNomCalc(e,rhSem),v=c.v,tot=rhTot(v);T+=tot;TR+=(+v.transfer||0);
     const inp=(k,l,hint='')=>`<div class="field" style="margin-top:8px"><label>${l}${hint?` <small style="color:var(--muted)">${hint}</small>`:''}</label><input class="rhn" data-emp="${e.id}" data-k="${k}" inputmode="decimal" value="${v[k]||''}"></div>`;
     return `<div class="card"><h2>${esc(e.nombre)} <small>${esc(e.puesto)} · ${c.t} días${c.f?` · <b style="color:var(--bad)">${c.f} ${c.f===1?'falta':'faltas'}</b>`:''}${c.g?(v.pagada?' · <span class="pill good">Pagada</span>':' · <span class="pill mut">Guardada</span>'):''}</small></h2>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
-        ${inp('base','Nómina completa',c.f?'(menos faltas)':'')}${inp('extras','Extras / bonos')}
+        ${inp('base',(+e.diario?'Sueldo':'Nómina completa'),+e.diario?'('+(c.t+c.vac)+' × '+fmt2(+e.diario)+')':c.f?'(menos faltas)':'')}${inp('incentivo','Incentivo',+e.incentivo&&c.t<c.prog?'('+c.t+' de '+c.prog+' días)':'')}
+        ${inp('prima_dom','Prima dominical',c.dom&&+e.diario?'(25% del día)':'')}${inp('extras','Extras / bonos')}
         ${inp('comida','Descuento de comida',c.comidas?'(registró '+fmt2(c.comidas)+')':'')}${inp('vales','Vales',c.valesC?'(caja '+fmt2(c.valesC)+')':'')}
         ${inp('abono','Abono préstamo',c.pr.saldo?'(debe '+fmt2(c.pr.saldo)+')':'')}${inp('otros','Otros descuentos')}
       </div>
@@ -1282,7 +1338,7 @@ function rhNomina(){
       <div class="btns"><button class="btn pri" data-rh="nomguardar" data-id="${e.id}">Guardar</button><button class="btn" data-rh="nompagar" data-id="${e.id}">${v.pagada?'Quitar pagada':'Marcar pagada'}</button><a class="btn" data-rh="recibo" data-id="${e.id}" href="#">Recibo por WhatsApp</a></div></div>`}).join('');
   return rhSemNav()+`<div class="kpis"><div class="kpi"><b class="num">${fmt2(T)}</b><span>total de la nómina</span></div><div class="kpi"><b class="num">${fmt2(T-TR)}</b><span>en efectivo · ${fmt2(TR)} transferido</span></div></div>`+
     (cards||'<p class="empty">Captura el sueldo semanal de cada empleado en su expediente para calcular la nómina.</p>')+
-    `<p class="empty" style="margin-top:10px">La nómina completa se calcula con el sueldo semanal menos las faltas del rol de descansos (sueldo ÷ 7 por falta). Los vales salen de los capturados aquí y de las salidas de caja de MrTienda que digan VALE y el nombre. Todo se puede corregir a mano antes de guardar.</p>`;
+    `<p class="empty" style="margin-top:10px">Con sueldo por día: días trabajados y de vacaciones × sueldo diario, más prima dominical (25% del sueldo diario si trabajó domingo) y el incentivo proporcional a los días que trabajó. Si solo tiene sueldo semanal: sueldo menos las faltas (sueldo ÷ 7 por falta). Los vales salen de los capturados aquí y de las salidas de caja de MrTienda que digan VALE y el nombre. Todo se puede corregir a mano antes de guardar.</p>`;
 }
 function rhLeeNom(id){const o={};document.querySelectorAll(`.rhn[data-emp="${id}"]`).forEach(i=>o[i.dataset.k]=i.value);return o}
 // ---- Vales y préstamos
@@ -1326,35 +1382,52 @@ function rhVacaciones(){
   return (avisos.length?`<div class="note" style="margin-bottom:12px">${avisos.map(f=>`<b>${esc(f.e.nombre)}</b> cumple ${f.cumple} ${f.cumple===1?'año':'años'} el ${rhCorta(isoD(f.prox))} (en ${f.falta} días): le tocan <b>${rhDiasVac(f.cumple)} días</b> de vacaciones.`).join('<br>')}</div>`:'')+
   `<div class="card"><h2>Vacaciones y prima vacacional <small>año actual de cada quien</small></h2><div class="tscroll"><table class="tk num"><thead><tr><th>Empleado</th><th>Antigüedad</th><th class="r">Le tocan</th><th class="r">Tomadas</th><th class="r">Prima 25%</th></tr></thead><tbody>
     ${filas.map(f=>f.sin?`<tr><td>${esc(f.e.nombre)}</td><td colspan="4" class="empty">Falta la fecha de ingreso</td></tr>`:`<tr><td>${esc(f.e.nombre)}</td><td>${f.an.txt}</td><td class="r">${f.toca} días</td><td class="r">${f.tomadas}${f.toca?` <small>(quedan ${Math.max(0,f.toca-f.tomadas)})</small>`:''}</td><td class="r">${f.toca?fmt2(f.prima):'—'}</td></tr>`).join('')}</tbody></table></div>
-    <p class="empty" style="margin-top:10px">Días según la ley vigente: 12 el primer año, +2 por año hasta 20 al quinto, y +2 cada 5 años después. Las vacaciones tomadas se cuentan del rol de descansos (V). Salario diario = sueldo semanal ÷ 7.</p></div>
+    <p class="empty" style="margin-top:10px">Días según la ley vigente: 12 el primer año, +2 por año hasta 20 al quinto, y +2 cada 5 años después. Las vacaciones tomadas se cuentan del rol de descansos (V). Salario diario = el sueldo por día del expediente.</p></div>
   <div class="card"><h2>Aguinaldo ${hoy.getFullYear()} <small>mínimo de ley: 15 días</small></h2><div class="tscroll"><table class="tk num"><thead><tr><th>Empleado</th><th class="r">Días del año</th><th class="r">Aguinaldo</th></tr></thead><tbody>
     ${filas.map(f=>f.sin?`<tr><td>${esc(f.e.nombre)}</td><td colspan="2" class="empty">Falta la fecha de ingreso</td></tr>`:`<tr><td>${esc(f.e.nombre)}</td><td class="r">${Math.min(365,f.dAno)}</td><td class="r">${fmt2(f.agui)}</td></tr>`).join('')}
     <tr class="tt"><td>Total</td><td></td><td class="r">${fmt2(filas.reduce((a,f)=>a+(f.agui||0),0))}</td></tr></tbody></table></div>
     <p class="empty" style="margin-top:10px">Se paga a más tardar el 20 de diciembre. Si entró este año, es proporcional a los días trabajados.</p></div>`;
 }
 // ---- acciones
+document.addEventListener('input',e=>{if(e.target.closest('#rhForm'))return rhResumenForm()});
+document.addEventListener('change',e=>{if(e.target.closest('#rhForm'))rhResumenForm()});
+document.addEventListener('change',async e=>{if(e.target.id!=='rfArch'||!e.target.files.length)return;const f=e.target.files[0],emp=rhEdit,tipo=($('#rfAt')||{}).value;e.target.value='';
+  try{let datos,mime=f.type||'';if(!mime&&/\.docx$/i.test(f.name))mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document';if(!mime&&/\.doc$/i.test(f.name))mime='application/msword';
+    if(mime.startsWith('image/')){datos=await comprimir(f);mime='image/jpeg'}else datos=await new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=no;r.readAsDataURL(f)});
+    toast('Subiendo…');const j=await api('/api/rh-archivo',{emp,tipo,mime,nombre:f.name,datos});RH=j.rh;toast('Contrato guardado en el expediente');render();$('#rhForm')?.scrollIntoView()}
+  catch(err){toast(err.message)}});
 document.addEventListener('input',e=>{const i=e.target.closest('.rhn');if(!i)return;const id=i.dataset.emp,o=rhLeeNom(id),t=rhTot(o);const a=$('#rt_'+id),b=$('#re_'+id);if(a)a.textContent=fmt2(t);if(b)b.value=fmt2(t-(+o.transfer||0))});
 document.addEventListener('click',async e=>{
   const t=e.target.closest('[data-rh],[data-rhtab]');if(!t||tab!=='rh')return;e.preventDefault();
   const d=t.dataset, a=d.rh;
   if(d.rhtab){rhTab=d.rhtab;st.rhTab=rhTab;save();rhEdit=null;return render()}
-  if(a==='nuevo'){rhEdit='nuevo';render();return $('#rhForm')?.scrollIntoView({behavior:'smooth'})}
-  if(a==='editar'){rhEdit=d.id;render();return $('#rhForm')?.scrollIntoView({behavior:'smooth'})}
+  if(a==='nuevo'){rhEdit='nuevo';render();rhResumenForm();return $('#rhForm')?.scrollIntoView({behavior:'smooth'})}
+  if(a==='editar'){rhEdit=d.id;render();rhResumenForm();return $('#rhForm')?.scrollIntoView({behavior:'smooth'})}
+  if(a==='copialunes'){const l=$('#rfHd0').checked;for(let i=1;i<5;i++){$('#rfHd'+i).checked=l;$('#rfHe'+i).value=$('#rfHe0').value;$('#rfHs'+i).value=$('#rfHs0').value}return rhResumenForm()}
+  if(a==='subir'){if(!($('#rfAt')||{}).value){toast('Antes dime si el contrato es por tiempo determinado o indeterminado.');$('#rfAt')?.focus();return}return $('#rfArch').click()}
+  if(a==='dia'){rhDia={id:d.id,i:+d.i};render();return $('#rhEdDia')?.scrollIntoView({behavior:'smooth',block:'center'})}
+  if(a==='diacerrar'){rhDia=null;return render()}
+  if(a==='diaest'){document.querySelectorAll('#rhEdDia [data-rh="diaest"]').forEach(b=>b.setAttribute('aria-pressed',b===t));return}
   if(a==='cancelar'){rhEdit=null;return render()}
   if(a==='bajas'){rhBajas=!rhBajas;return render()}
   if(a==='semant'||a==='semsig'){rhSem=rhMas(rhSem,a==='semant'?-7:7);return render()}
-  if(a==='recibo'){const e_=rhEmp(d.id),v=rhLeeNom(d.id),tot=rhTot(v),L=[`*Nómina La Holandesa*`,`${e_.nombre}`,`Semana del ${rhCorta(rhSem)} al ${rhCorta(rhMas(rhSem,6))}`,``,`Nómina completa: ${fmt2(+v.base||0)}`];
-    if(+v.extras)L.push(`Extras: ${fmt2(+v.extras)}`);[['comida','Comida'],['vales','Vales'],['abono','Abono préstamo'],['otros','Otros']].forEach(([k,l])=>{if(+v[k])L.push(`${l}: -${fmt2(+v[k])}`)});
+  if(a==='recibo'){const e_=rhEmp(d.id),v=rhLeeNom(d.id),tot=rhTot(v),L=[`*Nómina La Holandesa*`,`${e_.nombre}`,`Semana del ${rhCorta(rhSem)} al ${rhCorta(rhMas(rhSem,6))}`,``,`Sueldo: ${fmt2(+v.base||0)}`];
+    if(+v.incentivo)L.push(`Incentivo: ${fmt2(+v.incentivo)}`);if(+v.prima_dom)L.push(`Prima dominical: ${fmt2(+v.prima_dom)}`);if(+v.extras)L.push(`Extras: ${fmt2(+v.extras)}`);[['comida','Comida'],['vales','Vales'],['abono','Abono préstamo'],['otros','Otros']].forEach(([k,l])=>{if(+v[k])L.push(`${l}: -${fmt2(+v[k])}`)});
     const pr=rhPrest(d.id);L.push(``,`*Total a pagar: ${fmt2(tot)}*`);if(+v.transfer)L.push(`Transferencia: ${fmt2(+v.transfer)}`,`Efectivo: ${fmt2(tot-(+v.transfer))}`);if(pr.saldo)L.push(``,`Saldo de préstamo: ${fmt2(Math.max(0,pr.saldo-((+v.abono||0)-((RH.nominas[rhSem]||{})[d.id]||{abono:0}).abono)))}`);
     window.open('https://wa.me/?text='+encodeURIComponent(L.join('\n')),'_blank');return}
   try{
     if(t.tagName==='BUTTON')t.disabled=true;
     if(a==='guardar'){const g=id=>($('#'+id)||{}).value||'';
-      await rhApi({accion:'emp_guardar',emp:{id:d.id,nombre:g('rfNom'),puesto:g('rfPue'),cod_mt:g('rfMt'),ingreso:g('rfIng'),sueldo:g('rfSue'),entrada:g('rfEnt'),salida:g('rfSal'),descanso:g('rfDes'),telefono:g('rfTel'),nss:g('rfNss'),curp:g('rfCurp'),rfc:g('rfRfc'),domicilio:g('rfDom'),notas:g('rfNot'),contrato:{estado:g('rfCe'),tipo:g('rfCt'),fecha:g('rfCf'),nota:g('rfCn')}}});
+      const hz=rhLeeHorario();if(hz.some(x=>x&&(!x[0]||!x[1]))){toast('Falta la hora de entrada o de salida de algún día que trabaja.');t.disabled=false;return}
+      await rhApi({accion:'emp_guardar',emp:{id:d.id,nombre:g('rfNom'),puesto:g('rfPue'),cod_mt:g('rfMt'),ingreso:g('rfIng'),diario:g('rfDia'),incentivo:g('rfInc'),comida_min:g('rfCom'),horario:hz,telefono:g('rfTel'),nss:g('rfNss'),curp:g('rfCurp'),rfc:g('rfRfc'),domicilio:g('rfDom'),notas:g('rfNot'),contrato:{estado:g('rfCe'),tipo:g('rfCt'),fecha:g('rfCf'),nota:g('rfCn')}}});
       rhEdit=null;toast('Expediente guardado')}
     else if(a==='baja'){if(!confirm('¿Dar de baja a este empleado? Su expediente se conserva.')){t.disabled=false;return}await rhApi({accion:'emp_baja',id:d.id});rhEdit=null;toast('Dado de baja')}
     else if(a==='reactivar'){await rhApi({accion:'emp_baja',id:d.id,reactivar:true});toast('Reactivado')}
-    else if(a==='dia'){const e_=rhEmp(d.id),r=rhRolDe(e_,rhSem).d.slice();r[+d.i]=RH_CICLO[(RH_CICLO.indexOf(r[+d.i])+1)%RH_CICLO.length];await rhApi({accion:'rol_guardar',semana:rhSem,emp:d.id,dias:r})}
+    else if(a==='diaguardar'){const e_=rhEmp(rhDia.id),r=rhRolDe(e_,rhSem),dias=r.d.slice(),hs=r.h.map(x=>x&&x[0]?x:null),i=rhDia.i;
+      const k=(document.querySelector('#rhEdDia [data-rh="diaest"][aria-pressed="true"]')||{dataset:{}}).dataset.k||dias[i];dias[i]=k;
+      const en=$('#rdE').value,sa=$('#rdS').value;if(k==='T'&&en&&sa)hs[i]=[en,sa];
+      await rhApi({accion:'rol_guardar',semana:rhSem,emp:rhDia.id,dias,horas:hs});rhDia=null;toast('Día guardado')}
+    else if(a==='borrardoc'){if(!confirm('¿Borrar este archivo del expediente?')){t.disabled=false;return}await rhApi({accion:'archivo_borrar',emp:d.id,id:d.doc});toast('Archivo borrado')}
     else if(a==='raalta'||a==='raclave'){const pin=a==='raalta'?$('#raPin').value.trim():(prompt('Nueva clave para '+RH.acceso_rol.nombre+' (4 números):')||'').trim();if(!pin){t.disabled=false;return}
       await rhApi({accion:'acceso_rol',nombre:a==='raalta'?$('#raNom').value:RH.acceso_rol.nombre,pin});toast(a==='raalta'?'Acceso listo. Mándale el link.':'Clave cambiada. La anterior ya no sirve.')}
     else if(a==='raquitar'){if(!confirm('¿Quitarle el acceso a '+RH.acceso_rol.nombre+'? Su clave dejará de funcionar.')){t.disabled=false;return}await rhApi({accion:'acceso_rol_quitar'});toast('Acceso quitado')}
@@ -1473,7 +1546,7 @@ function csvQuitadas(g){
 
 // ---------- pintar
 function render(){
-  if(RHMODE){$('#view').innerHTML=vRH();return}
+  if(RHMODE){$('#view').innerHTML=vRH();rhResumenForm();return}
   const D=DATA.detalle[cur]; sel.value=cur;
   const i=days.indexOf(cur); $('#prev').disabled=i<=0; $('#next').disabled=i>=days.length-1;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===tab));

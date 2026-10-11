@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 55            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '28.2'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 56            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '28.3'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -36,8 +36,51 @@ CAJEROS_FILE = os.path.join(AQUI, 'cajeros.json')       # cajeros con su clave (
 MESEROS_FILE = os.path.join(AQUI, 'meseros.json')
 PEDIDOS_FILE = os.path.join(AQUI, 'comandero_pedidos.json')   # canal de cada cuenta del comandero (recoger, domicilio, Didi, Uber): solo en la caja
 CANALES = {'recoger': 'RECOGER AQUI', 'domicilio': 'SERVICIO A DOMICILIO', 'didi': 'DIDI', 'uber': 'UBER'}
-RH_FILE = os.path.join(AQUI, 'personal.json')           # Recursos Humanos: expedientes, rol, nómina, vales y préstamos (solo en la caja)
-PUESTOS = ['Mesero', 'Cajero', 'Encargada', 'Cocinero', 'Ayudante de cocina', 'Repartidor', 'Lavaloza', 'Otro']       # meseros del comandero: código de MrTienda + huella de su clave
+RH_FILE = os.path.join(AQUI, 'personal.json')
+EXPED_DIR = os.path.join(AQUI, 'expedientes')            # contratos y documentos de cada empleado (fotos, Word, PDF), solo en la caja
+DIAS_SEM = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+TIPOS_DOC = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'application/pdf': '.pdf', 'application/msword': '.doc',
+             'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx'}
+
+def _hhmm(v):
+    m = re.fullmatch(r'(\d{1,2}):(\d{2})', str(v or '').strip())
+    if not m or int(m.group(1)) > 23 or int(m.group(2)) > 59: return ''
+    return '%02d:%02d' % (int(m.group(1)), int(m.group(2)))
+
+def rh_base(e):
+    # horario base de la semana del empleado: 7 días [entra, sale] o None si descansa (antes de 28.3: un solo horario y un día de descanso)
+    h = e.get('horario')
+    if isinstance(h, list) and len(h) == 7:
+        return [[_hhmm(x[0]), _hhmm(x[1])] if isinstance(x, (list, tuple)) and len(x) == 2 else None for x in h]
+    d = DIAS_SEM.index(e['descanso']) if e.get('descanso') in DIAS_SEM else -1
+    return [None if i == d else [_hhmm(e.get('entrada')), _hhmm(e.get('salida'))] for i in range(7)]
+
+def rh_dia(rh, e, f):
+    # (código del día, [entra, sale]) según el rol de esa semana; si no se capturó, según su horario base
+    sem = (f - datetime.timedelta(days=f.weekday())).isoformat(); i = f.weekday(); base = rh_base(e)
+    r = (rh.get('roles', {}).get(sem) or {}).get(e['id'])
+    c = r[i] if isinstance(r, list) and len(r) == 7 else ('D' if base[i] is None else 'T')
+    hs = (rh.get('roles_h', {}).get(sem) or {}).get(e['id'])
+    h = hs[i] if isinstance(hs, list) and len(hs) == 7 and hs[i] else base[i]
+    return c, (h or ['', ''])
+
+def horas_list(v):
+    # 7 horarios que manda el teléfono: [entra, sale] o None
+    if not isinstance(v, list) or len(v) != 7: return None
+    return [[_hhmm(x[0]), _hhmm(x[1])] if isinstance(x, (list, tuple)) and len(x) == 2 and _hhmm(x[0]) and _hhmm(x[1]) else None for x in v]
+
+def horario_texto(base):
+    # "Lun a Vie 7:30–15:30 · Dom 12:30–20:30 · descansa Sáb"
+    c = lambda v: re.sub(r'^0(\d)', r'\1', v)
+    cortos = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']; partes = []; i = 0
+    while i < 7:
+        j = i
+        while j + 1 < 7 and base[j + 1] == base[i]: j += 1
+        if base[i]: partes.append((cortos[i] if i == j else cortos[i] + (' y ' if j == i + 1 else ' a ') + cortos[j]) + ' ' + (c(base[i][0]) + '–' + c(base[i][1]) if base[i][0] else ''))
+        i = j + 1
+    d = [cortos[k] for k in range(7) if base[k] is None]
+    return ' · '.join(p.strip() for p in partes) + ((' · descansa ' + ', '.join(d)) if d else '')           # Recursos Humanos: expedientes, rol, nómina, vales y préstamos (solo en la caja)
+PUESTOS = ['Mesero', 'Cajero', 'Encargada', 'Cocinero', 'Ayudante de cocina', 'Ayudante general', 'Repartidor', 'Lavaloza', 'Otro']       # meseros del comandero: código de MrTienda + huella de su clave
 IA_URL = 'https://api.anthropic.com/v1/messages'
 IA_MODELO = 'claude-haiku-5-5'
 PROMPT_TICKET = '''Eres el capturista de compras de un restaurante en Ensenada, México. Lee la foto de este ticket o factura de compra y responde SOLO con un objeto JSON, sin texto antes ni después, con esta forma:
@@ -1333,22 +1376,25 @@ class Monitor:
         def hm(v):
             m = re.fullmatch(r'(\d{1,2}):(\d{2})', str(v or '').strip())
             return (int(m.group(1)), int(m.group(2))) if m and int(m.group(1)) < 24 and int(m.group(2)) < 60 else None
-        hoy = ahora.date(); c = codigo(hoy); ent, sal = hm(e.get('entrada')), hm(e.get('salida'))
-        if not (ent and sal):
-            if c == 'T': return None
-        else:
-            antes = datetime.timedelta(minutes=int(self.cfg.get('candado_antes_min', 30)))
-            despues = datetime.timedelta(minutes=int(self.cfg.get('candado_despues_min', 60)))
-            for f in (hoy, hoy - datetime.timedelta(days=1)):     # ayer cuenta si su turno pasa de la medianoche
-                if codigo(f) != 'T': continue
-                a = datetime.datetime.combine(f, datetime.time(*ent)); b = datetime.datetime.combine(f, datetime.time(*sal))
-                if b <= a: b += datetime.timedelta(days=1)
-                if a - antes <= ahora <= b + despues: return None
+        hoy = ahora.date(); c, h = rh_dia(rh, e, hoy); ent, sal = hm(h[0]), hm(h[1])
+        antes = datetime.timedelta(minutes=int(self.cfg.get('candado_antes_min', 30)))
+        despues = datetime.timedelta(minutes=int(self.cfg.get('candado_despues_min', 60)))
+        for f in (hoy, hoy - datetime.timedelta(days=1)):     # ayer cuenta si su turno pasa de la medianoche
+            cf, hf = rh_dia(rh, e, f)
+            if cf != 'T': continue
+            a_, b_ = hm(hf[0]), hm(hf[1])
+            if not (a_ and b_):
+                if f == hoy: return None                     # trabaja hoy y no tiene horario capturado: entra
+                continue
+            a = datetime.datetime.combine(f, datetime.time(*a_)); b = datetime.datetime.combine(f, datetime.time(*b_))
+            if b <= a: b += datetime.timedelta(days=1)
+            if a - antes <= ahora <= b + despues: return None
         msg = {'D': 'Hoy es tu día de descanso. El comandero no está disponible.',
                'F': 'Hoy estás marcado con falta. Si viniste a trabajar, avísale a la encargada.',
                'V': 'Hoy estás de vacaciones. El comandero no está disponible.',
                'I': 'Hoy estás marcado con incapacidad. El comandero no está disponible.'}
         if c in msg: return msg[c]
+        if not (ent and sal): return 'Estás fuera de tu horario. El comandero no está disponible.'
         return ('Estás fuera de tu horario (%d:%02d a %d:%02d). El comandero abre %d minutos antes de tu entrada.' %
                 (ent[0], ent[1], sal[0], sal[1], int(self.cfg.get('candado_antes_min', 30))))
 
@@ -1356,10 +1402,8 @@ class Monitor:
         try: e = next((e for e in self.rh()['empleados'] if e.get('activo', True) and str(e.get('cod_mt') or '').strip() == str(cod).strip()), None)
         except Exception: e = None
         if not e: return ''
-        h = lambda v: re.sub(r'^0(\d)', r'\1', str(v or '').strip())
-        t = ('de ' + h(e['entrada']) + ' a ' + h(e['salida'])) if e.get('entrada') and e.get('salida') else ''
-        if e.get('descanso'): t += (', ' if t else '') + 'descansas el ' + e['descanso'].lower() + ' (o el día que marque el rol de la semana)'
-        return t
+        t = horario_texto(rh_base(e))
+        return t + (' (o lo que marque el rol de la semana)' if t else '')
 
     def menu_comandero(self):
         """Menú táctil de MrTienda (TOUCHDPT = secciones, TOUCHART = botones) con precios de Comedor (01) y Recoger aquí (02)."""
@@ -1614,7 +1658,7 @@ class Monitor:
         try:
             with open(RH_FILE, encoding='utf-8') as f: d = json.load(f)
         except (OSError, ValueError): d = {}
-        for k, v in (('empleados', []), ('roles', {}), ('roles_meta', {}), ('nominas', {}), ('prestamos', []), ('vales', []), ('acceso_rol', {})):
+        for k, v in (('empleados', []), ('roles', {}), ('roles_meta', {}), ('roles_h', {}), ('nominas', {}), ('prestamos', []), ('vales', []), ('acceso_rol', {})):
             if not isinstance(d.get(k), type(v)): d[k] = v
         return d
 
@@ -1639,9 +1683,10 @@ class Monitor:
         d['hoy'] = datetime.date.today().isoformat()
         return d
 
-    def _rol_poner(self, d, sem, emp, dias, quien):
-        # guarda el rol de un empleado y anota quién lo capturó y quién lo corrigió después
+    def _rol_poner(self, d, sem, emp, dias, quien, horas=None):
+        # guarda el rol de un empleado (y su horario de cada día, si cambió) y anota quién lo capturó y quién lo corrigió después
         d['roles'].setdefault(sem, {})[emp] = dias
+        if horas is not None: d.setdefault('roles_h', {}).setdefault(sem, {})[emp] = horas
         m = d['roles_meta'].setdefault(sem, {}).get(emp) or {}
         m.update({'por': quien, 'cuando': datetime.datetime.now().isoformat(timespec='minutes')})
         m.setdefault('primero', quien)
@@ -1676,8 +1721,8 @@ class Monitor:
         pagados = {k for k, v in (d['nominas'].get(lun) or {}).items() if v.get('pagada')}
         return {'ok': True, 'semana': lun, 'hoy': hoy.isoformat(),
                 'empleados': [{'id': e['id'], 'nombre': e.get('nombre', ''), 'puesto': e.get('puesto', ''), 'descanso': e.get('descanso', ''),
-                               'horario': (e.get('entrada', '') + '–' + e.get('salida', '')) if e.get('entrada') and e.get('salida') else '', 'pagada': e['id'] in pagados} for e in emps],
-                'rol': d['roles'].get(lun) or {}, 'meta': d['roles_meta'].get(lun) or {},
+                               'horario': horario_texto(rh_base(e)), 'base': rh_base(e), 'comida': int(e.get('comida_min') or 0), 'pagada': e['id'] in pagados} for e in emps],
+                'rol': d['roles'].get(lun) or {}, 'meta': d['roles_meta'].get(lun) or {}, 'horas': (d.get('roles_h') or {}).get(lun) or {},
                 'anterior_tiene': bool(d['roles'].get((datetime.date.fromisoformat(lun) - datetime.timedelta(days=7)).isoformat()))}
 
     def rol_accion_enc(self, quien, a):
@@ -1695,16 +1740,44 @@ class Monitor:
             if emp in pagados: raise ValueError('La nómina de esa semana ya se pagó. Si hay que corregir algo, avísale a Jorge.')
             dias = [c if c in ('T', 'D', 'F', 'V', 'I') else 'T' for c in (a.get('dias') or [])][:7]
             if len(dias) != 7: raise ValueError('Faltan días.')
-            self._rol_poner(d, sem, emp, dias, quien)
+            self._rol_poner(d, sem, emp, dias, quien, horas_list(a.get('horas')))
         elif acc == 'copiar':
             ant = (lun - datetime.timedelta(days=7)).isoformat()
             if not d['roles'].get(ant): raise ValueError('La semana anterior no tiene rol capturado.')
             for k, v in d['roles'][ant].items():
-                if k in activos and k not in pagados: self._rol_poner(d, sem, k, list(v), quien)
+                if k in activos and k not in pagados: self._rol_poner(d, sem, k, list(v), quien, ((d.get('roles_h') or {}).get(ant) or {}).get(k))
         else: raise ValueError('Acción no válida.')
         self._rh_guardar(d)
         log('Rol de descansos: ' + quien + ' capturó la semana ' + sem)
         return self.rol_info(sem)
+
+    def rh_archivo_subir(self, a):
+        d = self.rh(); x = next((x for x in d['empleados'] if x['id'] == a.get('emp')), None)
+        if not x: raise ValueError('Primero guarda el expediente del empleado.')
+        mime = str(a.get('mime') or '').lower(); ext = TIPOS_DOC.get(mime)
+        if not ext: raise ValueError('Sube una foto, un PDF o un archivo de Word.')
+        tipo = str(a.get('tipo') or '').strip()[:30]
+        if not tipo: raise ValueError('Antes dime si el contrato es por tiempo determinado o indeterminado.')
+        try: datos = base64.b64decode(str(a.get('datos') or '').split(',')[-1], validate=True)
+        except Exception: raise ValueError('No pude leer el archivo. Intenta otra vez.')
+        if not datos or len(datos) > 12 * 1024 * 1024: raise ValueError('El archivo pesa demasiado (máximo 12 MB).')
+        carpeta = os.path.join(EXPED_DIR, x['id']); os.makedirs(carpeta, exist_ok=True)
+        fid = secrets.token_hex(4); nom = datetime.datetime.now().strftime('%Y%m%d-%H%M%S') + '_' + fid + ext
+        with open(os.path.join(carpeta, nom), 'wb') as f: f.write(datos)
+        orig = re.sub(r'[^\w .()-]', '', str(a.get('nombre') or ''))[:80] or ('Contrato' + ext)
+        x.setdefault('archivos', []).append({'id': fid, 'archivo': nom, 'nombre': orig, 'mime': mime, 'tipo': tipo, 'fecha': datetime.date.today().isoformat(), 'bytes': len(datos)})
+        if not (x.get('contrato') or {}).get('tipo'): x.setdefault('contrato', {})['tipo'] = tipo
+        self._rh_guardar(d)
+        log('Expediente: se subió ' + orig + ' de ' + x.get('nombre', ''))
+        return {'ok': True, 'rh': self.rh_info()}
+
+    def rh_archivo(self, emp, fid):
+        x = next((x for x in self.rh()['empleados'] if x['id'] == emp), None)
+        doc = next((f for f in (x or {}).get('archivos') or [] if f.get('id') == fid), None)
+        if not doc: return None
+        ruta = os.path.join(EXPED_DIR, x['id'], os.path.basename(doc['archivo']))
+        if not os.path.isfile(ruta): return None
+        with open(ruta, 'rb') as f: return doc, f.read()
 
     def vales_caja(self):
         # salidas de caja de MrTienda que la cajera capturó como vale (últimos 70 días)
@@ -1736,15 +1809,24 @@ class Monitor:
             nombre = txt(e.get('nombre'), 80).upper()
             if not nombre: raise ValueError('Escribe el nombre completo.')
             puesto = e.get('puesto') if e.get('puesto') in PUESTOS else 'Otro'
-            reg = {'nombre': nombre, 'puesto': puesto, 'cod_mt': txt(e.get('cod_mt'), 6), 'ingreso': fecha(e.get('ingreso')), 'sueldo': num(e.get('sueldo')),
+            base = horas_list(e.get('horario')) if isinstance(e.get('horario'), list) else None
+            if base is None: base = rh_base(e)
+            diario = num(e.get('diario')); trab = [h for h in base if h]
+            comunes = collections.Counter(tuple(h) for h in trab).most_common(1)
+            try: comida_min = max(0, min(180, int(float(e.get('comida_min') or 0))))
+            except ValueError: raise ValueError('Revisa los minutos de comida.')
+            reg = {'nombre': nombre, 'puesto': puesto, 'cod_mt': txt(e.get('cod_mt'), 6), 'ingreso': fecha(e.get('ingreso')),
+                   'diario': diario, 'incentivo': num(e.get('incentivo')), 'comida_min': comida_min, 'horario': base,
+                   'sueldo': round(diario * len(trab), 2) if diario else num(e.get('sueldo')),
                    'telefono': txt(e.get('telefono'), 20), 'nss': txt(e.get('nss'), 15), 'curp': txt(e.get('curp'), 18).upper(), 'rfc': txt(e.get('rfc'), 13).upper(),
-                   'domicilio': txt(e.get('domicilio'), 160), 'entrada': txt(e.get('entrada'), 5), 'salida': txt(e.get('salida'), 5), 'descanso': txt(e.get('descanso'), 10),
+                   'domicilio': txt(e.get('domicilio'), 160), 'entrada': comunes[0][0][0] if comunes else '', 'salida': comunes[0][0][1] if comunes else '',
+                   'descanso': next((DIAS_SEM[i] for i in range(7) if base[i] is None), ''),
                    'contrato': {'estado': 'firmado' if (e.get('contrato') or {}).get('estado') == 'firmado' else 'pendiente',
                                 'tipo': txt((e.get('contrato') or {}).get('tipo'), 30), 'fecha': fecha((e.get('contrato') or {}).get('fecha')),
                                 'nota': txt((e.get('contrato') or {}).get('nota'), 200)},
                    'notas': txt(e.get('notas'), 500)}
             x = next((x for x in d['empleados'] if x['id'] == e.get('id')), None) if e.get('id') else None
-            if x: x.update(reg)
+            if x: x.update(reg)   # 'archivos' (contratos subidos) no se toca aquí
             else: reg.update({'id': secrets.token_hex(4), 'activo': True, 'alta': datetime.datetime.now().isoformat(timespec='seconds')}); d['empleados'].append(reg)
         elif acc == 'emp_baja':
             for x in d['empleados']:
@@ -1752,11 +1834,11 @@ class Monitor:
         elif acc == 'rol_guardar':
             sem = fecha(a.get('semana'), True); dias = [c if c in ('T', 'D', 'F', 'V', 'I') else 'T' for c in (a.get('dias') or [])][:7]
             if len(dias) != 7: raise ValueError('Faltan días.')
-            self._rol_poner(d, sem, emp_id(a.get('emp')), dias, 'Jorge')
+            self._rol_poner(d, sem, emp_id(a.get('emp')), dias, 'Jorge', horas_list(a.get('horas')))
         elif acc == 'rol_copiar':
             sem, ant = fecha(a.get('semana'), True), fecha(a.get('anterior'), True)
             if ant not in d['roles']: raise ValueError('La semana anterior no tiene rol capturado.')
-            for k, v in d['roles'][ant].items(): self._rol_poner(d, sem, k, list(v), 'Jorge')
+            for k, v in d['roles'][ant].items(): self._rol_poner(d, sem, k, list(v), 'Jorge', ((d.get('roles_h') or {}).get(ant) or {}).get(k))
         elif acc == 'acceso_rol':
             pin = txt(a.get('pin'), 8); nombre = txt(a.get('nombre'), 40).title() or 'Encargada'
             if not re.fullmatch(r'\d{4}', pin): raise ValueError('La clave debe ser de 4 números.')
@@ -1771,7 +1853,7 @@ class Monitor:
             return {'ok': True, 'clave': (d.get('acceso_rol') or {}).get('clave', '')}
         elif acc == 'nomina_guardar':
             sem = fecha(a.get('semana'), True); c = a.get('campos') or {}
-            d['nominas'].setdefault(sem, {})[emp_id(a.get('emp'))] = {k: num(c.get(k)) for k in ('base', 'extras', 'comida', 'vales', 'abono', 'otros', 'transfer')} | {'nota': txt(c.get('nota'), 200), 'pagada': bool(c.get('pagada'))}
+            d['nominas'].setdefault(sem, {})[emp_id(a.get('emp'))] = {k: num(c.get(k)) for k in ('base', 'prima_dom', 'incentivo', 'extras', 'comida', 'vales', 'abono', 'otros', 'transfer')} | {'nota': txt(c.get('nota'), 200), 'pagada': bool(c.get('pagada'))}
         elif acc == 'prestamo_alta':
             m = num(a.get('monto'))
             if m <= 0: raise ValueError('Escribe el monto del préstamo.')
@@ -1780,6 +1862,17 @@ class Monitor:
             m = num(a.get('monto'))
             if m <= 0: raise ValueError('Escribe el monto del vale.')
             d['vales'].append({'id': secrets.token_hex(4), 'emp': emp_id(a.get('emp')), 'fecha': fecha(a.get('fecha'), True), 'monto': m, 'nota': txt(a.get('nota'), 120)})
+        elif acc == 'archivo_borrar':
+            x = next((x for x in d['empleados'] if x['id'] == a.get('emp')), None)
+            if not x: raise ValueError('No encontré a ese empleado.')
+            doc = next((f for f in x.get('archivos') or [] if f.get('id') == a.get('id')), None)
+            if doc:
+                ruta = os.path.join(EXPED_DIR, x['id'], os.path.basename(doc.get('archivo', '')))
+                try:
+                    os.makedirs(os.path.join(EXPED_DIR, '_borrados'), exist_ok=True)
+                    if os.path.isfile(ruta): shutil.move(ruta, os.path.join(EXPED_DIR, '_borrados', x['id'] + '_' + os.path.basename(ruta)))   # se aparta, no se destruye
+                except OSError: pass
+                x['archivos'] = [f for f in x['archivos'] if f.get('id') != a.get('id')]
         elif acc in ('prestamo_borrar', 'vale_borrar'):
             k = 'prestamos' if acc == 'prestamo_borrar' else 'vales'
             d[k] = [x for x in d[k] if x['id'] != a.get('id')]
@@ -2238,11 +2331,11 @@ def make_handler(mon, cfg):
                     body = json.dumps({'ok': False, 'error': str(e), 'sesion': not isinstance(e, PermissionError)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(409); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
             if not self._auth(caja_ok=(self.path in ('/api/compra', '/api/leer-ticket'))): return
-            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/comandero-envio', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia'): self.send_response(404); self.end_headers(); return
+            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return
             try:
-                lim = 9 * 1024 * 1024 if self.path in ('/api/compra', '/api/gastos', '/api/leer-ticket') else 262144
+                lim = 17 * 1024 * 1024 if self.path == '/api/rh-archivo' else 9 * 1024 * 1024 if self.path in ('/api/compra', '/api/gastos', '/api/leer-ticket') else 262144
                 n=int(self.headers.get('Content-Length','0') or 0)
                 if n > lim: raise ValueError('La foto es demasiado grande.')
                 d=json.loads(self.rfile.read(n).decode('utf-8'))
@@ -2251,6 +2344,7 @@ def make_handler(mon, cfg):
                 elif self.path == '/api/cajeros': out=mon.cajero_accion(d)
                 elif self.path == '/api/meseros': out=mon.mesero_accion(d)
                 elif self.path == '/api/rh': out=mon.rh_accion(d)
+                elif self.path == '/api/rh-archivo': out=mon.rh_archivo_subir(d)
                 elif self.path == '/api/comandero-envio': out=mon.comandero_interruptor(d)
                 elif self.path == '/api/leer-pendientes': out=mon.leer_pendientes()
                 elif self.path == '/api/drive':
@@ -2360,6 +2454,14 @@ def make_handler(mon, cfg):
             if p0 == '/api/drive-script':
                 body = SCRIPT_DRIVE.replace('{SECRETO}', cfg['drive_secreto']).encode('utf-8')
                 return self._send(body, 'text/plain; charset=utf-8')
+            if p0 == '/api/rh-archivo':
+                from urllib.parse import urlparse, parse_qs
+                qs = parse_qs(urlparse(self.path).query); r_ = mon.rh_archivo((qs.get('emp') or [''])[0], (qs.get('id') or [''])[0])
+                if not r_: self.send_response(404); self.end_headers(); return
+                doc, datos = r_
+                self.send_response(200); self.send_header('Content-Type', doc.get('mime') or 'application/octet-stream'); self.send_header('Cache-Control', 'no-store')
+                self.send_header('Content-Disposition', "inline; filename*=UTF-8''" + __import__('urllib.parse').parse.quote(doc.get('nombre') or doc['archivo']))
+                self.send_header('Content-Length', str(len(datos))); self.end_headers(); self.wfile.write(datos); return
             if p0 == '/api/rh':
                 body = json.dumps({'ok': True, 'rh': mon.rh_info()}, ensure_ascii=False).encode('utf-8')
                 return self._send(body, 'application/json; charset=utf-8')
