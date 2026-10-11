@@ -12,18 +12,19 @@
   --green:#1d5c3b; --green-2:#2f7d52; --green-soft:#e2efe5; --on-green:#ffffff;
   --bad:#b3322a; --bad-bg:#fbe5e2; --good:#1f7a45; --good-bg:#dcf1e3; --off:#5d6e62; --off-bg:#eef1ee;
   --vac:#2563eb; --vac-bg:#dbeafe; --inc:#7c3aed; --inc-bg:#ede9fe;
+  --tra:#111113; --tra-bg:#e6e6e9; --tra-bd:#a1a1aa;
   --display:"Archivo","Arial Narrow",system-ui,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --bg:#0e1611; --surface:#16211a; --ink:#e6efe8; --muted:#97a99c; --line:#26352b;
   --green:#7cc79a; --green-2:#5fb283; --green-soft:#1d3226; --on-green:#0e1611;
   --bad:#f08b80; --bad-bg:#3a1a17; --good:#7cc79a; --good-bg:#1d3226; --off:#97a99c; --off-bg:#202c24;
-  --vac:#93b4f5; --vac-bg:#1c2a45; --inc:#c4a8f7; --inc-bg:#2c2142; color-scheme:dark}}
+  --vac:#93b4f5; --vac-bg:#1c2a45; --inc:#c4a8f7; --inc-bg:#2c2142; --tra:#f4f4f5; --tra-bg:#3a3a40; --tra-bd:#5a5a62; color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#0e1611; --surface:#16211a; --ink:#e6efe8; --muted:#97a99c; --line:#26352b;
   --green:#7cc79a; --green-2:#5fb283; --green-soft:#1d3226; --on-green:#0e1611;
   --bad:#f08b80; --bad-bg:#3a1a17; --good:#7cc79a; --good-bg:#1d3226; --off:#97a99c; --off-bg:#202c24;
-  --vac:#93b4f5; --vac-bg:#1c2a45; --inc:#c4a8f7; --inc-bg:#2c2142; color-scheme:dark}
+  --vac:#93b4f5; --vac-bg:#1c2a45; --inc:#c4a8f7; --inc-bg:#2c2142; --tra:#f4f4f5; --tra-bg:#3a3a40; --tra-bd:#5a5a62; color-scheme:dark}
 *{box-sizing:border-box}[hidden]{display:none!important}
 html,body{background:var(--bg)}
 body{color:var(--ink);font:16px/1.4 var(--body);margin:0;-webkit-tap-highlight-color:transparent;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
@@ -97,7 +98,7 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // la semana de nómina va de martes a lunes
 const DIAS=['Mar','Mié','Jue','Vie','Sáb','Dom','Lun'], DIAS_L=['Martes','Miércoles','Jueves','Viernes','Sábado','Domingo','Lunes'];
-const EST={T:['Trabaja','--good'],D:['Descansa','--off'],F:['Faltó','--bad'],V:['Vacaciones','--vac'],I:['Incapacidad','--inc']}, CICLO=['T','D','F','V','I'];
+const EST={T:['Trabaja','--tra'],D:['Descansa','--good'],F:['Faltó','--bad'],V:['Vacaciones','--vac'],I:['Incapacidad','--inc']}, CICLO=['T','D','F','V','I'];
 const MES=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
 const pd=s=>{const [y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)};
 const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
@@ -160,7 +161,7 @@ function pintar(){
   const filas=E.map(e=>{
     const r=rolDe(e), g=e.pagada?'<span class="g">pagada</span>':!r.g?'<span class="g no">sin guardar</span>':'<span class="g si">✓ guardado</span>';
     return `<tr><td><b>${esc(e.nombre.split(' ').slice(0,2).join(' '))}</b><span class="p">${esc(e.puesto)}</span>${g}</td>${r.d.map((c,i)=>{const h=r.h[i];
-      return `<td><button class="d ${ED&&ED.e===e.id&&ED.i===i?'sel':''}" data-e="${e.id}" data-i="${i}" ${e.pagada?'disabled':''} aria-label="${esc(e.nombre)}, ${DIAS_L[i]}: ${EST[c][0]}${c==='T'&&h&&h[0]?' de '+h[0]+' a '+h[1]:''}" style="color:var(${EST[c][1]});background:var(${EST[c][1]}-bg);border-color:var(${EST[c][1]})">${c}${c==='T'&&h&&h[0]?`<small>${h12(h[0])}<br>${h12(h[1])}</small>`:''}</button></td>`}).join('')}</tr>`}).join('');
+      return `<td><button class="d ${ED&&ED.e===e.id&&ED.i===i?'sel':''}" data-e="${e.id}" data-i="${i}" ${e.pagada?'disabled':''} aria-label="${esc(e.nombre)}, ${DIAS_L[i]}: ${EST[c][0]}${c==='T'&&h&&h[0]?' de '+h[0]+' a '+h[1]:''}" style="color:var(${EST[c][1]});background:var(${EST[c][1]}-bg);border-color:var(${EST[c][1]}-bd,var(${EST[c][1]}))">${c}${c==='T'&&h&&h[0]?`<small>${h12(h[0])}<br>${h12(h[1])}</small>`:''}</button></td>`}).join('')}</tr>`}).join('');
   const m=ed&&INFO.meta[ed.id];
   const tarjetas=`<div class="rol"><table><thead><tr><th>Empleado</th>${DIAS.map((d,i)=>`<th>${d.slice(0,2)}<small>${pd(mas(SEM,i)).getDate()}</small></th>`).join('')}</tr></thead><tbody>${filas}</tbody></table>
     ${ed?`<div class="edit"><b>${esc(ed.nombre)}</b><div class="nota" style="margin-top:2px">${esc(ed.horario||'')}${m?' · último cambio: '+esc(m.por)+', '+hora(m.cuando):''}</div>${editor(ed,rolDe(ed)).replace('<div class="edit">','<div>')}</div>`:''}</div>`;

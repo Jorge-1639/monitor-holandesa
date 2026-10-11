@@ -77,3 +77,5 @@ con un cuadrito para el descuento que Jorge decide, más vales de comida a mano 
 si la nómina ya estaba guardada, avisa "ahora suman…".
 
 Versión 29.2 — Personal (/personal) en blancos y grises (encabezado blanco, botones grises); los colores del rol (T, F, V…) se quedan porque dicen algo.
+
+Versión 29.3 — rol de descansos (panel y página de la encargada): Trabaja en gris clarito con letras negras para que se lean las horas; Descansa en verde.

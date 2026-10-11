@@ -64,9 +64,9 @@ nav.tabs .dot{position:absolute;top:2px;right:calc(50% - 22px);min-width:17px;he
 /* tarjetas */
 .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px;min-width:0;box-shadow:var(--shadow)}
 /* Personal (Recursos Humanos): tarjetas con contorno azul clarito */
-:root{--rh-borde:#a8d1f0}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--rh-borde:#3d6688}}
-:root[data-theme="dark"]{--rh-borde:#3d6688}
+:root{--rh-borde:#a8d1f0;--rh-t:#111113;--rh-t-bg:#e6e6e9;--rh-t-bd:#a1a1aa}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--rh-borde:#3d6688;--rh-t:#f4f4f5;--rh-t-bg:#3a3a40;--rh-t-bd:#5a5a62}}
+:root[data-theme="dark"]{--rh-borde:#3d6688;--rh-t:#f4f4f5;--rh-t-bg:#3a3a40;--rh-t-bd:#5a5a62}
 body.rh .card,body.rh .kpi{border:1.5px solid var(--rh-borde)}
 /* Personal en blancos y grises (29.2) */
 body.rh{--bg:#f3f3f4;--surface:#ffffff;--surface-2:#f4f4f5;--ink:#1c1c1f;--muted:#6b6b73;--line:#e3e3e6;--green:#3f3f46;--green-2:#3f3f46;--green-3:#71717a;--green-soft:#ececee;--bar:#52525b;--bar-dim:#d4d4d8;--hero-small:#71717a;--hero-ink:#1c1c1f;--gold:#52525b;--rh-borde:#d4d4d8;--shadow:0 1px 2px rgba(0,0,0,.04),0 6px 18px -12px rgba(0,0,0,.14)}
@@ -1146,7 +1146,7 @@ function rResultados(){
 // ================= RECURSOS HUMANOS (los datos viven solo en la computadora de la caja: personal.json) =================
 let RH=null, RHERR='', rhTab=st.rhTab||'emp', rhEdit=null, rhSem=null, rhBajas=false;
 const RH_DIAS=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
-const RH_EST={T:['Trabaja','var(--good)','var(--good-bg)'],D:['Descansa','var(--muted)','var(--surface-2)'],F:['Faltó','var(--bad)','var(--bad-bg)'],V:['Vacaciones','#2563eb','#dbeafe'],I:['Incapacidad','#7c3aed','#ede9fe']};
+const RH_EST={T:['Trabaja','var(--rh-t)','var(--rh-t-bg)','var(--rh-t-bd)'],D:['Descansa','var(--good)','var(--good-bg)'],F:['Faltó','var(--bad)','var(--bad-bg)'],V:['Vacaciones','#2563eb','#dbeafe'],I:['Incapacidad','#7c3aed','#ede9fe']};
 const RH_CICLO=['T','D','F','V','I'];
 const RH_CONTRATOS=['Tiempo indeterminado','Tiempo determinado','Periodo de prueba','Capacitación inicial'];
 const isoD=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
@@ -1318,7 +1318,7 @@ Toca cada día para cambiarlo: T trabaja, D descansa, F faltó, V vacaciones, I 
 function rhRol(){
   const A=rhAct(); if(!A.length)return '<p class="empty">Primero da de alta a los empleados.</p>';
   const dias=SEM_DIAS.map((d,i)=>{const f=rhMas(rhSem,i);return `<th style="text-align:center;padding:4px 0">${d.slice(0,2)}<small style="display:block;font-weight:500">${rhPd(f).getDate()}</small></th>`}).join('');
-  const filas=A.map(e=>{const r=rhRolDe(e,rhSem);return `<tr><td style="padding:6px 2px 6px 0;overflow:hidden"><b style="font-size:12px;display:block;width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.nombre.split(' ').slice(0,2).join(' '))}</b><small style="color:var(--muted);font-size:11px">${esc(e.puesto)}${r.g?'':' · sin guardar'}</small>${rhQuienRol(e)}</td>${r.d.map((c,i)=>{const s=RH_EST[c],h=r.h[i],sel=rhDia&&rhDia.id===e.id&&rhDia.i===i;return `<td style="text-align:center;padding:4px 0.5px"><button data-rh="dia" data-id="${e.id}" data-i="${i}" title="${s[0]}" aria-label="${SEM_DIAS[i]}: ${s[0]}${c==='T'&&h&&h[0]?' de '+h[0]+' a '+h[1]:''}" style="width:30px;height:52px;border-radius:8px;border:${sel?'2.5px':'1px'} solid ${s[1]};background:${s[2]};color:${s[1]};font:800 13px var(--body);cursor:pointer;padding:2px 0;line-height:1.05">${c}${c==='T'&&h&&h[0]?`<span style="display:block;font:600 8px var(--body);letter-spacing:-.03em;margin-top:2px"><span style="display:block">${rhH12(h[0])}</span><span style="display:block">${rhH12(h[1])}</span></span>`:''}</button></td>`}).join('')}</tr>`}).join('');
+  const filas=A.map(e=>{const r=rhRolDe(e,rhSem);return `<tr><td style="padding:6px 2px 6px 0;overflow:hidden"><b style="font-size:12px;display:block;width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.nombre.split(' ').slice(0,2).join(' '))}</b><small style="color:var(--muted);font-size:11px">${esc(e.puesto)}${r.g?'':' · sin guardar'}</small>${rhQuienRol(e)}</td>${r.d.map((c,i)=>{const s=RH_EST[c],h=r.h[i],sel=rhDia&&rhDia.id===e.id&&rhDia.i===i;return `<td style="text-align:center;padding:4px 0.5px"><button data-rh="dia" data-id="${e.id}" data-i="${i}" title="${s[0]}" aria-label="${SEM_DIAS[i]}: ${s[0]}${c==='T'&&h&&h[0]?' de '+h[0]+' a '+h[1]:''}" style="width:30px;height:52px;border-radius:8px;border:${sel?'2.5px':'1px'} solid ${sel?'var(--ink)':s[3]||s[1]};background:${s[2]};color:${s[1]};font:800 13px var(--body);cursor:pointer;padding:2px 0;line-height:1.05">${c}${c==='T'&&h&&h[0]?`<span style="display:block;font:600 8px var(--body);letter-spacing:-.03em;margin-top:2px"><span style="display:block">${rhH12(h[0])}</span><span style="display:block">${rhH12(h[1])}</span></span>`:''}</button></td>`}).join('')}</tr>`}).join('');
   return rhSemNav()+`<div class="card"><h2>Rol de descansos <small>toca un día para cambiarlo</small></h2>${rhResumenRol()}
     <div class="tscroll"><table class="tk" style="table-layout:fixed;min-width:300px"><thead><tr><th style="width:68px;padding:5px 2px 5px 0">Empleado</th>${dias}</tr></thead><tbody>${filas}</tbody></table></div>${rhEditorDia()}
     <p class="empty" style="margin-top:10px">${Object.entries(RH_EST).map(([k,v])=>`<b style="color:${v[1]}">${k}</b> ${v[0]}`).join(' · ')}</p>
