@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 44            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '27.0'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 45            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '27.1'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -1798,6 +1798,8 @@ def make_handler(mon, cfg):
         except OSError: return b''
     page_cmd = _leer('comandero.html')
     logo_cmd = _leer('logo_comandero.png')
+    icon_rh = _leer('icon_personal.png')
+    manifest_rh = json.dumps({'name':'Personal Holandesa','short_name':'Personal','start_url':'/personal','display':'standalone','background_color':'#f3f6f2','theme_color':'#1d5c3b','icons':[{'src':'/icon_personal.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
     manifest_cmd = json.dumps({'name':'Comandero La Holandesa','short_name':'Comandero','start_url':'/comandero','display':'standalone','background_color':'#f3f6f2','theme_color':'#1d5c3b','icons':[{'src':'/logo_comandero.png','sizes':'240x336','type':'image/png','purpose':'any'}]}, ensure_ascii=False).encode('utf-8')
     manifest = json.dumps({'name':'Control Holandesa','short_name':'Control Holandesa','start_url':'/','display':'standalone','background_color':'#fbf6f1','theme_color':'#ea580c','icons':[{'src':'/icon.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
     class H(BaseHTTPRequestHandler):
@@ -1911,6 +1913,10 @@ def make_handler(mon, cfg):
                 return self._send(page_cmd, 'text/html; charset=utf-8')   # la página no trae datos; pide la clave del mesero
             if p0 == '/manifest-comandero.webmanifest':
                 return self._send(manifest_cmd, 'application/manifest+json; charset=utf-8')
+            if p0 == '/manifest-personal.webmanifest':
+                return self._send(manifest_rh, 'application/manifest+json; charset=utf-8')
+            if p0 == '/icon_personal.png' and icon_rh:
+                return self._send(icon_rh, 'image/png')
             if p0 == '/logo_comandero.png' and logo_cmd:
                 return self._send(logo_cmd, 'image/png')
             if p0 == '/api/comandero':
@@ -1971,7 +1977,7 @@ def make_handler(mon, cfg):
                 usegz = 'gzip' in self.headers.get('Accept-Encoding', '')
                 with mon.lock: body = mon.jsongz if usegz else mon.json
                 return self._send(body, 'application/json; charset=utf-8', usegz)
-            if self.path in ('/', '/index.html'): return self._send(page, 'text/html; charset=utf-8')
+            if self.path in ('/', '/index.html') or p0 in ('/personal', '/personal/'): return self._send(page, 'text/html; charset=utf-8')
             self.send_response(404); self.end_headers()
     return H
 

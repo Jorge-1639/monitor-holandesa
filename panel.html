@@ -55,7 +55,7 @@ section{display:flex;flex-direction:column;gap:12px;margin-top:14px}
 
 /* barra de pestañas inferior */
 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px));box-shadow:0 -8px 24px -18px rgba(0,0,0,.35)}
-nav.tabs .tin{max-width:720px;margin:0 auto;display:grid;grid-template-columns:repeat(6,1fr);gap:2px}
+nav.tabs .tin{max-width:720px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr);gap:2px}
 nav.tabs button{border:0;background:none;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px;border-radius:12px;font:700 11px var(--display);font-stretch:85%;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;position:relative}
 nav.tabs svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 nav.tabs button[aria-selected="true"]{color:var(--green-2);background:var(--green-soft)}
@@ -235,7 +235,6 @@ footer{color:var(--muted);font-size:12px;margin-top:24px;line-height:1.5}
   <button role="tab" data-tab="cortes"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h3"/></svg>Cortes</button>
   <button role="tab" data-tab="control"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>Control<span class="dot" id="ctlDot" hidden></span></button>
   <button role="tab" data-tab="reportes"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Reportes</button>
-  <button role="tab" data-tab="rh"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.2c3 0 5.5 2.4 5.5 5.8"/></svg>Personal</button>
 </div></nav>
 
 <script>
@@ -264,6 +263,7 @@ const MOTIVOS_INFO={'Familia':'Comida de la familia','Empleado':'Se descuenta de
 const pillMot=m=>`<span class="pill ${m==='Familia'||m==='Empleado'||m==='Cortesía'?'gold':m.startsWith('Didi')||m.startsWith('Uber')?'good':m==='Error de captura'?'warn':'mut'}">${esc(m)}</span>`;
 const st={};try{Object.assign(st,JSON.parse(localStorage.getItem('hol_v20')||'{}'))}catch(e){}
 const save=()=>{try{localStorage.setItem('hol_v20',JSON.stringify(st))}catch(e){}};
+const RHMODE=!COPIA&&location.pathname.startsWith('/personal');   // app aparte de Recursos Humanos (mismo programa, otro ícono)
 let cur=null, tab=['hoy','tickets','cortes','control','reportes'].includes(st.tab)?st.tab:'hoy';
 let prodModo='top', prodT='dia', tkModo='tarjetas', tkT='dia', corteModo='dia', pDesde=null, pHasta=null, repModo=st.rep||'historial', rDesde=null, rHasta=null;
 const sel=$('#day');
@@ -1134,7 +1134,7 @@ async function rhApi(body){const j=await api('/api/rh',body);RH=j.rh;return j}
 function vRH(){
   if(COPIA)return '<p class="note">Recursos Humanos solo funciona en la app en vivo, con la caja prendida.</p>';
   if(!RH){if(!RHERR)rhCargar();return `<section><p class="${RHERR?'note':'empty'}">${RHERR?esc(RHERR):'Cargando personal…'}</p></section>`}
-  const head=`<div class="card"><h2>Recursos Humanos <small>solo tú tienes acceso</small></h2>${segBtns('rhtab',[['emp','Empleados'],['rol','Rol de descansos'],['nom','Nómina'],['vp','Vales y préstamos'],['vac','Vacaciones y aguinaldo']],rhTab)}</div>`;
+  const head=`<div class="card"><h2>Recursos Humanos <small><a href="/" style="color:var(--green-2)">Ver ventas ›</a></small></h2>${segBtns('rhtab',[['emp','Empleados'],['rol','Rol de descansos'],['nom','Nómina'],['vp','Vales y préstamos'],['vac','Vacaciones y aguinaldo']],rhTab)}</div>`;
   return '<section>'+head+({emp:rhEmpleados,rol:rhRol,nom:rhNomina,vp:rhValesPrest,vac:rhVacaciones}[rhTab]||rhEmpleados)()+'</section>';
 }
 const rhIn=(id,lab,val,extra='')=>`<div class="field"><label for="${id}">${lab}</label><input id="${id}" value="${esc(val??'')}" ${extra}></div>`;
@@ -1404,6 +1404,7 @@ function csvQuitadas(g){
 
 // ---------- pintar
 function render(){
+  if(RHMODE){$('#view').innerHTML=vRH();return}
   const D=DATA.detalle[cur]; sel.value=cur;
   const i=days.indexOf(cur); $('#prev').disabled=i<=0; $('#next').disabled=i>=days.length-1;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===tab));
@@ -1494,7 +1495,16 @@ async function cargar(force){
   }catch(e){$('#live').classList.add('off');$('#gen').textContent='Sin conexión';$('#note').hidden=false;$('#note').textContent='No pude conectarme con la computadora de la caja. Revisa que esté encendida, con internet y con Tailscale activo. ('+e.message+')'}
 }
 const CAPMODE=!COPIA&&location.pathname.startsWith('/captura');
-if(CAPMODE){
+if(RHMODE){
+  document.title='Personal Holandesa';document.querySelector('link[rel=manifest]').href='/manifest-personal.webmanifest';
+  document.querySelector('link[rel=apple-touch-icon]').href='/icon_personal.png';document.querySelector('meta[name=theme-color]').content='#1d5c3b';
+  const r=document.documentElement.style;[['--green','#1d5c3b'],['--green-2','#2f7d52'],['--green-3','#2f7d52'],['--green-soft','#e2efe5'],['--bar','#2f7d52'],['--bar-dim','#cfe5d6'],['--hero-small','#d9f0e1']].forEach(([k,v])=>r.setProperty(k,v));
+  document.querySelector('.datebar').hidden=true;document.querySelector('nav.tabs').hidden=true;document.querySelector('footer').hidden=true;
+  document.querySelector('.brand h1').innerHTML='La Holandesa <span style="display:inline">· Personal</span>';
+  $('#gen').textContent='Recursos Humanos';
+  document.querySelector('.wrap').style.paddingBottom='40px';
+  tab='rh';render();
+}else if(CAPMODE){
   document.title='Compras Holandesa';document.querySelector('link[rel=manifest]').href='/manifest-caja.webmanifest';
   document.querySelector('.datebar').hidden=true;document.querySelector('nav.tabs').hidden=true;document.querySelector('footer').hidden=true;
   document.querySelector('.brand h1').innerHTML='La Holandesa <span style="display:inline">· Compras</span>';
