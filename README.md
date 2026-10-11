@@ -46,3 +46,9 @@ Lo que llega por esa dirección cuenta como Tailscale, nunca como WiFi del resta
 Versión 27.6 — todo lo del comandero pasó de Reportes → Meseros a su propia pestaña COMANDERO en la barra de abajo (no aparece en la copia de Drive).
 Cada mesero muestra su clave tapada (••••) con un ojito para verla 15 segundos. La clave se guarda en `meseros.json` en la caja (nunca en data.json
 ni en Drive); las que se dieron antes de esta versión se aprenden la próxima vez que el mesero entra, o al cambiarla.
+
+Versión 28.0 — pedidos para llevar por canal: en el comandero, "Pedidos para llevar" tiene 4 botones: Llevar (nombre de quien recoge), Domicilio
+(busca al cliente por teléfono en el catálogo de clientes de MrTienda, solo lectura; si no está, nombre y teléfono), Didi (clave del pedido y efectivo/tarjeta)
+y Uber (clave del pedido). Todos con precios de llevar. En MrTienda la referencia queda con el nombre o "DIDI 4821"/"UBER 4821"; el canal, la clave, el pago
+y el teléfono se guardan en `comandero_pedidos.json` en la caja. La comanda de cocina sale con el canal y el nombre o pedido en grande, y abajo PARA LLEVAR/COMER AQUI
+en grande. Al quitar una cuenta de Didi o Uber en el panel ya viene marcado el motivo (efectivo o tarjeta) y la clave en la nota. Todavía no da de alta clientes en MrTienda.

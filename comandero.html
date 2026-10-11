@@ -70,6 +70,8 @@ button:focus-visible{outline:2px solid var(--green-2);outline-offset:2px}
 .mesa .quien{font-weight:700;font-size:14px;color:var(--orange);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mesa.llevar{border-style:dashed;border-color:var(--orange)}
 .mesa.llevar b{color:var(--orange)}
+.modo button[aria-pressed="true"][data-pago],.modo button[aria-pressed="true"][data-cte]{background:var(--green);color:var(--on-green)}
+.mesas.canales{grid-template-columns:repeat(2,minmax(0,1fr))!important}.mesas.canales .mesa{min-height:70px}.mesas.canales .mesa b{font-size:20px}
 .mesa .t{font-weight:700;font-size:14px;color:var(--ink);margin-top:auto}
 .section{font:800 13px var(--display);text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin:18px 0 8px}
 .empty{color:var(--muted);font-size:14px}
@@ -225,7 +227,8 @@ const mia=c=>S.user&&c.cod===S.user.cod;
 const cuentaDe=k=>CUENTAS.find(c=>c.archivo===k);
 const itemsDe=c=>c?c.items.map(i=>({n:i.n,qty:i.q,price:i.q?i.imp/i.q:i.imp,detail:i.det,llevar:i.llevar,sent:true,h:i.h})):[];
 function titulo(){
-  if(S.sel&&S.sel.k){const c=cuentaDe(S.sel.k);if(c){const n=numMesa(c.ref);return n?'Mesa '+n:(c.llevar?'Llevar · ':'')+c.ref}}
+  if(S.sel&&S.sel.k){const c=cuentaDe(S.sel.k);if(c){const n=numMesa(c.ref);if(n)return 'Mesa '+n;const k=canalDe(c);return k?canalTxt(k):(c.llevar?'Llevar · ':'')+c.ref}}
+  if(S.sel&&S.sel.canal)return canalTxt(S.sel.canal);
   if(S.sel&&S.sel.mesa)return 'Mesa '+S.sel.mesa;
   if(S.sel&&S.sel.nombre)return 'Llevar · '+S.sel.nombre;
   return 'Cuenta';
@@ -258,7 +261,7 @@ function render(){
       <div class="seg"><button data-f="mias" aria-pressed="${S.filtro==='mias'}">Mis cuentas (${mine.length})</button><button data-f="todas" aria-pressed="${S.filtro==='todas'}">Todas (${CUENTAS.length})</button></div>
       <div class="section">${S.filtro==='mias'?'Mis cuentas abiertas':'Cuentas abiertas en la caja'}</div>
       ${list.length?`<div class="mesas">${list.map(tile).join('')}</div>`:`<p class="empty">${S.filtro==='mias'?'No tienes cuentas abiertas. Elige una mesa libre para empezar.':'No hay cuentas abiertas.'}</p>`}
-      <div class="section">Para llevar</div><div class="mesas">${nuevoLlevar()}</div>
+      <div class="section">Pedidos para llevar</div><div class="mesas canales">${nuevoLlevar()}</div>
       <div class="section">Mesas libres</div><div class="mesas">${libres.map(m=>`<button class="mesa" data-libre="${m}"><b>${m}</b><span>Libre</span></button>`).join('')||'<p class="empty">Todas las mesas están ocupadas.</p>'}</div>
       <p class="empty" style="margin-top:18px">Se actualiza solo cada 20 segundos.</p>`;
     return;
@@ -313,10 +316,41 @@ function grupos(){
   if(resto.length)G.push({n:'Otros',c:'#5d6e62',list:resto});
   return G;
 }
-const nuevoLlevar=()=>`<button class="mesa llevar" data-act="nuevollevar"><b>+ Llevar</b><span>Nuevo pedido para llevar</span></button>`;
+const CANAL_TXT={recoger:'Para llevar',domicilio:'Domicilio',didi:'Didi',uber:'Uber'};
+const nuevoLlevar=()=>[['recoger','+ Llevar','Recoge aquí'],['domicilio','+ Domicilio','A su casa'],['didi','+ Didi','Pedido Didi'],['uber','+ Uber','Pedido Uber']]
+  .map(([c,b,t])=>`<button class="mesa llevar" data-canal="${c}"><b>${b}</b><span>${t}</span></button>`).join('');
+const canalDe=c=>c&&c.canal&&c.canal.canal?c.canal:null;
+const canalTxt=k=>{const x=k&&(k.canal?k:null);if(!x)return '';return x.canal==='didi'?'Didi · '+x.pedido+' · '+(x.pago==='efectivo'?'Efectivo':'Tarjeta'):x.canal==='uber'?'Uber · '+x.pedido:CANAL_TXT[x.canal]+' · '+(x.nombre||'')};
+function hojaCanal(c){
+  const campo=(id,lbl,ph,extra)=>`<label for="${id}" style="font-weight:600">${lbl}</label><input id="${id}" class="search" style="margin-top:0" autocomplete="off" placeholder="${ph}" ${extra||''}>`;
+  let body='';
+  if(c==='recoger')body=campo('cnN','¿Para quién es?','Nombre del cliente','maxlength="40"');
+  else if(c==='didi'||c==='uber')body=campo('cnP','Clave del pedido','Ej. 4821','maxlength="5" autocapitalize="characters"')+(c==='didi'?`<label style="font-weight:600">¿Cómo paga?</label><div class="modo small" role="group" style="margin-top:0"><button type="button" data-pago="efectivo" aria-pressed="false">Efectivo</button><button type="button" data-pago="tarjeta" aria-pressed="false">Tarjeta</button></div>`:'<p class="empty" style="margin:0">Uber siempre es con tarjeta.</p>');
+  else body=`<label for="cnT" style="font-weight:600">Teléfono del cliente</label><div style="display:flex;gap:8px"><input id="cnT" class="search" style="margin-top:0;flex:1" inputmode="tel" maxlength="14" autocomplete="off" placeholder="10 números"><button type="button" class="chipbtn" data-act="buscarcte">Buscar</button></div><div id="cnRes"></div>`+campo('cnN','Nombre del cliente','Si no aparece, escríbelo','maxlength="40"');
+  $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><form class="sheet" id="fl"><h2>${c==='recoger'?'Pedido para llevar':c==='domicilio'?'Servicio a domicilio':'Pedido de '+CANAL_TXT[c]}</h2>${body}<p id="cnErr" class="err2" hidden></p><button class="big" type="submit">Continuar</button></form></div>`;
+  const f=$('#fl'),pri=f.querySelector('input');setTimeout(()=>pri&&pri.focus(),50);let pago='';
+  f.addEventListener('click',ev=>{const b=ev.target.closest('[data-pago]');if(b){pago=b.dataset.pago;$('#cnErr').hidden=true;f.querySelectorAll('[data-pago]').forEach(x=>x.setAttribute('aria-pressed',x===b));}
+    const r=ev.target.closest('[data-cte]');if(r){$('#cnN').value=r.dataset.cte;f.querySelectorAll('[data-cte]').forEach(x=>x.setAttribute('aria-pressed',x===r))}});
+  f.onsubmit=ev=>{ev.preventDefault();const err=m=>{const e=$('#cnErr');e.textContent=m;e.hidden=false};
+    const v=id=>{const x=$('#'+id);return x?x.value.trim():''};const sel={llevar:true,canal:{canal:c}};
+    if(c==='didi'||c==='uber'){const p=v('cnP').replace(/[^0-9a-z]/gi,'').toUpperCase();if(!p)return err('Escribe la clave del pedido.');if(c==='didi'&&!pago)return err('Marca si paga en efectivo o con tarjeta.');sel.canal.pedido=p;sel.canal.pago=c==='didi'?pago:'tarjeta';sel.nombre=c.toUpperCase()+' '+p}
+    else{const n=v('cnN');if(!n)return err('Escribe el nombre del cliente.');sel.canal.nombre=n;sel.nombre=n;
+      if(c==='domicilio'){const t=v('cnT').replace(/\D/g,'');if(t.length<7)return err('Escribe el teléfono del cliente (10 números).');sel.canal.tel=t}}
+    $('#sheet').innerHTML='';abrir(sel)};
+}
+async function buscarCte(){
+  const t=($('#cnT')||{}).value||'',out=$('#cnRes');if(!out)return;
+  if(t.replace(/\D/g,'').length<4){out.innerHTML='<p class="empty" style="margin:0">Escribe al menos 4 números.</p>';return}
+  out.innerHTML='<p class="empty" style="margin:0">Buscando…</p>';
+  try{const r=await fetch('/api/comandero/clientes?tel='+encodeURIComponent(t),{headers:{'X-Mesero-Token':S.tok||''}});const j=await r.json();if(!j.ok)throw new Error(j.error||'No pude buscar');
+    out.innerHTML=j.clientes.length?`<div class="modo small" style="grid-template-columns:1fr;margin-top:0">${j.clientes.map(c=>`<button type="button" data-cte="${esc(c.nombre)}" aria-pressed="false">${esc(c.nombre)}${c.tel?' · '+esc(c.tel):''}</button>`).join('')}</div>`
+      :`<p class="empty" style="margin:0">${j.sin_catalogo?'No pude abrir los clientes de MrTienda.':'No está en MrTienda.'} Escribe su nombre abajo.</p>`;
+    if(j.clientes.length===1){$('#cnN').value=j.clientes[0].nombre;out.querySelector('[data-cte]').setAttribute('aria-pressed','true')}
+  }catch(e){out.innerHTML=`<p class="err2" style="margin:0">${esc(e.message)}</p>`}
+}
 function tile(c){
   const n=numMesa(c.ref), m=mia(c), cls=(m?'mine':(S.filtro==='todas'?'other':''))+(n?'':(c.llevar?' llevar':' otra'));
-  return `<button class="mesa ${cls}" data-k="${esc(c.archivo)}"><b>${esc(n||(c.ref||'Sin nombre'))}</b>${n?'':`<span>${c.llevar?'Para llevar':'Cuenta'}</span>`}<span>${esc(c.mesero)} · ${esc(c.abrio)}</span><span class="t num">${money(c.total)}</span></button>`;
+  return `<button class="mesa ${cls}" data-k="${esc(c.archivo)}"><b>${esc(n||(canalDe(c)&&canalDe(c).nombre?canalDe(c).nombre:(c.ref||'Sin nombre')))}</b>${n?'':`<span>${canalDe(c)?esc(canalDe(c).canal==='didi'?'Didi · '+(canalDe(c).pago==='efectivo'?'Efectivo':'Tarjeta'):CANAL_TXT[canalDe(c).canal]):(c.llevar?'Para llevar':'Cuenta')}</span>`}<span>${esc(c.mesero)} · ${esc(c.abrio)}</span><span class="t num">${money(c.total)}</span></button>`;
 }
 function modoHTML(){return `<div class="modo" role="group" aria-label="Tipo de pedido"><button data-modo="aqui" aria-pressed="${S.modo==='aqui'}">${ICON.aqui}Comer aquí</button><button data-modo="llevar" aria-pressed="${S.modo==='llevar'}">${ICON.llevar}Para llevar</button></div>`}
 function lineHTML(it,di){
@@ -358,7 +392,7 @@ async function enviar(btn){
   enviando=true;document.querySelectorAll('[data-act="enviar"]').forEach(b=>{b.disabled=true;b.textContent='Enviando…'});
   if(!S.envio)S.envio=Date.now().toString(36)+Math.random().toString(36).slice(2,8);
   const body={envio:S.envio,llevar:!!S.sel.llevar,items:S.draft.map(i=>({id:i.id,qty:i.qty,llevar:i.llevar,g:i.g,o:i.o,nota:i.nota}))};
-  if(S.sel.k)body.k=S.sel.k;else if(S.sel.mesa)body.mesa=S.sel.mesa;else body.nombre=S.sel.nombre;
+  if(S.sel.k)body.k=S.sel.k;else if(S.sel.mesa)body.mesa=S.sel.mesa;else if(S.sel.canal)Object.assign(body,S.sel.canal,{nombre:S.sel.canal.nombre||''});else body.nombre=S.sel.nombre;
   try{
     const r=await fetch('/api/comandero/enviar',{method:'POST',headers:{'Content-Type':'application/json','X-Mesero-Token':S.tok||''},body:JSON.stringify(body)});
     const j=await r.json().catch(()=>({ok:false,error:'Sin respuesta de la caja. Revisa en la caja si llegó antes de volver a enviar.'}));
@@ -388,6 +422,7 @@ document.addEventListener('click',e=>{
     if(!mia(c)){toast('Esa cuenta es de '+c.mesero);return}
     return abrir({k:c.archivo,llevar:c.llevar})}
   if(d.libre){return abrir({mesa:d.libre})}
+  if(d.canal&&S.view==='mesas'){return hojaCanal(d.canal)}
   if(d.modo){S.modo=d.modo;return render()}
   if(d.im){cur.modo=d.im;return drawSheet()}
   if(d.grp){S.grp=+d.grp;S.sub=null;window.scrollTo(0,0);return render()}
@@ -403,6 +438,7 @@ document.addEventListener('click',e=>{
     const f=$('#fl');setTimeout(()=>$('#nl').focus(),50);
     f.onsubmit=ev=>{ev.preventDefault();const nm=$('#nl').value.trim();if(!nm)return;$('#sheet').innerHTML='';abrir({nombre:nm,llevar:true})};
     return}
+  if(a==='buscarcte')return buscarCte();
   if(a==='agregar')return agregar();
   if(a==='salir'){if(S.draft.length&&!confirm('Tienes platillos sin enviar. ¿Salir de todos modos?'))return;return salir()}
   if(a==='reintentar'){S.falla='';return inicio()}

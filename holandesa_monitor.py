@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 52            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '27.8'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 53            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '28.0'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -34,6 +34,8 @@ GASTOS_FILE = os.path.join(AQUI, 'gastos.json')       # compras y gastos captura
 FOTOS_DIR = os.path.join(AQUI, 'fotos_compras')        # fotos de tickets de compra
 CAJEROS_FILE = os.path.join(AQUI, 'cajeros.json')       # cajeros con su clave (solo se guarda la huella de la clave)
 MESEROS_FILE = os.path.join(AQUI, 'meseros.json')
+PEDIDOS_FILE = os.path.join(AQUI, 'comandero_pedidos.json')   # canal de cada cuenta del comandero (recoger, domicilio, Didi, Uber): solo en la caja
+CANALES = {'recoger': 'PARA LLEVAR', 'domicilio': 'DOMICILIO', 'didi': 'DIDI', 'uber': 'UBER'}
 RH_FILE = os.path.join(AQUI, 'personal.json')           # Recursos Humanos: expedientes, rol, nómina, vales y préstamos (solo en la caja)
 PUESTOS = ['Mesero', 'Cajero', 'Encargada', 'Cocinero', 'Ayudante de cocina', 'Repartidor', 'Lavaloza', 'Otro']       # meseros del comandero: código de MrTienda + huella de su clave
 IA_URL = 'https://api.anthropic.com/v1/messages'
@@ -355,7 +357,7 @@ def _agregar_a_cuenta(com, pend, archivo, cod, ren, tc, ahora):
     return {'archivo': archivo, 'ref': _campo(rec, pfl, 'REF').decode('latin-1').strip(), 'folio': _campo(rec, pfl, 'FOL_CTA_P').decode('latin-1').strip(),
             'total': total, 'agregado': agregado, 'respaldo': os.path.basename(resp)}
 
-def comanda_bytes(ref, mesero, renglones, folio, nueva, ahora):
+def comanda_bytes(ref, mesero, renglones, folio, nueva, ahora, canal=None):
     """Comanda de cocina en ESC/POS: letra normal como las de MrTienda, una variante por renglón,
     la nota abajo y si es para comer aquí o para llevar."""
     ESC, GS = b'\x1b', b'\x1d'
@@ -364,10 +366,16 @@ def comanda_bytes(ref, mesero, renglones, folio, nueva, ahora):
     titulo = ('MESA ' + n_.group(1)) if n_ else ref
     modos = {r['COD_ESCALA'] for r in renglones}
     modo = 'PARA LLEVAR' if modos == {'02'} else ('COMER AQUI' if modos == {'01'} else 'AQUI Y LLEVAR')
+    canal = canal or {}
+    if canal.get('canal') in CANALES:      # pedidos para llevar del comandero: el canal arriba y el nombre o el pedido en grande
+        c_ = canal['canal']
+        modo = CANALES[c_] + (' - ' + ('EFECTIVO' if canal.get('pago') == 'efectivo' else 'TARJETA') if c_ == 'didi' else '')
+        titulo = (('PEDIDO ' + canal.get('pedido', '')) if c_ in ('didi', 'uber') else (canal.get('nombre') or ref)).upper()[:21]
     t = ESC + b'@' + ESC + b't\x02' + ESC + b'a\x00'
     inv = modo != 'COMER AQUI'   # si hay algo para llevar: blanco sobre negro para que no se pase en cocina
     t += ESC + b'!\x38' + (GS + b'B\x01' + e(' ' + modo + ' ') + GS + b'B\x00' if inv else e(modo)) + b'\n' + ESC + b'!\x00'   # letra grande y negritas
     t += ESC + b'a\x01' + ESC + b'!\x18' + e(titulo) + b'\n' + ESC + b'!\x00'     # mesa: doble alto, negritas
+    if canal.get('canal') == 'domicilio' and canal.get('tel'): t += ESC + b'!\x08' + e('Tel. ' + canal['tel']) + ESC + b'!\x00' + b'\n'
     t += e('CUENTA NUEVA' if nueva else 'SE AGREGA A LA CUENTA') + b'\n'
     t += ESC + b'a\x00' + e('Mesero: ') + ESC + b'!\x08' + e(mesero.upper()) + ESC + b'!\x00' + b'\n'   # nombre en negritas
     t += e(f'Enviado: {ahora.strftime("%d/%m/%Y %H:%M")}   Cuenta #{folio[-5:].lstrip("0")}') + b'\n'
@@ -378,8 +386,9 @@ def comanda_bytes(ref, mesero, renglones, folio, nueva, ahora):
         for v in [v for v in (r.get('_det') or '').split(' · ') if v]:
             t += e('     - ' + v.upper()) + b'\n'
         if r.get('VAR_LIBRE'): t += e('     * NOTA: ' + r['VAR_LIBRE']) + b'\n'
-        t += e('     > ' + ('PARA LLEVAR' if r['COD_ESCALA'] == '02' else 'COMER AQUI')) + b'\n\n'
-    t += b'-' * 42 + b'\n' + ESC + b'a\x01' + e('Enviado desde el COMANDERO') + b'\n' + b'\n' * 6 + GS + b'VB\x0a'
+        t += ESC + b'!\x08' + e('     > ' + ('PARA LLEVAR' if r['COD_ESCALA'] == '02' else 'COMER AQUI')) + ESC + b'!\x00' + b'\n\n'
+    t += b'-' * 42 + b'\n' + ESC + b'a\x01' + ESC + b'!\x38' + e(modo if canal.get('canal') else ('PARA LLEVAR' if modos == {'02'} else 'COMER AQUI' if modos == {'01'} else 'AQUI Y LLEVAR')) + ESC + b'!\x00' + b'\n'
+    t += e('Enviado desde el COMANDERO') + b'\n' + b'\n' * 6 + GS + b'VB\x0a'
     return t
 
 def comanda_texto(datos):
@@ -954,6 +963,12 @@ class Monitor:
                         'pers': int(x.get('COMENSALES') or 1), 'arts': int(x.get('ARTS') or 0), 'total': round(x.get('IMPORTE_MN') or 0, 2),
                         'llevar': x.get('COD_ESCALA') == '02', 'archivo': arch, 'items': items, 'turno': turno_raw,
                         'cod': (x.get('COD_VENDED') or '').strip()})
+        try:
+            ped = self.pedidos()
+            for a in out:
+                p_ = ped.get(a['archivo'])
+                if p_: a['canal'] = {k: p_.get(k, '') for k in ('canal', 'pedido', 'pago')}
+        except Exception: pass
         return sorted(out, key=lambda a: (a['fecha'], a['abrio']))
 
     def eliminar_abierta(self, archivo, referencia, motivo='Sin clasificar', nota='', persona=''):
@@ -1387,11 +1402,43 @@ class Monitor:
         # Solo lo que está en el menú táctil de la caja: los productos que no tienen botón suelen ser viejos o repetidos.
         return {'cats': cats}
 
-    def cuentas_comandero(self):
+    def pedidos(self):
+        try:
+            with open(PEDIDOS_FILE, encoding='utf-8') as f: d = json.load(f)
+            return d if isinstance(d, dict) else {}
+        except (OSError, ValueError): return {}
+
+    def _guardar_pedido(self, archivo, info):
+        d = self.pedidos(); d[archivo] = info
+        if len(d) > 800: d = dict(sorted(d.items(), key=lambda kv: kv[1].get('fecha', ''))[-600:])
+        tmp = PEDIDOS_FILE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f: json.dump(d, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, PEDIDOS_FILE)
+
+    def clientes_por_tel(self, tel):
+        """Busca en el catálogo de clientes de MrTienda por teléfono (solo lectura)."""
+        dig = re.sub(r'\D', '', str(tel or ''))
+        if len(dig) < 4: raise ValueError('Escribe al menos 4 números del teléfono.')
+        ruta = next((self._cat(n) for n in ('CLIENTES.DBF', 'CLIENTE.DBF', 'CTES.DBF') if os.path.isfile(self._cat(n))), None)
+        if not ruta: log('Comandero: no encontré el catálogo de clientes de MrTienda.'); return {'ok': True, 'clientes': [], 'sin_catalogo': True}
         out = []
+        for x in self.rows(ruta):
+            if not getattr(self, '_campos_cte_log', False):
+                self._campos_cte_log = True; log('Comandero: campos de clientes de MrTienda: ' + ', '.join(list(x.keys())[:60]))
+            tels = [re.sub(r'\D', '', str(v or '')) for k, v in x.items() if re.search(r'TEL|CEL|MOVIL|FON', k, re.I)]
+            if not any(t and (t.endswith(dig) or (len(dig) >= 7 and dig in t)) for t in tels): continue
+            nom = next((str(x.get(k) or '').strip() for k in ('DES_CTE', 'NOMBRE', 'NOM_CTE', 'RAZON', 'RAZON_SOC', 'NOMBRE_CTE') if str(x.get(k) or '').strip()), '')
+            if not nom: nom = next((str(v).strip() for k, v in x.items() if re.search(r'NOM|DES', k, re.I) and str(v or '').strip()), '')
+            if nom: out.append({'nombre': nom.title(), 'tel': next((t for t in tels if t), '')})
+            if len(out) >= 8: break
+        return {'ok': True, 'clientes': out}
+
+    def cuentas_comandero(self):
+        out = []; ped = self.pedidos()
         for a in self.abiertas():
             out.append({'archivo': a['archivo'], 'ref': a['ref'], 'abrio': a['abrio'], 'fecha': a['fecha'], 'mesero': a['mesero'], 'cod': a['cod'],
                         'llevar': a['llevar'], 'pers': a['pers'], 'total': a['total'],
+                        'canal': {k: v for k, v in (ped.get(a['archivo']) or {}).items() if k in ('canal', 'pedido', 'pago', 'nombre')},
                         'items': [{'n': i['n'], 'q': i['q'], 'imp': i['imp'], 'det': i.get('det', ''), 'h': i['h'], 'llevar': i['llevar']} for i in a['items']]})
         return out
 
@@ -1480,6 +1527,25 @@ class Monitor:
         hechos = getattr(self, '_envios', {})
         if envio and envio in hechos: return hechos[envio]
         ahora = datetime.datetime.now()
+        canal = None
+        if not d.get('k') and d.get('canal'):
+            limpio = lambda v, n: re.sub(r'\s+', ' ', str(v or '')).strip()[:n]
+            c_ = str(d['canal']).lower()
+            if c_ not in CANALES: raise ValueError('Tipo de pedido no válido.')
+            canal = {'canal': c_, 'fecha': ahora.isoformat(timespec='seconds'), 'mesero': mesero['cod']}
+            if c_ in ('didi', 'uber'):
+                ped = re.sub(r'[^0-9A-Za-z]', '', str(d.get('pedido') or ''))[:5].upper()
+                if not ped: raise ValueError('Escribe la clave del pedido de ' + c_.title() + '.')
+                canal.update({'pedido': ped, 'pago': ('efectivo' if d.get('pago') == 'efectivo' else 'tarjeta') if c_ == 'didi' else 'tarjeta', 'ref': c_.upper() + ' ' + ped})
+                if c_ == 'didi' and d.get('pago') not in ('efectivo', 'tarjeta'): raise ValueError('Marca si el pedido de Didi es en efectivo o con tarjeta.')
+            else:
+                nom = limpio(d.get('nombre'), 40)
+                if not nom: raise ValueError('Escribe el nombre del cliente.')
+                canal.update({'nombre': nom, 'ref': nom.upper()[:10]})
+                if c_ == 'domicilio':
+                    tel = re.sub(r'\D', '', str(d.get('tel') or ''))[:12]
+                    if len(tel) < 7: raise ValueError('Escribe el teléfono del cliente (10 números).')
+                    canal['tel'] = tel
         cat = self._catalogo_envio()
         ren = self._renglones(d.get('items') or [], cat, ahora)
         nombre = cat[7].get(mesero['cod']) or mesero['nombre'].upper()
@@ -1498,14 +1564,20 @@ class Monitor:
                         n_ = re.match(r'^(?:M|MESA)\s*-?\s*(\d{1,2})$', a['ref'], re.I)
                         if n_ and str(int(n_.group(1))) == str(int(m)): raise RuntimeError(f'La mesa {int(m)} ya tiene cuenta abierta ({a["mesero"]}). Actualiza el comandero.')
                     ref = 'M ' + str(int(m))
+                elif canal:
+                    ref = canal['ref']
                 else:
                     ref = re.sub(r'\s+', ' ', str(d.get('nombre') or '')).strip().upper()[:10]
                     if not ref: raise ValueError('Escribe para quién es el pedido.')
-                res = _abrir_cuenta(com, pend, folios, ref, mesero['cod'], nombre, '02' if d.get('llevar') else '01', ren, self._tc(), ahora)
+                res = _abrir_cuenta(com, pend, folios, ref, mesero['cod'], nombre, '02' if (d.get('llevar') or canal) else '01', ren, self._tc(), ahora)
             with self.rows_lock:
                 self.cache = {k: v for k, v in self.cache.items() if not k[0].upper().startswith(com.upper())}
         log(f'COMANDERO: {mesero["nombre"]} {"agregó a" if d.get("k") else "abrió"} {res["ref"]} ({res["archivo"]}) · {len(ren)} renglones · ${res["agregado"]:.2f}. Respaldo: {res["respaldo"]}')
-        imp = self.imprimir_comanda(res['ref'], mesero['nombre'], ren, res['folio'], nueva=not d.get('k'), ahora=ahora)
+        if canal:
+            try: self._guardar_pedido(res['archivo'], {k: v for k, v in canal.items() if k != 'ref'})
+            except Exception as e: log('No pude guardar el canal del pedido: ' + str(e))
+        info = canal or (self.pedidos().get(res['archivo']) if d.get('k') else None)
+        imp = self.imprimir_comanda(res['ref'], mesero['nombre'], ren, res['folio'], nueva=not d.get('k'), ahora=ahora, canal=info)
         out = {'ok': True, 'archivo': res['archivo'], 'ref': res['ref'], 'total': res['total'], 'impreso': imp.get('ok', False), 'aviso': imp.get('error', '')}
         hechos[envio] = out; self._envios = dict(list(hechos.items())[-50:])
         return out
@@ -1515,12 +1587,12 @@ class Monitor:
             if x.get('TC'): return x['TC']
         return 0
 
-    def imprimir_comanda(self, ref, mesero, ren, folio, nueva, ahora):
+    def imprimir_comanda(self, ref, mesero, ren, folio, nueva, ahora, canal=None):
         """Imprime en la impresora de cocina solo los platillos del puerto de cocina (1), como MrTienda."""
         cocina = [r for r in ren if r['PUERTO'][:1] == str(self.cfg.get('puerto_cocina', '1'))]
         if not cocina: return {'ok': True, 'nada': True}
         nombre = self.cfg.get('impresora_cocina') or 'EPSON TM-T88V ReceiptE4'
-        t = comanda_bytes(ref, mesero, cocina, folio, nueva, ahora)
+        t = comanda_bytes(ref, mesero, cocina, folio, nueva, ahora, canal)
         try:
             _imprimir_raw(nombre, t)
             return {'ok': True}
@@ -2251,6 +2323,18 @@ def make_handler(mon, cfg):
                 return self._send(icon_rh, 'image/png')
             if p0 == '/logo_comandero.png' and logo_cmd:
                 return self._send(logo_cmd, 'image/png')
+            if p0 == '/api/comandero/clientes':
+                import urllib.parse
+                m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'), self.client_address[0])
+                try:
+                    if not m_ or m_.get('bloqueo'): raise PermissionError('Tu sesión terminó. Vuelve a entrar con tu clave.')
+                    q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                    body = json.dumps(mon.clientes_por_tel((q.get('tel') or [''])[0]), ensure_ascii=False).encode('utf-8')
+                    return self._send(body, 'application/json; charset=utf-8')
+                except Exception as e:
+                    if not isinstance(e, (ValueError, PermissionError)): log('Comandero, clientes: ' + traceback.format_exc())
+                    body = json.dumps({'ok': False, 'error': str(e)}, ensure_ascii=False).encode('utf-8')
+                    self.send_response(400); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
             if p0 == '/api/comandero':
                 m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'), self.client_address[0])
                 if not m_ or m_.get('bloqueo'):

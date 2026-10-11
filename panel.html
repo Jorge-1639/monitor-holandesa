@@ -1420,7 +1420,7 @@ function abrirHoja(o){
     <div class="mot">${(DATA.motivos||Object.keys(MOTIVOS_INFO)).filter(m=>m!=='Sin clasificar').map(m=>`<button data-mot="${esc(m)}" aria-pressed="${hoja.motivo===m}">${esc(m)}<small>${esc(MOTIVOS_INFO[m]||'')}</small></button>`).join('')}</div>
     <div id="shPer"></div>
     <div class="field"><label for="shNota">Nota (número de pedido, cupón…)</label><input id="shNota" list="shNotas" maxlength="120" value="${esc(o.nota||'')}" autocomplete="off"><datalist id="shNotas">${notas.map(n=>`<option value="${esc(n)}">`).join('')}</datalist></div>
-    <div class="btns" style="margin-top:18px"><button class="btn" data-sh="cancelar" style="flex:1">Cancelar</button><button class="btn ${o.modo==='quitar'?'danger':'pri'}" data-sh="ok" style="flex:1.4" disabled>${o.modo==='quitar'?'Quitar cuenta':'Guardar'}</button></div>
+    <div class="btns" style="margin-top:18px"><button class="btn" data-sh="cancelar" style="flex:1">Cancelar</button><button class="btn ${o.modo==='quitar'?'danger':'pri'}" data-sh="ok" style="flex:1.4" ${hoja.motivo?'':'disabled'}>${o.modo==='quitar'?'Quitar cuenta':'Guardar'}</button></div>
   </div>`;
   document.body.appendChild(el);
   pintarPersona();
@@ -1522,7 +1522,8 @@ $('#view').addEventListener('click',e=>{
   if(d.gimp||d.gdel||d.fsave||d.fcsave||d.rcsave||d.rcdel){e.preventDefault();guardarGasto(t,d);return}
   if(d.ct2){cmpTodos=!cmpTodos;return render()}
   if(d.mes){e.preventDefault();mesSel=d.mes;render();window.scrollTo(0,0);return}
-  if(d.quitar!=null){e.preventDefault();const a=(DATA.abiertas||[])[+d.quitar];if(a)abrirHoja({modo:'quitar',archivo:a.archivo,ref:a.ref??a.mesa,cuenta:a.mesa,total:a.total});return}
+  if(d.quitar!=null){e.preventDefault();const a=(DATA.abiertas||[])[+d.quitar];if(a){const k=a.canal||{},mot=k.canal==='didi'?(k.pago==='efectivo'?'Didi · efectivo':'Didi · tarjeta'):k.canal==='uber'?'Uber · tarjeta':null;
+    abrirHoja({modo:'quitar',archivo:a.archivo,ref:a.ref??a.mesa,cuenta:a.mesa,total:a.total,motivo:mot,nota:k.pedido?'Pedido '+k.pedido:''})}return}
   if(d.motivo){e.preventDefault();const r=(DATA.quitadas||[]).find(x=>x.id===d.motivo);if(r)abrirHoja({modo:'motivo',id:r.id,cuenta:r.cuenta,total:r.total,motivo:r.motivo==='Sin clasificar'?null:r.motivo,nota:r.nota,persona:r.persona});return}
 });
 $('#view').addEventListener('change',e=>{const id=e.target.id,v=e.target.value;if(!v)return;
