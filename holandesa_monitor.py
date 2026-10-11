@@ -7,14 +7,15 @@ en http://<esta-computadora>:8765  (protegido con usuario y contraseña).
 La consulta de ventas es de solo lectura. La única escritura en MrTienda es quitar, con confirmación y motivo,
 una cuenta pendiente NO pagada (comida de la familia, pedidos Didi/Uber, errores). Antes respalda los archivos
 y deja el registro en cuentas_quitadas.json (fuera de MrTienda), que alimenta los reportes y el Excel.
+El comandero (/comandero) es por ahora de solo lectura: muestra a los meseros el menú y las cuentas abiertas de MrTienda.
 Requiere Python 3.9 o superior. No necesita instalar paquetes adicionales.
 """
 import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, threading, datetime, collections, traceback
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 34            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '25.8'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 35            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '26.0'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -32,6 +33,7 @@ QUITADAS_FILE = os.path.join(AQUI, 'cuentas_quitadas.json')
 GASTOS_FILE = os.path.join(AQUI, 'gastos.json')       # compras y gastos capturados (no es de MrTienda)
 FOTOS_DIR = os.path.join(AQUI, 'fotos_compras')        # fotos de tickets de compra
 CAJEROS_FILE = os.path.join(AQUI, 'cajeros.json')       # cajeros con su clave (solo se guarda la huella de la clave)
+MESEROS_FILE = os.path.join(AQUI, 'meseros.json')       # meseros del comandero: código de MrTienda + huella de su clave
 IA_URL = 'https://api.anthropic.com/v1/messages'
 IA_MODELO = 'claude-haiku-5-5'
 PROMPT_TICKET = '''Eres el capturista de compras de un restaurante en Ensenada, México. Lee la foto de este ticket o factura de compra y responde SOLO con un objeto JSON, sin texto antes ni después, con esta forma:
@@ -198,6 +200,7 @@ function autorizar() { carpeta_(); }
 
 # ---------------------------------------------------------------- cajeros y lectura de tickets: utilidades
 SESIONES = {}   # token -> (nombre, vence)
+SESIONES_M = {} # comandero: token -> (id del mesero, vence)
 FALLOS = {}     # ip -> [intentos, bloqueado_hasta]
 def huella_pin(sal, pin): return hashlib.sha256((sal + ':' + pin).encode()).hexdigest()
 def verifica_pin(c, pin): return bool(c.get('sal')) and secrets.compare_digest(c.get('huella', ''), huella_pin(c['sal'], pin))
@@ -289,16 +292,56 @@ class Monitor:
         self.q_lock = threading.Lock()
         self.psum = {}            # día -> (firma de archivos, {producto: [piezas, importe, familia]})
         self._touched = set()
+        self.rows_lock = threading.RLock()   # el comandero lee desde otros hilos al mismo tiempo que el ciclo
 
     def rows(self, path):
         try: st = os.stat(path)
         except OSError: return []
         key = (path, st.st_size, int(st.st_mtime))
-        self._touched.add(path)
-        if key not in self.cache:
-            for k in [k for k in self.cache if k[0] == path]: del self.cache[k]
-            self.cache[key] = [x for x in safe_rows(path) if not x['_del']]
-        return self.cache[key]
+        with self.rows_lock:
+            self._touched.add(path)
+            if key not in self.cache:
+                for k in [k for k in self.cache if k[0] == path]: del self.cache[k]
+                self.cache[key] = [x for x in safe_rows(path) if not x['_del']]
+            return self.cache[key]
+
+    def _cat(self, nombre):
+        # catálogos de MrTienda: DATABASE (en la caja); REGISTRO\PROTECT es la copia que trae el respaldo
+        for sub in ('DATABASE', os.path.join('REGISTRO', 'PROTECT')):
+            p = os.path.join(self.base, sub, nombre)
+            if os.path.isfile(p): return p
+        return os.path.join(self.base, 'DATABASE', nombre)
+
+    def _variantes(self):
+        """VARIANTE.DBF (por producto) y SVARIANT.DBF (opciones de los grupos obligatorios)."""
+        var = collections.defaultdict(list); svar = collections.defaultdict(list)
+        for x in self.rows(self._cat('VARIANTE.DBF')): var[x['COD_PROD']].append(x)
+        for x in self.rows(self._cat('SVARIANT.DBF')): svar[(x['COD_PROD'], x['COD_VAR'])].append(x)
+        return var, svar
+
+    def detalle_variantes(self, v, var=None, svar=None):
+        """Texto de las variantes de un renglón de cuenta, como lo guarda MrTienda.
+        SUB_VARIA: bloques de 4 dígitos grupo+opción (0801 = grupo 08, opción 01).
+        VARIAASCII: un "1" en la posición de cada variante sencilla (posición 1 = variante 01)."""
+        if var is None: var, svar = self._variantes()
+        cp = v.get('COD_PROD') or ''
+        grupos = {x['COD_VAR'] for x in var.get(cp, []) if svar.get((cp, x['COD_VAR']))}
+        out = []
+        sv = (v.get('SUB_VARIA') or '').strip()
+        for i in range(0, len(sv) - 3, 4):
+            g, o = sv[i:i+2], sv[i+2:i+4]
+            n = next((s['DES_VAR'] for s in svar.get((cp, g), []) if s['COD_SVAR'] == o), '')
+            if n: out.append(n.strip().capitalize())
+        va = v.get('VARIAASCII') or ''
+        for i, ch in enumerate(va):
+            if ch != '1': continue
+            cv = '%02d' % (i + 1)
+            if cv in grupos: continue
+            n = next((x['DES_VAR'] for x in var.get(cp, []) if x['COD_VAR'] == cv), '')
+            if n: out.append(re.sub(r'(?<=\b\w) (?=\w\b)', '', n).strip().capitalize())
+        libre = (v.get('VAR_LIBRE') or '').strip()
+        if libre: out.append(libre.capitalize())
+        return ' · '.join(out)
 
     def catalogs(self):
         db = os.path.join(self.base, 'DATABASE')
@@ -439,6 +482,8 @@ class Monitor:
         # cuentas abiertas (sin cobrar): COMUNES\PENDIENT.DBF, renglones vigentes con PAGADO = falso. Solo lectura.
         com = os.path.join(self.base, 'COMUNES')
         out = []
+        try: var, svar = self._variantes()
+        except Exception: var, svar = {}, {}
         for x in self.rows(os.path.join(com, 'PENDIENT.DBF')):
             if x.get('PAGADO'): continue
             fa = x.get('FECHA_AP') or x.get('FECHA') or ''
@@ -456,13 +501,15 @@ class Monitor:
                                           'orig': round((v.get('PRECIO_O') or 0) * q, 2), 'h': (v.get('HORACAPTUR') or '')[:5],
                                           'f': f'{fv[:4]}-{fv[4:6]}-{fv[6:8]}' if len(fv) == 8 else '',
                                           'quien': self.name(v.get('COD_VENDED')) if v.get('COD_VENDED') else '',
-                                          'llevar': v.get('COD_ESCALA') == '02'})
+                                          'llevar': v.get('COD_ESCALA') == '02',
+                                          'det': self.detalle_variantes(v, var, svar) if var else ''})
                         break
             turno_raw = next((str(x.get(k) or '').strip() for k in ('TURNO','COD_TURNO','NUM_TURNO','CORTE') if str(x.get(k) or '').strip()), '')
             out.append({'ref': (x.get('REF') or '').strip(), 'mesa': (x.get('REF') or '').strip() or 'Sin nombre', 'fecha': f'{fa[:4]}-{fa[4:6]}-{fa[6:8]}' if len(fa) == 8 else '',
                         'abrio': (x.get('HORA_AP') or x.get('HORA') or '')[:5], 'mesero': (x.get('DES_VENDED') or '').strip().title() or self.name(x.get('COD_VENDED')),
                         'pers': int(x.get('COMENSALES') or 1), 'arts': int(x.get('ARTS') or 0), 'total': round(x.get('IMPORTE_MN') or 0, 2),
-                        'llevar': x.get('COD_ESCALA') == '02', 'archivo': arch, 'items': items, 'turno': turno_raw})
+                        'llevar': x.get('COD_ESCALA') == '02', 'archivo': arch, 'items': items, 'turno': turno_raw,
+                        'cod': (x.get('COD_VENDED') or '').strip()})
         return sorted(out, key=lambda a: (a['fecha'], a['abrio']))
 
     def eliminar_abierta(self, archivo, referencia, motivo='Sin clasificar', nota='', persona=''):
@@ -712,6 +759,119 @@ class Monitor:
         if f[0] >= 5: f = [0, ahora + 300]
         FALLOS[ip] = f
         raise RuntimeError('Clave incorrecta.')
+
+    # ------------------------------------------------ comandero (meseros con clave de 4 números)
+    # Versión 1: solo lee de MrTienda (menú, precios, variantes y cuentas abiertas). Todavía no escribe.
+    def meseros(self):
+        try:
+            with open(MESEROS_FILE, encoding='utf-8') as f: c = json.load(f)
+            return c if isinstance(c, list) else []
+        except (OSError, ValueError): return []
+
+    def mesero_accion(self, d):
+        acc = d.get('accion'); c = self.meseros()
+        emp = getattr(self, 'EMP', {})
+        if acc == 'alta':
+            cod = str(d.get('cod') or '').strip(); pin = str(d.get('pin') or '').strip()
+            if cod not in emp: raise ValueError('Elige a la persona de la lista de MrTienda.')
+            if not re.fullmatch(r'\d{4}', pin): raise ValueError('La clave debe ser de 4 números.')
+            if any(x.get('activo') and x.get('cod') == cod for x in c): raise ValueError(emp[cod] + ' ya tiene acceso al comandero. Si quieres, cámbiale la clave.')
+            if any(x.get('activo') and verifica_pin(x, pin) for x in c): raise ValueError('Esa clave ya la tiene otra persona. Usa otra.')
+            sal = secrets.token_hex(8)
+            c.append({'id': secrets.token_hex(4), 'cod': cod, 'nombre': emp[cod], 'sal': sal, 'huella': huella_pin(sal, pin), 'activo': True,
+                      'alta': datetime.datetime.now().isoformat(timespec='seconds')})
+        elif acc == 'clave':
+            pin = str(d.get('pin') or '').strip()
+            if not re.fullmatch(r'\d{4}', pin): raise ValueError('La clave debe ser de 4 números.')
+            x = next((x for x in c if x.get('id') == d.get('id') and x.get('activo')), None)
+            if not x: raise RuntimeError('No encontré a ese mesero.')
+            if any(o is not x and o.get('activo') and verifica_pin(o, pin) for o in c): raise ValueError('Esa clave ya la tiene otra persona. Usa otra.')
+            x['sal'] = secrets.token_hex(8); x['huella'] = huella_pin(x['sal'], pin); x['cambio_clave'] = datetime.datetime.now().isoformat(timespec='seconds')
+            for t in [t for t, v in SESIONES_M.items() if v[0] == x['id']]: SESIONES_M.pop(t, None)
+        elif acc == 'baja':
+            for x in c:
+                if x.get('id') == d.get('id') and x.get('activo'): x['activo'] = False; x['baja'] = datetime.datetime.now().isoformat(timespec='seconds')
+            for t in [t for t, v in SESIONES_M.items() if v[0] == d.get('id')]: SESIONES_M.pop(t, None)
+        else: raise ValueError('Acción no válida.')
+        tmp = MESEROS_FILE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f: json.dump(c, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, MESEROS_FILE)
+        self.refresh()
+        return {'ok': True}
+
+    def login_mesero(self, pin, ip):
+        ahora = time.time(); k = 'm:' + ip; f = FALLOS.get(k, [0, 0])
+        if f[1] > ahora: raise RuntimeError('Demasiados intentos. Espera unos minutos.')
+        emp = getattr(self, 'EMP', {})
+        for x in self.meseros():
+            if x.get('activo') and verifica_pin(x, str(pin or '')):
+                if emp and x.get('cod') not in emp: raise RuntimeError('Tu usuario está dado de baja en MrTienda. Avísale a Jorge.')
+                FALLOS.pop(k, None); tok = secrets.token_urlsafe(24)
+                SESIONES_M[tok] = (x['id'], ahora + 14 * 3600)
+                return {'ok': True, 'token': tok, 'nombre': emp.get(x['cod'], x['nombre']), 'cod': x['cod']}
+        f[0] += 1
+        if f[0] >= 5: f = [0, ahora + 300]
+        FALLOS[k] = f
+        raise RuntimeError('Clave incorrecta.')
+
+    def mesero_de(self, tok):
+        s_ = SESIONES_M.get(tok or '')
+        if not s_ or s_[1] < time.time(): SESIONES_M.pop(tok or '', None); return None
+        x = next((x for x in self.meseros() if x.get('id') == s_[0] and x.get('activo')), None)
+        emp = getattr(self, 'EMP', {})
+        if not x or (emp and x.get('cod') not in emp): SESIONES_M.pop(tok, None); return None
+        return {'id': x['id'], 'cod': x['cod'], 'nombre': emp.get(x['cod'], x['nombre'])}
+
+    def menu_comandero(self):
+        """Menú táctil de MrTienda (TOUCHDPT = secciones, TOUCHART = botones) con precios de Comedor (01) y Recoger aquí (02)."""
+        prod = {x['COD_PROD']: x for x in self.rows(self._cat('PRODUCTO.DBF'))}
+        precio = {}
+        for x in self.rows(self._cat('PRECIOS.DBF')):
+            v = x.get('ACTIVO') if x.get('ACTIVO') is not None else x.get('PRECIO')
+            precio[(x['COD_PROD'], x['COD_ESCALA'])] = round(v or 0, 2)
+        var, svar = self._variantes()
+        lim = lambda s: re.sub(r'(?<=\b\w) (?=\w\b)', '', (s or '')).replace('  ', ' ').strip()
+        def opciones(cp):
+            g, o = [], []
+            for v in sorted(var.get(cp, []), key=lambda v: v['COD_VAR']):
+                subs = sorted(svar.get((cp, v['COD_VAR']), []), key=lambda s: s['COD_SVAR'])
+                if subs:
+                    g.append({'n': lim(v['DES_VAR']).capitalize(), 'cv': v['COD_VAR'], 'ob': bool(v.get('OBLIGADO')),
+                              'o': [{'n': lim(s['DES_VAR']).capitalize(), 'cs': s['COD_SVAR'], 'p': round(s.get('PRECIO') or 0, 2)} for s in subs]})
+                else:
+                    o.append({'n': lim(v['DES_VAR']).capitalize(), 'cv': v['COD_VAR'], 'p': round(v.get('PRECIO') or 0, 2)})
+            return g, o
+        def item(cp):
+            p = prod.get(cp)
+            if not p or (cp, '01') not in precio: return None
+            g, o = opciones(cp)
+            p1 = precio[(cp, '01')]
+            return {'id': cp, 'n': (p.get('DES_PROD') or '').strip(), 'p': p1, 'p2': precio.get((cp, '02'), p1), 'g': g, 'o': o,
+                    'pt': (p.get('PUERTO') or '').strip()}
+        def num(s):
+            try: return float(s or 0)
+            except ValueError: return 999
+        arts = collections.defaultdict(list)
+        for a in self.rows(self._cat('TOUCHART.DBF')):
+            if a.get('COD_PROD'): arts[(a['COD_FAMILI'], a['COD_DEPTO'])].append(a)
+        cats, usados = [], set()
+        for dp in sorted(self.rows(self._cat('TOUCHDPT.DBF')), key=lambda d: num(d.get('LUGAR'))):
+            L = []
+            for a in sorted(arts.get((dp['COD_FAMILI'], dp['COD_DEPTO']), []), key=lambda a: num(a.get('LUGAR'))):
+                if any(i['id'] == a['COD_PROD'] for i in L): continue
+                it = item(a['COD_PROD'])
+                if it: L.append(it); usados.add(a['COD_PROD'])
+            if L: cats.append({'n': lim(dp.get('CONCEPTO')).title(), 'i': L})
+        # Solo lo que está en el menú táctil de la caja: los productos que no tienen botón suelen ser viejos o repetidos.
+        return {'cats': cats}
+
+    def cuentas_comandero(self):
+        out = []
+        for a in self.abiertas():
+            out.append({'archivo': a['archivo'], 'ref': a['ref'], 'abrio': a['abrio'], 'fecha': a['fecha'], 'mesero': a['mesero'], 'cod': a['cod'],
+                        'llevar': a['llevar'], 'pers': a['pers'], 'total': a['total'],
+                        'items': [{'n': i['n'], 'q': i['q'], 'imp': i['imp'], 'det': i.get('det', ''), 'h': i['h'], 'llevar': i['llevar']} for i in a['items']]})
+        return out
 
     # ------------------------------------------------ lectura de tickets con la API de Claude
     def catalogo_insumos(self):
@@ -1002,11 +1162,15 @@ class Monitor:
         out['empleados'] = self.empleados()
         out['gastos'] = self.gastos(); out['categorias_gasto'] = CATEGORIAS_GASTO
         out['cajeros'] = [{'id': x['id'], 'nombre': x['nombre'], 'activo': x.get('activo', True), 'alta': x.get('alta', '')} for x in self.cajeros()]
+        out['meseros'] = [{'id': x['id'], 'cod': x.get('cod', ''), 'nombre': self.EMP.get(x.get('cod'), x['nombre']), 'activo': x.get('activo', True),
+                           'en_mrtienda': x.get('cod') in self.EMP, 'alta': x.get('alta', '')} for x in self.meseros()]
+        out['emp_mrtienda'] = sorted([{'cod': k, 'nombre': v} for k, v in self.EMP.items() if v], key=lambda e: e['nombre'])
         out['ia'] = {'activa': bool(self.cfg.get('ia_llave')), 'modelo': self.cfg.get('ia_modelo') or IA_MODELO}
         out['drive'] = {'conectado': bool(self.cfg.get('drive_url')), 'mensual': bool(self.cfg.get('drive_mensual')), 'ultimo_borrado': self.cfg.get('drive_ultimo_borrado') or ''}
         # suelta de la memoria los archivos que ya no se leyeron en esta vuelta
-        vivos = self._touched
-        self.cache = {k: v for k, v in list(self.cache.items()) if k[0] in vivos}
+        with self.rows_lock:
+            vivos = self._touched
+            self.cache = {k: v for k, v in list(self.cache.items()) if k[0] in vivos}
         data = json.dumps(out, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
         gz = gzip.compress(data, 6)
         with self.lock: self.json = data; self.jsongz = gz; self.error = None
@@ -1078,6 +1242,13 @@ def make_handler(mon, cfg):
     except OSError:
         icon_png = b''
     manifest_caja = json.dumps({'name':'Compras Holandesa','short_name':'Compras','start_url':'/captura','display':'standalone','background_color':'#fbf6f1','theme_color':'#ea580c','icons':[{'src':'/icon.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
+    def _leer(nombre):
+        try:
+            with open(os.path.join(AQUI, nombre), 'rb') as f: return f.read()
+        except OSError: return b''
+    page_cmd = _leer('comandero.html')
+    logo_cmd = _leer('logo_comandero.png')
+    manifest_cmd = json.dumps({'name':'Comandero La Holandesa','short_name':'Comandero','start_url':'/comandero','display':'standalone','background_color':'#f3f6f2','theme_color':'#1d5c3b','icons':[{'src':'/logo_comandero.png','sizes':'240x336','type':'image/png','purpose':'any'}]}, ensure_ascii=False).encode('utf-8')
     manifest = json.dumps({'name':'Control Holandesa','short_name':'Control Holandesa','start_url':'/','display':'standalone','background_color':'#fbf6f1','theme_color':'#ea580c','icons':[{'src':'/icon.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a): pass
@@ -1106,8 +1277,17 @@ def make_handler(mon, cfg):
                 except Exception as e:
                     body = json.dumps({'ok': False, 'error': str(e)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(403); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
+            if self.path == '/api/mesero-login':
+                try:
+                    n = min(int(self.headers.get('Content-Length', '0') or 0), 2048)
+                    d = json.loads(self.rfile.read(n).decode('utf-8'))
+                    body = json.dumps(mon.login_mesero(d.get('pin'), self.client_address[0]), ensure_ascii=False).encode('utf-8')
+                    return self._send(body, 'application/json; charset=utf-8')
+                except Exception as e:
+                    body = json.dumps({'ok': False, 'error': str(e)}, ensure_ascii=False).encode('utf-8')
+                    self.send_response(403); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
             if not self._auth(caja_ok=(self.path in ('/api/compra', '/api/leer-ticket'))): return
-            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia'): self.send_response(404); self.end_headers(); return
+            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return
             try:
@@ -1118,6 +1298,7 @@ def make_handler(mon, cfg):
                 if self.path == '/api/compra': out=mon.captura(d, 'caja' if self.rol == 'caja' else 'admin', self.quien)
                 elif self.path == '/api/leer-ticket': out={'ok': True, 'lectura': mon.leer_ticket(d.get('foto') or '')}
                 elif self.path == '/api/cajeros': out=mon.cajero_accion(d)
+                elif self.path == '/api/meseros': out=mon.mesero_accion(d)
                 elif self.path == '/api/leer-pendientes': out=mon.leer_pendientes()
                 elif self.path == '/api/drive':
                     acc = d.get('accion')
@@ -1161,6 +1342,28 @@ def make_handler(mon, cfg):
                 if self.rol == 'caja': info['hoy_lista'] = [x for x in info['hoy_lista'] if x.get('quien') == self.quien] or info['hoy_lista']
                 body = json.dumps(info, ensure_ascii=False).encode('utf-8')
                 return self._send(body, 'application/json; charset=utf-8')
+            if p0 in ('/comandero', '/comandero/'):
+                if not page_cmd: self.send_response(404); self.end_headers(); return
+                return self._send(page_cmd, 'text/html; charset=utf-8')   # la página no trae datos; pide la clave del mesero
+            if p0 == '/manifest-comandero.webmanifest':
+                return self._send(manifest_cmd, 'application/manifest+json; charset=utf-8')
+            if p0 == '/logo_comandero.png' and logo_cmd:
+                return self._send(logo_cmd, 'image/png')
+            if p0 == '/api/comandero':
+                m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'))
+                if not m_:
+                    body = b'{"ok":false,"error":"Tu sesion termino. Vuelve a entrar con tu clave.","sesion":false}'
+                    self.send_response(401); self.send_header('Content-Type', 'application/json'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
+                try:
+                    out = {'ok': True, 'mesero': m_, 'cuentas': mon.cuentas_comandero(), 'hora': datetime.datetime.now().strftime('%H:%M'), 'escribe': False}
+                    if 'menu=1' in self.path: out['menu'] = mon.menu_comandero()
+                    body = json.dumps(out, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+                    if 'gzip' in self.headers.get('Accept-Encoding', ''): return self._send(gzip.compress(body, 6), 'application/json; charset=utf-8', True)
+                    return self._send(body, 'application/json; charset=utf-8')
+                except Exception as e:
+                    log('Comandero: ' + traceback.format_exc())
+                    body = json.dumps({'ok': False, 'error': 'No pude leer MrTienda: ' + str(e)}, ensure_ascii=False).encode('utf-8')
+                    self.send_response(500); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
             if p0 in ('/manifest-caja.webmanifest',):
                 return self._send(manifest_caja, 'application/manifest+json; charset=utf-8')
             if p0 == '/icon.png' and icon_png and self.headers.get('Authorization'):

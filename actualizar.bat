@@ -6,6 +6,8 @@ echo  Actualizando el monitor...
 call "%~dp0detener_monitor.bat" silencioso >nul 2>&1
 copy /y "%~dp0holandesa_monitor.py" "C:\MonitorHolandesa\" >nul
 copy /y "%~dp0panel.html" "C:\MonitorHolandesa\" >nul
+copy /y "%~dp0comandero.html" "C:\MonitorHolandesa\" >nul
+copy /y "%~dp0logo_comandero.png" "C:\MonitorHolandesa\" >nul
 copy /y "%~dp0detener_monitor.bat" "C:\MonitorHolandesa\" >nul
 copy /y "%~dp0iniciar_monitor.vbs" "C:\MonitorHolandesa\" >nul
 copy /y "C:\MonitorHolandesa\iniciar_monitor.vbs" "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Monitor La Holandesa.vbs" >nul

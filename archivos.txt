@@ -4,3 +4,5 @@ detener_monitor.bat
 iniciar_monitor.vbs
 probar.bat
 actualizar.bat
+comandero.html
+logo_comandero.png

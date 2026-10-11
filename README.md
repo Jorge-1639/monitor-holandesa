@@ -15,3 +15,7 @@ Los gastos y compras capturados (por Jorge o desde la página del cajero, `/capt
 también solo en la caja. Las fotos de tickets NO se guardan en la computadora: se leen y, si Google Drive está conectado,
 se suben directo a la carpeta "Fotos de tickets - La Holandesa" del Drive de Jorge (con un Apps Script propio), de donde se pueden borrar todas. Los cajeros entran a `/captura` con su clave (se guarda solo la huella en `cajeros.json`). La llave de la API de Claude
 para leer tickets se guarda en config.json; nunca se sube aquí.
+
+Comandero (`/comandero`, versión 26.0): los meseros entran con una clave de 4 números que Jorge asigna en Reportes → Meseros
+(se guarda solo la huella en `meseros.json`, en la caja). Ligado al código de vendedor de MrTienda. Por ahora solo lee:
+menú táctil, precios Comedor/Recoger aquí, variantes y cuentas abiertas. Todavía no escribe en MrTienda.

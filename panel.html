@@ -597,7 +597,7 @@ function rMeseros(){
   return conFechas()+(L.length?`<div class="card"><h2>Venta por mesero <small>${ds.length} días</small></h2>${bars(L.filter(o=>o.tk).map(o=>({n:o.n,v:o.venta,sub:`${o.tk} tickets · promedio ${fmt(o.venta/o.tk)}${o.min.length?' · '+dur(Math.round(o.min.reduce((a,b)=>a+b,0)/o.min.length))+' por mesa':''}`})))}</div>
   <div class="card"><h2>Descuentos y borrados <small>quién los hizo o autorizó</small></h2><div class="tscroll"><table class="tk num"><thead><tr><th>Persona</th><th class="r">Desc.</th><th class="r">Importe</th><th class="r">Borr.</th><th class="r">Importe</th></tr></thead><tbody>
     ${L.filter(o=>o.ndesc||o.nborr).sort((a,b)=>(b.desc+b.borr)-(a.desc+a.borr)).map(o=>`<tr><td>${esc(o.n)}</td><td class="r">${o.ndesc}</td><td class="r">${fmt(o.desc)}</td><td class="r">${o.nborr}</td><td class="r">${fmt(o.borr)}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">Sin descuentos ni borrados.</td></tr>'}</tbody></table></div>
-    <p class="empty" style="margin-top:10px">Si alguien concentra muchos descuentos o borrados, vale la pena revisar sus tickets.</p></div>`:'<p class="empty">Sin ventas en estas fechas.</p>');
+    <p class="empty" style="margin-top:10px">Si alguien concentra muchos descuentos o borrados, vale la pena revisar sus tickets.</p></div>`:'<p class="empty">Sin ventas en estas fechas.</p>')+tarjetaComandero();
 }
 function rCalor(){
   const ds=days.filter(d=>d<=cur).slice(-56), M={}, C={};
@@ -892,6 +892,34 @@ function bloqueAcceso(){
     <div class="btns" style="margin-top:6px"><a class="btn pri" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">Mandar por WhatsApp</a><button class="btn" data-cpurl="${esc(url)}">Copiar dirección</button></div>
     <p class="empty" style="margin-top:8px">Funciona solo con el teléfono conectado al WiFi del restaurante. La clave no va en el mensaje; dásela tú en persona o aparte.${ts.length?` Tú, desde fuera, puedes probarla con Tailscale: http://${esc(ts[0])}:${ACCESO.puerto}/captura`:''}</p></div>`;
 }
+// ---- comandero: meseros con clave de 4 números (Reportes → Meseros)
+let NUEVO_MS=null;
+function bloqueComandero(){
+  const wifi=ACCESO.ips.filter(ip=>!ip.startsWith('100.')), ts=ACCESO.ips.filter(ip=>ip.startsWith('100.'));
+  const url=wifi.length?`http://${wifi[0]}:${ACCESO.puerto}/comandero`:'';
+  if(!url) return `<p class="note" style="margin-top:12px">No pude saber la dirección de la computadora de la caja en el WiFi del restaurante. Avísale a Claude.</p>`;
+  const quien=NUEVO_MS||'';
+  const msg=`Hola${quien?' '+quien:''}. Este es el comandero de La Holandesa:\n1. Conecta tu teléfono al WiFi del restaurante.\n2. Abre esta dirección: ${url}\n3. Entra con la clave que te di.\n4. En el navegador toca "Agregar a pantalla de inicio" para que te quede como app.`;
+  return `<div class="card" style="margin-top:12px;padding:14px;background:var(--green-soft);box-shadow:none;border-color:var(--green-3)">
+    <b>${quien?'Mándale esto a '+esc(quien):'Dirección del comandero'}</b>
+    <p style="margin:8px 0;font-size:17px;font-weight:700;word-break:break-all;user-select:all" class="num">${esc(url)}</p>
+    <div class="btns" style="margin-top:6px"><a class="btn pri" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">Mandar por WhatsApp</a><button class="btn" data-cpurl="${esc(url)}">Copiar dirección</button></div>
+    <p class="empty" style="margin-top:8px">Funciona en iPhone y Android, conectado al WiFi del restaurante. La clave no va en el mensaje; dásela tú en persona.${ts.length?` Tú, desde fuera, puedes probarlo con Tailscale: http://${esc(ts[0])}:${ACCESO.puerto}/comandero`:''}</p></div>`;
+}
+function tarjetaComandero(){
+  if(COPIA) return '';
+  const MS=(DATA.meseros||[]).filter(m=>m.activo), con=new Set(MS.map(m=>m.cod));
+  const libres=(DATA.emp_mrtienda||[]).filter(e=>!con.has(e.cod));
+  return `<div class="card"><h2>Comandero <small>${MS.length} con acceso</small></h2>
+    <p class="empty">Cada mesero entra al comandero con su clave de 4 números. Las cuentas salen a su nombre en MrTienda, igual que en la caja. Por ahora es la versión de prueba: muestra el menú y las cuentas reales, pero todavía no manda pedidos.</p>
+    ${MS.length?`<div class="list" style="margin-top:10px">${MS.map(m=>`<div class="item"><span>${esc(m.nombre)}${m.en_mrtienda?'':' <span class="pill bad">Baja en MrTienda</span>'}</span><span style="font-size:13px;white-space:nowrap"><a href="#" data-msclave="${esc(m.id)}" style="color:var(--green-2)">Cambiar clave</a> · <a href="#" data-msbaja="${esc(m.id)}" style="color:var(--bad)">Quitar acceso</a></span><span class="meta">Código ${esc(m.cod)} · alta ${m.alta?corto(m.alta.slice(0,10)):''}</span></div>`).join('')}</div>`:'<p class="empty" style="margin-top:10px">Todavía no das de alta a nadie.</p>'}
+    ${libres.length?`<div style="display:grid;grid-template-columns:1fr 110px;gap:8px;margin-top:12px">
+      <select id="msC" style="height:44px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--ink);padding:0 10px;font:15px var(--body);min-width:0"><option value="">Elige de MrTienda…</option>${libres.map(e=>`<option value="${esc(e.cod)}">${esc(e.nombre)}</option>`).join('')}</select>
+      <input id="msP" inputmode="numeric" maxlength="4" placeholder="Clave" autocomplete="off" style="height:44px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--ink);padding:0 12px;font:15px var(--body);min-width:0;text-align:center;letter-spacing:.2em"></div>`:''}
+    <div class="btns">${libres.length?'<button class="btn pri" data-msalta="1">Dar acceso</button>':''}<button class="btn" data-msacceso="1">Dirección del comandero</button></div>
+    ${ACCESO&&ACCESO.cmd?bloqueComandero():''}
+    <p class="empty" style="margin-top:10px">La lista sale de los usuarios activos de MrTienda. La clave es de 4 números y no se puede repetir. Si alguien se da de baja en MrTienda, su clave deja de funcionar sola.</p></div>`;
+}
 function tarjetasCajeros(){
   const C=(DATA.cajeros||[]).filter(c=>c.activo), ia=DATA.ia||{};
   const pend=GA().movs.filter(m=>m.foto&&!(m.items&&m.items.length)&&!(m.lectura&&m.lectura.intentado)).length;
@@ -1076,6 +1104,11 @@ async function accionAdmin(t,d){
     else if(d.cjclave){const c=(DATA.cajeros||[]).find(x=>x.id===d.cjclave);const pin=prompt('Nueva clave para '+(c?c.nombre:'el cajero')+' (4 a 6 números):');if(!pin){t.disabled=false;return}
       await api('/api/cajeros',{accion:'clave',id:d.cjclave,pin:pin.trim()});toast('Clave cambiada. La anterior ya no sirve.')}
     else if(d.cjbaja){if(!confirm('¿Dar de baja a este cajero? Su clave dejará de funcionar.')){t.disabled=false;return}await api('/api/cajeros',{accion:'baja',id:d.cjbaja});toast('Dado de baja')}
+    else if(d.msalta){const sel=$('#msC'),nom=sel&&sel.selectedIndex>0?sel.options[sel.selectedIndex].text:'';await api('/api/meseros',{accion:'alta',cod:sel?sel.value:'',pin:$('#msP').value.trim()});NUEVO_MS=nom;
+      try{ACCESO=await (await fetch('/api/acceso',{credentials:'same-origin'})).json();ACCESO.cmd=true}catch(e){}toast(nom+' ya tiene acceso al comandero')}
+    else if(d.msclave){const m=(DATA.meseros||[]).find(x=>x.id===d.msclave);const pin=prompt('Nueva clave para '+(m?m.nombre:'el mesero')+' (4 números):');if(!pin){t.disabled=false;return}
+      await api('/api/meseros',{accion:'clave',id:d.msclave,pin:pin.trim()});toast('Clave cambiada. La anterior ya no sirve.')}
+    else if(d.msbaja){if(!confirm('¿Quitarle el acceso al comandero? Su clave dejará de funcionar.')){t.disabled=false;return}await api('/api/meseros',{accion:'baja',id:d.msbaja});toast('Acceso quitado')}
     else if(d.iasave){await api('/api/ia',{llave:$('#iaK').value});toast('Llave guardada; la lectura automática está activa')}
     else if(d.iaquitar){if(!confirm('¿Quitar la llave? Se apaga la lectura automática.')){t.disabled=false;return}await api('/api/ia',{quitar:true});toast('Llave quitada')}
     else if(d.drconectar){t.textContent='Probando…';await api('/api/drive',{accion:'guardar',url:$('#drU').value});toast('Google Drive conectado')}
@@ -1176,7 +1209,7 @@ $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(b)irA(b.dataset.tab)};
 $('#view').addEventListener('click',e=>{
-  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-iasave],[data-iaquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes]');if(!t)return;
+  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes]');if(!t)return;
   const d=t.dataset;
   if(d.go) return irA(d.go);
   if(d.pm){prodModo=d.pm;return render()} if(d.pt){prodT=d.pt;return render()}
@@ -1201,8 +1234,9 @@ $('#view').addEventListener('click',e=>{
   if(d.drver){fetch('/api/drive-script',{credentials:'same-origin'}).then(r=>r.text()).then(t=>{DSCRIPT=t;render()}).catch(err=>toast(err.message));return}
   if(d.drcopiar){const ta=$('#drS');ta.select();(navigator.clipboard?navigator.clipboard.writeText(ta.value):Promise.reject()).then(()=>toast('Programa copiado')).catch(()=>{document.execCommand('copy');toast('Programa copiado')});return}
   if(d.famalta||d.fambaja){e.preventDefault();(async()=>{try{t.disabled=true;await api('/api/familia',{accion:d.famalta?'alta':'baja',nombre:d.famalta?$('#famN').value:d.fambaja});toast(d.famalta?'Agregado':'Quitado');await cargar(true)}catch(err){toast(err.message);t.disabled=false}})();return}
-  if(d.cjalta||d.cjbaja||d.cjclave||d.iasave||d.iaquitar||d.leerpend||d.drconectar||d.drquitar||d.drborrar||d.drmes){e.preventDefault();accionAdmin(t,d);return}
+  if(d.msalta||d.msbaja||d.msclave||d.cjalta||d.cjbaja||d.cjclave||d.iasave||d.iaquitar||d.leerpend||d.drconectar||d.drquitar||d.drborrar||d.drmes){e.preventDefault();accionAdmin(t,d);return}
   if(d.cpurl){(navigator.clipboard?navigator.clipboard.writeText(d.cpurl):Promise.reject()).then(()=>toast('Dirección copiada')).catch(()=>toast(d.cpurl));return}
+  if(d.msacceso){e.preventDefault();NUEVO_MS=null;fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;ACCESO.cmd=true;render()}).catch(err=>toast(err.message));return}
   if(d.acceso){NUEVO_CJ=null;fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;render()}).catch(err=>toast(err.message));return}
   if(d.fcsave&&CAPMODE){e.preventDefault();guardarCompra(t,false).then(()=>{toast('Compra guardada ✓');window.scrollTo(0,0);return cargarCaptura()}).catch(err=>{toast(err.message);t.disabled=false;t.textContent='Guardar'});return}
   if(d.gimp||d.gdel||d.fsave||d.fcsave||d.rcsave||d.rcdel){e.preventDefault();guardarGasto(t,d);return}
