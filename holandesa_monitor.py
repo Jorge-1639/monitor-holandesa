@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 51            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '27.7'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 52            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '27.8'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -494,6 +494,7 @@ function autorizar() { carpeta_(); }
 # ---------------------------------------------------------------- cajeros y lectura de tickets: utilidades
 SESIONES = {}   # token -> (nombre, vence)
 SESIONES_M = {} # comandero: token -> (id del mesero, vence)
+SESIONES_R = {} # captura del rol de descansos (encargada): token -> (nombre, vence)
 FALLOS = {}     # ip -> [intentos, bloqueado_hasta]
 # ------------------------------------------------ PDF de bienvenida al comandero (sin paquetes extra)
 # Anchos de Helvetica (1/1000 de punto) para acomodar renglones; lo que no esté vale 556.
@@ -1539,7 +1540,7 @@ class Monitor:
         try:
             with open(RH_FILE, encoding='utf-8') as f: d = json.load(f)
         except (OSError, ValueError): d = {}
-        for k, v in (('empleados', []), ('roles', {}), ('nominas', {}), ('prestamos', []), ('vales', [])):
+        for k, v in (('empleados', []), ('roles', {}), ('roles_meta', {}), ('nominas', {}), ('prestamos', []), ('vales', []), ('acceso_rol', {})):
             if not isinstance(d.get(k), type(v)): d[k] = v
         return d
 
@@ -1554,6 +1555,8 @@ class Monitor:
 
     def rh_info(self):
         d = self.rh()
+        ac = d.get('acceso_rol') or {}
+        d['acceso_rol'] = {'nombre': ac.get('nombre', ''), 'activo': bool(ac.get('activo') and ac.get('huella')), 'desde': ac.get('desde', '')}
         d['puestos'] = PUESTOS
         d['emp_mrtienda'] = sorted([{'cod': k, 'nombre': v} for k, v in getattr(self, 'EMP', {}).items() if v], key=lambda e: e['nombre'])
         try: d['vales_caja'] = self.vales_caja()
@@ -1561,6 +1564,73 @@ class Monitor:
         d['comidas'] = [{'fecha': q.get('fecha'), 'persona': q.get('persona'), 'total': q.get('total')} for q in self.quitadas() if q.get('motivo') == 'Empleado']
         d['hoy'] = datetime.date.today().isoformat()
         return d
+
+    def _rol_poner(self, d, sem, emp, dias, quien):
+        # guarda el rol de un empleado y anota quién lo capturó y quién lo corrigió después
+        d['roles'].setdefault(sem, {})[emp] = dias
+        m = d['roles_meta'].setdefault(sem, {}).get(emp) or {}
+        m.update({'por': quien, 'cuando': datetime.datetime.now().isoformat(timespec='minutes')})
+        m.setdefault('primero', quien)
+        d['roles_meta'][sem][emp] = m
+
+    # Captura del rol de descansos por la encargada (27.8): su propia dirección (/descansos) y su clave de 4 números.
+    # Solo ve nombres y puestos (nada de sueldos, nómina, vales ni préstamos) y solo puede capturar el rol.
+    def login_rol(self, pin, ip):
+        ahora = time.time(); k = 'r:' + ip; f = FALLOS.get(k, [0, 0])
+        if f[1] > ahora: raise RuntimeError('Demasiados intentos. Espera unos minutos.')
+        ac = self.rh().get('acceso_rol') or {}
+        if ac.get('activo') and verifica_pin(ac, str(pin or '')):
+            FALLOS.pop(k, None); tok = secrets.token_urlsafe(24)
+            SESIONES_R[tok] = (ac.get('nombre') or 'Encargada', ahora + 30 * 24 * 3600)
+            return {'ok': True, 'token': tok, 'nombre': ac.get('nombre') or 'Encargada'}
+        f[0] += 1
+        if f[0] >= 5: f = [0, ahora + 300]
+        FALLOS[k] = f
+        raise RuntimeError('Clave incorrecta.')
+
+    def rol_de(self, tok):
+        s_ = SESIONES_R.get(tok or '')
+        if not s_ or s_[1] < time.time(): SESIONES_R.pop(tok or '', None); return None
+        return s_[0]
+
+    def rol_info(self, sem=''):
+        d = self.rh(); hoy = datetime.date.today()
+        try: f = datetime.date.fromisoformat(sem)
+        except ValueError: f = hoy
+        lun = (f - datetime.timedelta(days=f.weekday())).isoformat()
+        emps = sorted([e for e in d['empleados'] if e.get('activo', True)], key=lambda e: (PUESTOS.index(e['puesto']) if e.get('puesto') in PUESTOS else 99, e.get('nombre', '')))
+        pagados = {k for k, v in (d['nominas'].get(lun) or {}).items() if v.get('pagada')}
+        return {'ok': True, 'semana': lun, 'hoy': hoy.isoformat(),
+                'empleados': [{'id': e['id'], 'nombre': e.get('nombre', ''), 'puesto': e.get('puesto', ''), 'descanso': e.get('descanso', ''),
+                               'horario': (e.get('entrada', '') + '–' + e.get('salida', '')) if e.get('entrada') and e.get('salida') else '', 'pagada': e['id'] in pagados} for e in emps],
+                'rol': d['roles'].get(lun) or {}, 'meta': d['roles_meta'].get(lun) or {},
+                'anterior_tiene': bool(d['roles'].get((datetime.date.fromisoformat(lun) - datetime.timedelta(days=7)).isoformat()))}
+
+    def rol_accion_enc(self, quien, a):
+        d = self.rh(); acc = a.get('accion')
+        try: lun = datetime.date.fromisoformat(str(a.get('semana') or ''))
+        except ValueError: raise ValueError('Revisa la semana.')
+        if lun.weekday() != 0: raise ValueError('Revisa la semana.')
+        sem = lun.isoformat()
+        if lun < datetime.date.today() - datetime.timedelta(days=35): raise ValueError('Esa semana ya pasó hace mucho. Si hay que corregirla, avísale a Jorge.')
+        pagados = {k for k, v in (d['nominas'].get(sem) or {}).items() if v.get('pagada')}
+        activos = {e['id'] for e in d['empleados'] if e.get('activo', True)}
+        if acc == 'guardar':
+            emp = a.get('emp')
+            if emp not in activos: raise ValueError('No encontré a ese empleado.')
+            if emp in pagados: raise ValueError('La nómina de esa semana ya se pagó. Si hay que corregir algo, avísale a Jorge.')
+            dias = [c if c in ('T', 'D', 'F', 'V', 'I') else 'T' for c in (a.get('dias') or [])][:7]
+            if len(dias) != 7: raise ValueError('Faltan días.')
+            self._rol_poner(d, sem, emp, dias, quien)
+        elif acc == 'copiar':
+            ant = (lun - datetime.timedelta(days=7)).isoformat()
+            if not d['roles'].get(ant): raise ValueError('La semana anterior no tiene rol capturado.')
+            for k, v in d['roles'][ant].items():
+                if k in activos and k not in pagados: self._rol_poner(d, sem, k, list(v), quien)
+        else: raise ValueError('Acción no válida.')
+        self._rh_guardar(d)
+        log('Rol de descansos: ' + quien + ' capturó la semana ' + sem)
+        return self.rol_info(sem)
 
     def vales_caja(self):
         # salidas de caja de MrTienda que la cajera capturó como vale (últimos 70 días)
@@ -1608,11 +1678,23 @@ class Monitor:
         elif acc == 'rol_guardar':
             sem = fecha(a.get('semana'), True); dias = [c if c in ('T', 'D', 'F', 'V', 'I') else 'T' for c in (a.get('dias') or [])][:7]
             if len(dias) != 7: raise ValueError('Faltan días.')
-            d['roles'].setdefault(sem, {})[emp_id(a.get('emp'))] = dias
+            self._rol_poner(d, sem, emp_id(a.get('emp')), dias, 'Jorge')
         elif acc == 'rol_copiar':
             sem, ant = fecha(a.get('semana'), True), fecha(a.get('anterior'), True)
             if ant not in d['roles']: raise ValueError('La semana anterior no tiene rol capturado.')
-            d['roles'][sem] = {k: list(v) for k, v in d['roles'][ant].items()}
+            for k, v in d['roles'][ant].items(): self._rol_poner(d, sem, k, list(v), 'Jorge')
+        elif acc == 'acceso_rol':
+            pin = txt(a.get('pin'), 8); nombre = txt(a.get('nombre'), 40).title() or 'Encargada'
+            if not re.fullmatch(r'\d{4}', pin): raise ValueError('La clave debe ser de 4 números.')
+            if any(x.get('activo') and verifica_pin(x, pin) for x in self.meseros()): raise ValueError('Esa clave ya la tiene un mesero. Escoge otra.')
+            sal = secrets.token_hex(8)
+            d['acceso_rol'] = {'nombre': nombre, 'sal': sal, 'huella': huella_pin(sal, pin), 'clave': pin, 'activo': True, 'desde': datetime.date.today().isoformat()}
+            for t_ in [t_ for t_, v in SESIONES_R.items()]: SESIONES_R.pop(t_, None)   # la clave anterior deja de servir
+        elif acc == 'acceso_rol_quitar':
+            d['acceso_rol'] = {}
+            SESIONES_R.clear()
+        elif acc == 'acceso_rol_ver':
+            return {'ok': True, 'clave': (d.get('acceso_rol') or {}).get('clave', '')}
         elif acc == 'nomina_guardar':
             sem = fecha(a.get('semana'), True); c = a.get('campos') or {}
             d['nominas'].setdefault(sem, {})[emp_id(a.get('emp'))] = {k: num(c.get(k)) for k in ('base', 'extras', 'comida', 'vales', 'abono', 'otros', 'transfer')} | {'nota': txt(c.get('nota'), 200), 'pagada': bool(c.get('pagada'))}
@@ -2012,6 +2094,8 @@ def make_handler(mon, cfg):
     page_cmd = _leer('comandero.html')
     logo_cmd = _leer('logo_comandero.png')
     icon_rh = _leer('icon_personal.png')
+    page_rol = _leer('descansos.html')
+    manifest_rol = json.dumps({'name':'Descansos La Holandesa','short_name':'Descansos','start_url':'/descansos','display':'standalone','background_color':'#f3f6f2','theme_color':'#1d5c3b','icons':[{'src':'/icon_personal.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
     manifest_rh = json.dumps({'name':'Personal Holandesa','short_name':'Personal','start_url':'/personal','display':'standalone','background_color':'#f3f6f2','theme_color':'#1d5c3b','icons':[{'src':'/icon_personal.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
     manifest_cmd = json.dumps({'name':'Comandero La Holandesa','short_name':'Comandero','start_url':'/comandero','display':'standalone','background_color':'#f3f6f2','theme_color':'#1d5c3b','icons':[{'src':'/logo_comandero.png','sizes':'240x336','type':'image/png','purpose':'any'}]}, ensure_ascii=False).encode('utf-8')
     manifest = json.dumps({'name':'Control Holandesa','short_name':'Control Holandesa','start_url':'/','display':'standalone','background_color':'#fbf6f1','theme_color':'#ea580c','icons':[{'src':'/icon.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
@@ -2052,6 +2136,20 @@ def make_handler(mon, cfg):
                 except Exception as e:
                     body = json.dumps({'ok': False, 'error': str(e)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(403); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
+            if self.path in ('/api/rol-login', '/api/rol'):
+                try:
+                    n = min(int(self.headers.get('Content-Length', '0') or 0), 8192)
+                    d = json.loads(self.rfile.read(n).decode('utf-8'))
+                    if self.path == '/api/rol-login': out = mon.login_rol(d.get('pin'), self.client_address[0])
+                    else:
+                        q_ = mon.rol_de(self.headers.get('X-Rol-Token'))
+                        if not q_: raise PermissionError('Tu sesión terminó. Vuelve a entrar con tu clave.')
+                        out = mon.rol_accion_enc(q_, d)
+                    return self._send(json.dumps(out, ensure_ascii=False).encode('utf-8'), 'application/json; charset=utf-8')
+                except Exception as e:
+                    if not isinstance(e, (ValueError, PermissionError, RuntimeError)): log('Rol de descansos: ' + traceback.format_exc())
+                    body = json.dumps({'ok': False, 'error': str(e), 'sesion': not isinstance(e, PermissionError)}, ensure_ascii=False).encode('utf-8')
+                    self.send_response(409); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
             if self.path == '/api/comandero/enviar':
                 m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'), self.client_address[0])
                 try:
@@ -2133,6 +2231,20 @@ def make_handler(mon, cfg):
                 return self._send(page_cmd, 'text/html; charset=utf-8')   # la página no trae datos; pide la clave del mesero
             if p0 == '/manifest-comandero.webmanifest':
                 return self._send(manifest_cmd, 'application/manifest+json; charset=utf-8')
+            if p0 in ('/descansos', '/descansos/'):
+                if not page_rol: self.send_response(404); self.end_headers(); return
+                return self._send(page_rol, 'text/html; charset=utf-8')   # la página no trae datos; pide la clave de la encargada
+            if p0 == '/manifest-descansos.webmanifest':
+                return self._send(manifest_rol, 'application/manifest+json; charset=utf-8')
+            if p0 == '/api/rol-info':
+                q_ = mon.rol_de(self.headers.get('X-Rol-Token'))
+                if not q_:
+                    body = b'{"ok":false,"sesion":false,"error":"Tu sesion termino. Vuelve a entrar con tu clave."}'
+                    self.send_response(401); self.send_header('Content-Type', 'application/json'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
+                import urllib.parse
+                sem = (urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get('semana') or [''])[0]
+                out = mon.rol_info(sem); out['nombre'] = q_
+                return self._send(json.dumps(out, ensure_ascii=False).encode('utf-8'), 'application/json; charset=utf-8')
             if p0 == '/manifest-personal.webmanifest':
                 return self._send(manifest_rh, 'application/manifest+json; charset=utf-8')
             if p0 == '/icon_personal.png' and icon_rh:

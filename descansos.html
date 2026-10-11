@@ -1,0 +1,157 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Descansos La Holandesa</title>
+<link rel="manifest" href="/manifest-descansos.webmanifest">
+<link rel="apple-touch-icon" href="/icon_personal.png">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1d5c3b">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=Public+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --bg:#f3f6f2; --surface:#ffffff; --ink:#15231a; --muted:#5d6e62; --line:#dbe4dc;
+  --green:#1d5c3b; --green-2:#2f7d52; --green-soft:#e2efe5; --on-green:#ffffff;
+  --bad:#b3322a; --bad-bg:#fbe5e2; --good:#1f7a45; --good-bg:#dcf1e3; --off:#5d6e62; --off-bg:#eef1ee;
+  --vac:#2563eb; --vac-bg:#dbeafe; --inc:#7c3aed; --inc-bg:#ede9fe;
+  --display:"Archivo","Arial Narrow",system-ui,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e1611; --surface:#16211a; --ink:#e6efe8; --muted:#97a99c; --line:#26352b;
+  --green:#7cc79a; --green-2:#5fb283; --green-soft:#1d3226; --on-green:#0e1611;
+  --bad:#f08b80; --bad-bg:#3a1a17; --good:#7cc79a; --good-bg:#1d3226; --off:#97a99c; --off-bg:#202c24;
+  --vac:#93b4f5; --vac-bg:#1c2a45; --inc:#c4a8f7; --inc-bg:#2c2142; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1611; --surface:#16211a; --ink:#e6efe8; --muted:#97a99c; --line:#26352b;
+  --green:#7cc79a; --green-2:#5fb283; --green-soft:#1d3226; --on-green:#0e1611;
+  --bad:#f08b80; --bad-bg:#3a1a17; --good:#7cc79a; --good-bg:#1d3226; --off:#97a99c; --off-bg:#202c24;
+  --vac:#93b4f5; --vac-bg:#1c2a45; --inc:#c4a8f7; --inc-bg:#2c2142; color-scheme:dark}
+*{box-sizing:border-box}[hidden]{display:none!important}
+html,body{background:var(--bg)}
+body{color:var(--ink);font:16px/1.4 var(--body);margin:0;-webkit-tap-highlight-color:transparent;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+.app{max-width:560px;margin:0 auto;padding:0 16px 110px}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible{outline:2px solid var(--green-2);outline-offset:2px}
+.login{display:flex;flex-direction:column;align-items:center;gap:14px;padding:36px 0 40px;text-align:center}
+.marca{font:800 30px/1 var(--display);font-stretch:80%;letter-spacing:.14em;text-transform:uppercase;color:var(--green);margin:0}
+.login p{margin:0;color:var(--muted)}
+.dots{display:flex;gap:12px;justify-content:center;height:18px}
+.dots i{width:14px;height:14px;border-radius:50%;border:2px solid var(--green)}
+.dots i.on{background:var(--green)}
+.pad{display:grid;grid-template-columns:repeat(3,72px);gap:12px;justify-content:center}
+.pad button{height:64px;border-radius:50%;border:1px solid var(--line);background:var(--surface);font:700 24px var(--display)}
+.pad button.ghost{border:0;background:none;font:600 14px var(--body);color:var(--muted)}
+.err{color:var(--bad);font-weight:600;min-height:22px;font-size:14px}
+.top{position:sticky;top:0;z-index:5;background:var(--bg);padding:12px 0 10px;border-bottom:1px solid var(--line)}
+.top h1{font:800 20px/1.1 var(--display);font-stretch:85%;text-transform:uppercase;letter-spacing:.04em;margin:0;color:var(--green)}
+.top .fila{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.top small{color:var(--muted);font-size:13px}
+.salir{border:1px solid var(--line);background:var(--surface);border-radius:20px;padding:6px 12px;font-size:13px;font-weight:600}
+.sem{display:flex;align-items:center;gap:8px;margin-top:10px}
+.sem button{border:1px solid var(--line);background:var(--surface);border-radius:10px;width:44px;height:44px;font-size:22px;flex:none}
+.sem b{flex:1;text-align:center;font-size:16px}
+.ley{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:13px;color:var(--muted);margin:12px 0 4px}
+.ley span b{display:inline-block;width:22px;text-align:center;border-radius:6px;margin-right:3px}
+.emp{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;margin-top:10px}
+.emp h3{margin:0;font-size:15px;line-height:1.25}
+.emp .sub{font-size:13px;color:var(--muted);margin-top:2px}
+.dias{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-top:10px}
+.dias div{text-align:center;font-size:11px;color:var(--muted);font-weight:600}
+.dias button{width:100%;height:46px;border-radius:10px;border:1.5px solid;font:800 17px var(--display);margin-top:3px}
+.dias button:disabled{opacity:.6;cursor:default}
+.est{font-size:12px;margin-top:8px;color:var(--muted)}
+.est.no{color:var(--bad);font-weight:600}
+.est.si{color:var(--good);font-weight:600}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px 14px;font-weight:700;width:100%;margin-top:12px}
+.btn.pri{background:var(--green);color:var(--on-green);border-color:var(--green)}
+.nota{font-size:13px;color:var(--muted);margin-top:14px}
+.aviso{background:var(--bad-bg);color:var(--bad);border-radius:10px;padding:10px 12px;font-size:14px;margin-top:12px;font-weight:600}
+.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;font-weight:600;z-index:30;max-width:90%;text-align:center}
+</style></head>
+<body><div class="app" id="app"></div>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const DIAS=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'], DIAS_L=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+const EST={T:['Trabaja','--good'],D:['Descansa','--off'],F:['Faltó','--bad'],V:['Vacaciones','--vac'],I:['Incapacidad','--inc']}, CICLO=['T','D','F','V','I'];
+const MES=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+const pd=s=>{const [y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)};
+const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const mas=(s,n)=>{const d=pd(s);d.setDate(d.getDate()+n);return iso(d)};
+const corta=s=>{const d=pd(s);return d.getDate()+' '+MES[d.getMonth()]};
+const tok=()=>{try{return localStorage.getItem('hol_rol_tok')||''}catch(e){return ''}};
+const setTok=t=>{try{t?localStorage.setItem('hol_rol_tok',t):localStorage.removeItem('hol_rol_tok')}catch(e){}};
+function toast(t){const o=document.createElement('div');o.className='toast';o.textContent=t;document.body.appendChild(o);setTimeout(()=>o.remove(),3000)}
+let INFO=null, SEM=null, PIN='', OCUPADO=false;
+
+// ---------- entrar con la clave
+function pintarLogin(msg){
+  PIN='';
+  $('#app').innerHTML=`<div class="login"><p class="marca">La Holandesa</p><p><b>Rol de descansos</b><br>Escribe tu clave</p>
+    <div class="dots" id="dots">${'<i></i>'.repeat(4)}</div><div class="err" id="err">${esc(msg||'')}</div>
+    <div class="pad">${[1,2,3,4,5,6,7,8,9].map(n=>`<button data-n="${n}">${n}</button>`).join('')}<button class="ghost" data-n="b">Borrar</button><button data-n="0">0</button><span></span></div></div>`;
+}
+async function tecla(n){
+  if(OCUPADO)return;
+  if(n==='b')PIN=PIN.slice(0,-1);else if(PIN.length<4)PIN+=n;
+  document.querySelectorAll('#dots i').forEach((i,k)=>i.classList.toggle('on',k<PIN.length));
+  if(PIN.length<4)return;
+  OCUPADO=true;
+  try{const r=await fetch('/api/rol-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin:PIN})});const j=await r.json();
+    if(!j.ok)throw new Error(j.error||'No se pudo entrar.');setTok(j.token);OCUPADO=false;cargar()}
+  catch(e){OCUPADO=false;pintarLogin(e.message==='Failed to fetch'?'No pude conectarme. Revisa que estés en el WiFi del restaurante.':e.message)}
+}
+
+// ---------- datos
+async function cargar(sem){
+  if(!tok())return pintarLogin();
+  try{const r=await fetch('/api/rol-info?semana='+(sem||SEM||'')+'&t='+Date.now(),{cache:'no-store',headers:{'X-Rol-Token':tok()}});
+    if(r.status===401){setTok('');return pintarLogin('Tu sesión terminó. Entra otra vez.')}
+    const j=await r.json();if(!j.ok)throw new Error(j.error||'');INFO=j;SEM=j.semana;pintar()}
+  catch(e){$('#app').innerHTML=`<div class="login"><p class="marca">La Holandesa</p><div class="aviso">No pude conectarme con la computadora de la caja. Revisa que estés en el WiFi del restaurante y que la caja esté prendida.</div><button class="btn pri" onclick="cargar()">Intentar otra vez</button></div>`}
+}
+async function enviar(body){
+  const r=await fetch('/api/rol',{method:'POST',headers:{'Content-Type':'application/json','X-Rol-Token':tok()},body:JSON.stringify(Object.assign({semana:SEM},body))});
+  const j=await r.json().catch(()=>({ok:false,error:'Respuesta inválida'}));
+  if(j.sesion===false){setTok('');pintarLogin(j.error);throw new Error('')}
+  if(!j.ok)throw new Error(j.error||'No se pudo guardar.');INFO=j;SEM=j.semana;return j;
+}
+const rolDe=e=>{const r=INFO.rol[e.id];if(r)return {d:r,g:true};const i=DIAS_L.indexOf(e.descanso);return {d:DIAS.map((_,k)=>k===i?'D':'T'),g:false}};
+const hora=s=>{if(!s)return '';const d=new Date(s);let h=d.getHours(),m=String(d.getMinutes()).padStart(2,'0'),ap=h<12?'am':'pm';h=h%12||12;return corta(iso(d))+', '+h+':'+m+' '+ap};
+
+// ---------- pantalla principal
+function pintar(){
+  const E=INFO.empleados, falta=E.filter(e=>!INFO.rol[e.id]&&!e.pagada).length;
+  const ley=Object.entries(EST).map(([k,v])=>`<span><b style="color:var(${v[1]});background:var(${v[1]}-bg)">${k}</b>${v[0]}</span>`).join('');
+  const tarjetas=E.map(e=>{
+    const r=rolDe(e), m=INFO.meta[e.id];
+    const est=e.pagada?'<div class="est">Nómina ya pagada: solo Jorge la puede cambiar.</div>'
+      :!r.g?'<div class="est no">Sin guardar · se propone con su día de descanso</div>'
+      :`<div class="est si">✓ Guardado${m?' · '+esc(m.por)+' · '+hora(m.cuando):''}</div>`;
+    return `<div class="emp"><h3>${esc(e.nombre)}</h3><div class="sub">${esc(e.puesto)}${e.horario?' · '+esc(e.horario):''}</div>
+      <div class="dias">${r.d.map((c,i)=>`<div>${DIAS[i]} ${pd(mas(SEM,i)).getDate()}<button data-e="${e.id}" data-i="${i}" ${e.pagada?'disabled':''} aria-label="${DIAS_L[i]}: ${EST[c][0]}" style="color:var(${EST[c][1]});background:var(${EST[c][1]}-bg);border-color:var(${EST[c][1]})">${c}</button></div>`).join('')}</div>${est}</div>`}).join('');
+  $('#app').innerHTML=`<div class="top"><div class="fila"><div><h1>Rol de descansos</h1><small>${esc(INFO.nombre)}</small></div><button class="salir" data-salir="1">Salir</button></div>
+    <div class="sem"><button data-sem="-7" aria-label="Semana anterior">‹</button><b>Semana del ${corta(SEM)} al ${corta(mas(SEM,6))}</b><button data-sem="7" aria-label="Semana siguiente">›</button></div></div>
+    <div class="ley">${ley}</div>
+    <p class="nota" style="margin-top:4px">Toca un día para cambiarlo. Se guarda solo.</p>
+    ${E.length?tarjetas:'<div class="aviso">Todavía no hay empleados dados de alta. Avísale a Jorge.</div>'}
+    ${INFO.anterior_tiene?'<button class="btn" data-copiar="1">Copiar la semana anterior</button>':''}
+    ${falta?`<button class="btn pri" data-confirmar="1">${falta===1?'Guardar el que falta como está':'Guardar los '+falta+' que faltan como están'}</button>`:E.length?'<p class="nota" style="text-align:center;font-weight:600;color:var(--good)">✓ Toda la semana está capturada</p>':''}
+    <p class="nota">Lo que captures aquí le llega a Jorge en Recursos Humanos. Él lo revisa y lo puede corregir.</p>`;
+}
+
+document.addEventListener('click',async ev=>{
+  const t=ev.target.closest('button');if(!t)return;const d=t.dataset;
+  if(d.n!==undefined)return tecla(d.n);
+  if(d.salir){setTok('');INFO=null;return pintarLogin()}
+  if(d.sem){return cargar(mas(SEM,+d.sem))}
+  if(OCUPADO)return;OCUPADO=true;
+  try{
+    if(d.e){const e=INFO.empleados.find(x=>x.id===d.e),r=rolDe(e).d.slice();r[+d.i]=CICLO[(CICLO.indexOf(r[+d.i])+1)%CICLO.length];
+      t.textContent=r[+d.i];await enviar({accion:'guardar',emp:d.e,dias:r});pintar()}
+    else if(d.copiar){if(Object.keys(INFO.rol).length&&!confirm('¿Copiar la semana anterior? Lo que ya capturaste esta semana se reemplaza.')){OCUPADO=false;return}
+      await enviar({accion:'copiar'});pintar();toast('Semana copiada')}
+    else if(d.confirmar){t.disabled=true;for(const e of INFO.empleados.filter(e=>!INFO.rol[e.id]&&!e.pagada))await enviar({accion:'guardar',emp:e.id,dias:rolDe(e).d});pintar();toast('Semana guardada')}
+  }catch(e){if(e.message)toast(e.message);pintar()}
+  OCUPADO=false;
+});
+cargar();
+</script></body></html>

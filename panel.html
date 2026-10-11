@@ -1155,7 +1155,8 @@ function rhQuien(texto){ // a quién corresponde un vale o comida escrito con no
   return m.length===1?m[0]:null;
 }
 async function rhCargar(){
-  try{const r=await fetch('/api/rh?'+Date.now(),{cache:'no-store',credentials:'same-origin'});const j=await r.json();if(!j.ok)throw new Error(j.error||'');RH=j.rh;RHERR='';if(!rhSem)rhSem=rhLunes(RH.hoy)}
+  try{const r=await fetch('/api/rh?'+Date.now(),{cache:'no-store',credentials:'same-origin'});const j=await r.json();if(!j.ok)throw new Error(j.error||'');RH=j.rh;RHERR='';if(!rhSem)rhSem=rhLunes(RH.hoy);
+    if(!ACCESO)try{ACCESO=await (await fetch('/api/acceso',{credentials:'same-origin'})).json()}catch(e){}}
   catch(e){RHERR='No pude leer los datos de personal de la caja. '+e.message}
   if(tab==='rh')render();
 }
@@ -1210,15 +1211,43 @@ function rhForm(e){
 // ---- Rol de descansos
 function rhRolDe(e,sem){const r=(RH.roles[sem]||{})[e.id];if(r)return {d:r,g:true};const di=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'].indexOf(e.descanso);return {d:RH_DIAS.map((_,i)=>i===di?'D':'T'),g:false}}
 const rhSemNav=()=>`<div class="card"><div style="display:flex;align-items:center;gap:8px;justify-content:space-between"><button class="btn" data-rh="semant" aria-label="Semana anterior">‹</button><b style="text-align:center">Semana del ${rhCorta(rhSem)} al ${rhCorta(rhMas(rhSem,6))}</b><button class="btn" data-rh="semsig" aria-label="Semana siguiente">›</button></div></div>`;
+// quién capturó el rol de cada empleado (27.8): la encargada desde /descansos o Jorge desde aquí
+function rhQuienRol(e){const m=((RH.roles_meta||{})[rhSem]||{})[e.id];if(!m)return '';
+  const yo=m.por==='Jorge', corr=yo&&m.primero&&m.primero!=='Jorge';
+  return `<small style="display:block;font-size:10px;font-weight:700;color:${yo&&!corr?'var(--muted)':corr?'#2563eb':'var(--good)'}">${corr?'corregido por ti':yo?'capturado por ti':'capturó '+esc(m.por.split(' ')[0])}</small>`}
+function rhResumenRol(){const M=(RH.roles_meta||{})[rhSem]||{}, v=Object.values(M).filter(m=>m.por!=='Jorge'||(m.primero&&m.primero!=='Jorge'));
+  if(!v.length)return '';const ult=v.map(m=>m.cuando).sort().pop(), q=[...new Set(v.map(m=>m.primero!=='Jorge'?m.primero:m.por))].join(', ');
+  const d=new Date(ult);let h=d.getHours();const hh=(h%12||12)+':'+String(d.getMinutes()).padStart(2,'0')+(h<12?' am':' pm');
+  return `<p class="note" style="margin:0 0 10px;background:var(--good-bg);color:var(--good)"><b>Esta semana la capturó ${esc(q)}</b> · último cambio ${rhCorta(isoD(d))}, ${hh}. Revísala; toca un día para corregirlo.</p>`}
+function rhAccesoRol(){
+  const ac=RH.acceso_rol||{}, wifi=ACCESO?ACCESO.ips.filter(ip=>!ip.startsWith('100.')):[], ts=ACCESO&&ACCESO.https;
+  const url=wifi.length?`http://${wifi[0]}:${ACCESO.puerto}/descansos`:'';
+  if(!ac.activo)return `<div class="card"><h2>Captura de la encargada</h2>
+    <p class="empty" style="margin-top:0">Dale a la encargada su propia entrada. Con ella solo puede capturar el rol de descansos: no ve sueldos, nómina, vales ni préstamos.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">${rhIn('raNom','Nombre','Berenice')}${rhIn('raPin','Clave (4 números)','','inputmode="numeric" maxlength="4" autocomplete="off"')}</div>
+    <div class="btns"><button class="btn pri" data-rh="raalta">Dar acceso</button></div></div>`;
+  const msg=`Hola ${ac.nombre}. Para capturar el rol de descansos:
+1. Conecta tu teléfono al WiFi del restaurante.
+2. Abre esta dirección: ${url}
+3. Entra con la clave que te di.
+4. En el navegador toca "Agregar a pantalla de inicio" para que te quede como app.
+
+Toca cada día para cambiarlo: T trabaja, D descansa, F faltó, V vacaciones, I incapacidad. Se guarda solo.`;
+  return `<div class="card"><h2>Captura de la encargada <small>${esc(ac.nombre)}</small></h2>
+    <div style="display:flex;align-items:center;gap:8px;font-size:15px">Clave: <b class="num" style="letter-spacing:.25em;min-width:60px" id="raClave">••••</b><button class="btn" data-rh="raver" aria-label="Ver clave" style="padding:4px 10px;min-height:0"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+    ${url?`<p style="margin:10px 0 0;font-weight:700;word-break:break-all" class="num">${esc(url)}</p>`:'<p class="note" style="margin-top:10px">No pude saber la dirección de la caja en el WiFi del restaurante.</p>'}
+    <div class="btns" style="margin-top:8px">${url?`<a class="btn pri" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">Mandarle el link por WhatsApp</a>`:''}<button class="btn" data-rh="raclave">Cambiar clave</button><button class="btn" data-rh="raquitar" style="color:var(--bad)">Quitar acceso</button></div>
+    <p class="empty" style="margin-top:8px">Solo ve nombres y puestos, y solo cambia el rol. No puede cambiar semanas con la nómina ya pagada. La clave no va en el mensaje: dásela tú en persona. Funciona con su teléfono en el WiFi del restaurante${ts?' (o con Tailscale si lo tiene instalado)':''}.</p></div>`;
+}
 function rhRol(){
   const A=rhAct(); if(!A.length)return '<p class="empty">Primero da de alta a los empleados.</p>';
   const dias=RH_DIAS.map((d,i)=>{const f=rhMas(rhSem,i);return `<th style="text-align:center;padding:4px 1px">${d.slice(0,2)}<br><small style="font-weight:500">${rhPd(f).getDate()}</small></th>`}).join('');
-  const filas=A.map(e=>{const r=rhRolDe(e,rhSem);return `<tr><td style="padding:6px 2px;max-width:92px"><b style="font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.nombre.split(' ').slice(0,2).join(' '))}</b><small style="color:var(--muted);font-size:11px">${esc(e.puesto)}${r.g?'':' · sin guardar'}</small></td>${r.d.map((c,i)=>{const s=RH_EST[c];return `<td style="text-align:center;padding:4px 1px"><button data-rh="dia" data-id="${e.id}" data-i="${i}" title="${s[0]}" aria-label="${RH_DIAS[i]}: ${s[0]}" style="width:30px;height:34px;border-radius:9px;border:1px solid ${s[1]};background:${s[2]};color:${s[1]};font:800 13px var(--body);cursor:pointer">${c}</button></td>`}).join('')}</tr>`}).join('');
-  return rhSemNav()+`<div class="card"><h2>Rol de descansos <small>toca un día para cambiarlo</small></h2>
+  const filas=A.map(e=>{const r=rhRolDe(e,rhSem);return `<tr><td style="padding:6px 2px;max-width:92px"><b style="font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.nombre.split(' ').slice(0,2).join(' '))}</b><small style="color:var(--muted);font-size:11px">${esc(e.puesto)}${r.g?'':' · sin guardar'}</small>${rhQuienRol(e)}</td>${r.d.map((c,i)=>{const s=RH_EST[c];return `<td style="text-align:center;padding:4px 1px"><button data-rh="dia" data-id="${e.id}" data-i="${i}" title="${s[0]}" aria-label="${RH_DIAS[i]}: ${s[0]}" style="width:30px;height:34px;border-radius:9px;border:1px solid ${s[1]};background:${s[2]};color:${s[1]};font:800 13px var(--body);cursor:pointer">${c}</button></td>`}).join('')}</tr>`}).join('');
+  return rhSemNav()+`<div class="card"><h2>Rol de descansos <small>toca un día para cambiarlo</small></h2>${rhResumenRol()}
     <div class="tscroll"><table class="tk"><thead><tr><th>Empleado</th>${dias}</tr></thead><tbody>${filas}</tbody></table></div>
     <p class="empty" style="margin-top:10px">${Object.entries(RH_EST).map(([k,v])=>`<b style="color:${v[1]}">${k}</b> ${v[0]}`).join(' · ')}</p>
     <div class="btns"><button class="btn" data-rh="copiar">Copiar la semana anterior</button></div>
-    <p class="empty" style="margin-top:10px">Si no has guardado la semana, se propone según el día de descanso de cada empleado. Pronto: quien descanse, falte o esté de vacaciones no podrá usar el comandero ese día.</p></div>`;
+    <p class="empty" style="margin-top:10px">Si no has guardado la semana, se propone según el día de descanso de cada empleado. Con el candado del rol encendido (pestaña COMANDERO), quien descanse, falte o esté de vacaciones no puede usar el comandero ese día.</p></div>`+rhAccesoRol();
 }
 // ---- Nómina
 function rhNomCalc(e,sem){
@@ -1321,6 +1350,10 @@ document.addEventListener('click',async e=>{
     else if(a==='baja'){if(!confirm('¿Dar de baja a este empleado? Su expediente se conserva.')){t.disabled=false;return}await rhApi({accion:'emp_baja',id:d.id});rhEdit=null;toast('Dado de baja')}
     else if(a==='reactivar'){await rhApi({accion:'emp_baja',id:d.id,reactivar:true});toast('Reactivado')}
     else if(a==='dia'){const e_=rhEmp(d.id),r=rhRolDe(e_,rhSem).d.slice();r[+d.i]=RH_CICLO[(RH_CICLO.indexOf(r[+d.i])+1)%RH_CICLO.length];await rhApi({accion:'rol_guardar',semana:rhSem,emp:d.id,dias:r})}
+    else if(a==='raalta'||a==='raclave'){const pin=a==='raalta'?$('#raPin').value.trim():(prompt('Nueva clave para '+RH.acceso_rol.nombre+' (4 números):')||'').trim();if(!pin){t.disabled=false;return}
+      await rhApi({accion:'acceso_rol',nombre:a==='raalta'?$('#raNom').value:RH.acceso_rol.nombre,pin});toast(a==='raalta'?'Acceso listo. Mándale el link.':'Clave cambiada. La anterior ya no sirve.')}
+    else if(a==='raquitar'){if(!confirm('¿Quitarle el acceso a '+RH.acceso_rol.nombre+'? Su clave dejará de funcionar.')){t.disabled=false;return}await rhApi({accion:'acceso_rol_quitar'});toast('Acceso quitado')}
+    else if(a==='raver'){const j=await api('/api/rh',{accion:'acceso_rol_ver'}),el=$('#raClave');t.disabled=false;if(j.clave&&el){el.textContent=j.clave;setTimeout(()=>{if(el.isConnected)el.textContent='••••'},15000)}return}
     else if(a==='copiar'){await rhApi({accion:'rol_copiar',semana:rhSem,anterior:rhMas(rhSem,-7)});toast('Semana copiada')}
     else if(a==='nomguardar'||a==='nompagar'){const g=(RH.nominas[rhSem]||{})[d.id];const c=rhLeeNom(d.id);c.pagada=a==='nompagar'?!(g&&g.pagada):!!(g&&g.pagada);await rhApi({accion:'nomina_guardar',semana:rhSem,emp:d.id,campos:c});toast(a==='nompagar'?(c.pagada?'Marcada como pagada':'Ya no está marcada como pagada'):'Nómina guardada')}
     else if(a==='prestamo'){await rhApi({accion:'prestamo_alta',emp:$('#rpEmp').value,monto:$('#rpMon').value,abono:$('#rpAb').value,fecha:$('#rpFec').value,concepto:$('#rpCon').value});toast('Préstamo registrado')}
