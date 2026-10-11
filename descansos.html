@@ -74,6 +74,21 @@ button:focus-visible{outline:2px solid var(--green-2);outline-offset:2px}
 .btn.pri{background:var(--green);color:var(--on-green);border-color:var(--green)}
 .nota{font-size:13px;color:var(--muted);margin-top:14px}
 .aviso{background:var(--bad-bg);color:var(--bad);border-radius:10px;padding:10px 12px;font-size:14px;margin-top:12px;font-weight:600}
+.rol{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px 8px;margin-top:10px}
+.rol table{width:100%;border-collapse:collapse;table-layout:fixed}
+.rol th{font-size:12px;color:var(--muted);font-weight:600;padding:2px 0 6px;text-align:center}
+.rol th:first-child{text-align:left;width:76px}
+.rol th small{display:block;font-weight:500}
+.rol td{padding:5px 1px;border-top:1px solid var(--line);vertical-align:middle;text-align:center}
+.rol td:first-child{text-align:left;padding-right:4px}
+.rol td b{display:block;font-size:12.5px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rol td .p{display:block;font-size:11px;color:var(--muted);line-height:1.2}
+.rol td .g{display:block;font-size:10.5px;font-weight:700;line-height:1.2;margin-top:1px}
+.rol td .g.no{color:var(--bad)}.rol td .g.si{color:var(--good)}
+.rol .d{width:100%;max-width:44px;height:54px;border-radius:9px;border:1.5px solid;font:800 15px var(--display);padding:2px 0;line-height:1.05}
+.rol .d small{display:block;font:600 8.5px var(--body);letter-spacing:-.02em;margin-top:2px}
+.rol .d.sel{outline:3px solid var(--ink);outline-offset:1px}
+.rol .d:disabled{opacity:.6;cursor:default}
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;font-weight:600;z-index:30;max-width:90%;text-align:center}
 </style></head>
 <body><div class="app" id="app"></div>
@@ -140,13 +155,14 @@ function editor(e,r){const i=ED.i,h=r.h[i]||['',''];
 function pintar(){
   const E=INFO.empleados, falta=E.filter(e=>!INFO.rol[e.id]&&!e.pagada).length;
   const ley=Object.entries(EST).map(([k,v])=>`<span><b style="color:var(${v[1]});background:var(${v[1]}-bg)">${k}</b>${v[0]}</span>`).join('');
-  const tarjetas=E.map(e=>{
-    const r=rolDe(e), m=INFO.meta[e.id];
-    const est=e.pagada?'<div class="est">Nómina ya pagada: solo Jorge la puede cambiar.</div>'
-      :!r.g?'<div class="est no">Sin guardar · se propone con su día de descanso</div>'
-      :`<div class="est si">✓ Guardado${m?' · '+esc(m.por)+' · '+hora(m.cuando):''}</div>`;
-    return `<div class="emp"><h3>${esc(e.nombre)}</h3><div class="sub">${esc(e.puesto)}${e.horario?' · '+esc(e.horario):''}</div>
-      <div class="dias">${r.d.map((c,i)=>{const h=r.h[i];return `<div>${DIAS[i]} ${pd(mas(SEM,i)).getDate()}<button class="${ED&&ED.e===e.id&&ED.i===i?'sel':''}" data-e="${e.id}" data-i="${i}" ${e.pagada?'disabled':''} aria-label="${DIAS_L[i]}: ${EST[c][0]}${c==='T'&&h&&h[0]?' de '+h[0]+' a '+h[1]:''}" style="color:var(${EST[c][1]});background:var(${EST[c][1]}-bg);border-color:var(${EST[c][1]})">${c}${c==='T'&&h&&h[0]?`<small>${h12(h[0])}<br>${h12(h[1])}</small>`:''}</button></div>`}).join('')}</div>${ED&&ED.e===e.id?editor(e,r):''}${est}</div>`}).join('');
+  const ed=ED&&E.find(x=>x.id===ED.e);
+  const filas=E.map(e=>{
+    const r=rolDe(e), g=e.pagada?'<span class="g">pagada</span>':!r.g?'<span class="g no">sin guardar</span>':'<span class="g si">✓ guardado</span>';
+    return `<tr><td><b>${esc(e.nombre.split(' ').slice(0,2).join(' '))}</b><span class="p">${esc(e.puesto)}</span>${g}</td>${r.d.map((c,i)=>{const h=r.h[i];
+      return `<td><button class="d ${ED&&ED.e===e.id&&ED.i===i?'sel':''}" data-e="${e.id}" data-i="${i}" ${e.pagada?'disabled':''} aria-label="${esc(e.nombre)}, ${DIAS_L[i]}: ${EST[c][0]}${c==='T'&&h&&h[0]?' de '+h[0]+' a '+h[1]:''}" style="color:var(${EST[c][1]});background:var(${EST[c][1]}-bg);border-color:var(${EST[c][1]})">${c}${c==='T'&&h&&h[0]?`<small>${h12(h[0])}<br>${h12(h[1])}</small>`:''}</button></td>`}).join('')}</tr>`}).join('');
+  const m=ed&&INFO.meta[ed.id];
+  const tarjetas=`<div class="rol"><table><thead><tr><th>Empleado</th>${DIAS.map((d,i)=>`<th>${d.slice(0,2)}<small>${pd(mas(SEM,i)).getDate()}</small></th>`).join('')}</tr></thead><tbody>${filas}</tbody></table>
+    ${ed?`<div class="edit"><b>${esc(ed.nombre)}</b><div class="nota" style="margin-top:2px">${esc(ed.horario||'')}${m?' · último cambio: '+esc(m.por)+', '+hora(m.cuando):''}</div>${editor(ed,rolDe(ed)).replace('<div class="edit">','<div>')}</div>`:''}</div>`;
   $('#app').innerHTML=`<div class="top"><div class="fila"><div><h1>Rol de descansos</h1><small>${esc(INFO.nombre)}</small></div><button class="salir" data-salir="1">Salir</button></div>
     <div class="sem"><button data-sem="-7" aria-label="Semana anterior">‹</button><b>Semana del ${corta(SEM)} al ${corta(mas(SEM,6))}</b><button data-sem="7" aria-label="Semana siguiente">›</button></div></div>
     <div class="ley">${ley}</div>
@@ -164,7 +180,7 @@ document.addEventListener('click',async ev=>{
   if(d.sem){return cargar(mas(SEM,+d.sem))}
   if(OCUPADO)return;OCUPADO=true;
   try{
-    if(d.e){const e=INFO.empleados.find(x=>x.id===d.e);ED={e:d.e,i:+d.i,k:rolDe(e).d[+d.i]};pintar();OCUPADO=false;return}
+    if(d.e){const e=INFO.empleados.find(x=>x.id===d.e);ED={e:d.e,i:+d.i,k:rolDe(e).d[+d.i]};pintar();OCUPADO=false;document.querySelector('.edit')?.scrollIntoView({block:'nearest',behavior:'smooth'});return}
     else if(d.k&&ED){ED.k=d.k;document.querySelectorAll('.edit [data-k]').forEach(b=>b.setAttribute('aria-pressed',b===t));const hr=document.querySelector('.edit .hrs');if(hr)hr.hidden=d.k!=='T';OCUPADO=false;return}
     else if(d.cerrar){ED=null;pintar();OCUPADO=false;return}
     else if(d.guardar&&ED){const e=INFO.empleados.find(x=>x.id===ED.e),r=rolDe(e),dias=r.d.slice(),hs=r.h.map(x=>x&&x[0]?x:null);dias[ED.i]=ED.k;

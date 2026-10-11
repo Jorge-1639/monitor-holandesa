@@ -64,3 +64,9 @@ determinado o indeterminado; foto, PDF o Word se guardan en la caja en `expedien
 horas por día que Jorge y la encargada (/descansos) pueden cambiar. Orden de la lista: meseros, cocineros, ayudantes generales.
 
 Versión 28.4 — horario del expediente más compacto para que en el teléfono se vea completa la hora con a.m./p.m.
+
+Versión 29.0 — Personal: la encargada (/descansos) ve el rol en una sola tabla como el panel (sin sueldos). Expediente: se paga por día o por hora;
+casilla "Restarle la comida (medio turno)". Nómina: horas del rol de cada quien y casilla para restar la comida esa semana (por hora cambia el sueldo);
+separa vales de comida y vales de dinero; abono de préstamo automático. Nueva pestaña "Resumen de nómina": total, menos préstamos, vales de comida,
+vales de dinero, transferencias = efectivo, con botón para mandarle el efectivo de cada quien a Berenice por WhatsApp. Pestañas visibles en varias filas;
+el catálogo muestra lo que debe cada quien y sus vales de la semana.

@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 57            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '28.4'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 58            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '29.0'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -1794,7 +1794,7 @@ class Monitor:
         d = self.rh(); acc = a.get('accion')
         txt = lambda v, n=80: re.sub(r'\s+', ' ', str(v or '')).strip()[:n]
         def num(v):
-            try: return round(float(str(v).replace('$', '').replace(',', '') or 0), 2)
+            try: return round(float(str('' if v is None else v).replace('$', '').replace(',', '').strip() or 0), 2)
             except ValueError: raise ValueError('Revisa las cantidades: solo números.')
         def fecha(v, req=False):
             v = txt(v, 10)
@@ -1817,6 +1817,7 @@ class Monitor:
             except ValueError: raise ValueError('Revisa los minutos de comida.')
             reg = {'nombre': nombre, 'puesto': puesto, 'cod_mt': txt(e.get('cod_mt'), 6), 'ingreso': fecha(e.get('ingreso')),
                    'diario': diario, 'incentivo': num(e.get('incentivo')), 'comida_min': comida_min, 'horario': base,
+                   'pago': 'hora' if e.get('pago') == 'hora' else 'dia', 'tarifa': num(e.get('tarifa')), 'resta_comida': bool(e.get('resta_comida')),
                    'sueldo': round(diario * len(trab), 2) if diario else num(e.get('sueldo')),
                    'telefono': txt(e.get('telefono'), 20), 'nss': txt(e.get('nss'), 15), 'curp': txt(e.get('curp'), 18).upper(), 'rfc': txt(e.get('rfc'), 13).upper(),
                    'domicilio': txt(e.get('domicilio'), 160), 'entrada': comunes[0][0][0] if comunes else '', 'salida': comunes[0][0][1] if comunes else '',
@@ -1853,7 +1854,7 @@ class Monitor:
             return {'ok': True, 'clave': (d.get('acceso_rol') or {}).get('clave', '')}
         elif acc == 'nomina_guardar':
             sem = fecha(a.get('semana'), True); c = a.get('campos') or {}
-            d['nominas'].setdefault(sem, {})[emp_id(a.get('emp'))] = {k: num(c.get(k)) for k in ('base', 'prima_dom', 'incentivo', 'extras', 'comida', 'vales', 'abono', 'otros', 'transfer')} | {'nota': txt(c.get('nota'), 200), 'pagada': bool(c.get('pagada'))}
+            d['nominas'].setdefault(sem, {})[emp_id(a.get('emp'))] = {k: num(c.get(k)) for k in ('base', 'prima_dom', 'incentivo', 'extras', 'comida', 'vales', 'abono', 'otros', 'transfer', 'horas')} | {'nota': txt(c.get('nota'), 200), 'pagada': bool(c.get('pagada')), 'resta_comida': bool(c.get('resta_comida'))}
         elif acc == 'prestamo_alta':
             m = num(a.get('monto'))
             if m <= 0: raise ValueError('Escribe el monto del préstamo.')
