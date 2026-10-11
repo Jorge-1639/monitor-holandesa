@@ -52,3 +52,6 @@ Versión 28.0 — pedidos para llevar por canal: en el comandero, "Pedidos para 
 y Uber (clave del pedido). Todos con precios de llevar. En MrTienda la referencia queda con el nombre o "DIDI 4821"/"UBER 4821"; el canal, la clave, el pago
 y el teléfono se guardan en `comandero_pedidos.json` en la caja. La comanda de cocina sale con el canal y el nombre o pedido en grande, y abajo PARA LLEVAR/COMER AQUI
 en grande. Al quitar una cuenta de Didi o Uber en el panel ya viene marcado el motivo (efectivo o tarjeta) y la clave en la nota. Todavía no da de alta clientes en MrTienda.
+
+Versión 28.1 — comanda por canal: abajo, en grande, "DIDI 4821" / "UBER 4821", o "RECOGER AQUI" / "SERVICIO A DOMICILIO" con el nombre de la persona debajo.
+No imprime efectivo/tarjeta (se sigue preguntando en Didi y se guarda para el panel) ni el teléfono. Datos de domicilio (calles, ubicación, cambio): pendiente, con el formato de Jorge.

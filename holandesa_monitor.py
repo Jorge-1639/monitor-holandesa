@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 53            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '28.0'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 54            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '28.1'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -35,7 +35,7 @@ FOTOS_DIR = os.path.join(AQUI, 'fotos_compras')        # fotos de tickets de com
 CAJEROS_FILE = os.path.join(AQUI, 'cajeros.json')       # cajeros con su clave (solo se guarda la huella de la clave)
 MESEROS_FILE = os.path.join(AQUI, 'meseros.json')
 PEDIDOS_FILE = os.path.join(AQUI, 'comandero_pedidos.json')   # canal de cada cuenta del comandero (recoger, domicilio, Didi, Uber): solo en la caja
-CANALES = {'recoger': 'PARA LLEVAR', 'domicilio': 'DOMICILIO', 'didi': 'DIDI', 'uber': 'UBER'}
+CANALES = {'recoger': 'RECOGER AQUI', 'domicilio': 'SERVICIO A DOMICILIO', 'didi': 'DIDI', 'uber': 'UBER'}
 RH_FILE = os.path.join(AQUI, 'personal.json')           # Recursos Humanos: expedientes, rol, nómina, vales y préstamos (solo en la caja)
 PUESTOS = ['Mesero', 'Cajero', 'Encargada', 'Cocinero', 'Ayudante de cocina', 'Repartidor', 'Lavaloza', 'Otro']       # meseros del comandero: código de MrTienda + huella de su clave
 IA_URL = 'https://api.anthropic.com/v1/messages'
@@ -369,13 +369,12 @@ def comanda_bytes(ref, mesero, renglones, folio, nueva, ahora, canal=None):
     canal = canal or {}
     if canal.get('canal') in CANALES:      # pedidos para llevar del comandero: el canal arriba y el nombre o el pedido en grande
         c_ = canal['canal']
-        modo = CANALES[c_] + (' - ' + ('EFECTIVO' if canal.get('pago') == 'efectivo' else 'TARJETA') if c_ == 'didi' else '')
-        titulo = (('PEDIDO ' + canal.get('pedido', '')) if c_ in ('didi', 'uber') else (canal.get('nombre') or ref)).upper()[:21]
+        modo = CANALES[c_]                  # el pago (efectivo/tarjeta) se guarda para el panel, no se imprime
+        titulo = ((c_.upper() + ' ' + canal.get('pedido', '')) if c_ in ('didi', 'uber') else (canal.get('nombre') or ref)).upper()[:21]
     t = ESC + b'@' + ESC + b't\x02' + ESC + b'a\x00'
     inv = modo != 'COMER AQUI'   # si hay algo para llevar: blanco sobre negro para que no se pase en cocina
     t += ESC + b'!\x38' + (GS + b'B\x01' + e(' ' + modo + ' ') + GS + b'B\x00' if inv else e(modo)) + b'\n' + ESC + b'!\x00'   # letra grande y negritas
     t += ESC + b'a\x01' + ESC + b'!\x18' + e(titulo) + b'\n' + ESC + b'!\x00'     # mesa: doble alto, negritas
-    if canal.get('canal') == 'domicilio' and canal.get('tel'): t += ESC + b'!\x08' + e('Tel. ' + canal['tel']) + ESC + b'!\x00' + b'\n'
     t += e('CUENTA NUEVA' if nueva else 'SE AGREGA A LA CUENTA') + b'\n'
     t += ESC + b'a\x00' + e('Mesero: ') + ESC + b'!\x08' + e(mesero.upper()) + ESC + b'!\x00' + b'\n'   # nombre en negritas
     t += e(f'Enviado: {ahora.strftime("%d/%m/%Y %H:%M")}   Cuenta #{folio[-5:].lstrip("0")}') + b'\n'
@@ -387,7 +386,10 @@ def comanda_bytes(ref, mesero, renglones, folio, nueva, ahora, canal=None):
             t += e('     - ' + v.upper()) + b'\n'
         if r.get('VAR_LIBRE'): t += e('     * NOTA: ' + r['VAR_LIBRE']) + b'\n'
         t += ESC + b'!\x08' + e('     > ' + ('PARA LLEVAR' if r['COD_ESCALA'] == '02' else 'COMER AQUI')) + ESC + b'!\x00' + b'\n\n'
-    t += b'-' * 42 + b'\n' + ESC + b'a\x01' + ESC + b'!\x38' + e(modo if canal.get('canal') else ('PARA LLEVAR' if modos == {'02'} else 'COMER AQUI' if modos == {'01'} else 'AQUI Y LLEVAR')) + ESC + b'!\x00' + b'\n'
+    t += b'-' * 42 + b'\n' + ESC + b'a\x01'
+    if canal.get('canal') in ('didi', 'uber'): t += ESC + b'!\x38' + e(titulo) + ESC + b'!\x00' + b'\n'          # abajo: DIDI 4821
+    elif canal.get('canal'): t += ESC + b'!\x38' + e(modo) + b'\n' + e(titulo) + ESC + b'!\x00' + b'\n'        # abajo: RECOGER AQUI / nombre
+    else: t += ESC + b'!\x38' + e('PARA LLEVAR' if modos == {'02'} else 'COMER AQUI' if modos == {'01'} else 'AQUI Y LLEVAR') + ESC + b'!\x00' + b'\n'
     t += e('Enviado desde el COMANDERO') + b'\n' + b'\n' * 6 + GS + b'VB\x0a'
     return t
 
