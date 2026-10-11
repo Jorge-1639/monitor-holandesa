@@ -899,7 +899,7 @@ function bloqueComandero(){
   const url=wifi.length?`http://${wifi[0]}:${ACCESO.puerto}/comandero`:'';
   if(!url) return `<p class="note" style="margin-top:12px">No pude saber la dirección de la computadora de la caja en el WiFi del restaurante. Avísale a Claude.</p>`;
   const quien=NUEVO_MS||'';
-  const msg=`Hola${quien?' '+quien:''}. Este es el comandero de La Holandesa:\n1. Conecta tu teléfono al WiFi del restaurante.\n2. Abre esta dirección: ${url}\n3. Entra con la clave que te di.\n4. En el navegador toca "Agregar a pantalla de inicio" para que te quede como app.`;
+  const msg=`Hola${quien?' '+quien:''}. Este es el *Comandero de La Holandesa*.\n\nEstando en el restaurante, conectado al WiFi, toca este enlace:\n\n${url}\n\nEntra con la clave que te di. Después, en el menú del navegador (⋮ en Android, Compartir en iPhone) toca *Agregar a pantalla de inicio* y te queda como app.\n\nOjo: el enlace solo abre conectado al WiFi del restaurante.`;
   return `<div class="card" style="margin-top:12px;padding:14px;background:var(--green-soft);box-shadow:none;border-color:var(--green-3)">
     <b>${quien?'Mándale esto a '+esc(quien):'Dirección del comandero'}</b>
     <p style="margin:8px 0;font-size:17px;font-weight:700;word-break:break-all;user-select:all" class="num">${esc(url)}</p>
