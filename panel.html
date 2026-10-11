@@ -55,7 +55,7 @@ section{display:flex;flex-direction:column;gap:12px;margin-top:14px}
 
 /* barra de pestañas inferior */
 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px));box-shadow:0 -8px 24px -18px rgba(0,0,0,.35)}
-nav.tabs .tin{max-width:720px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr);gap:2px}
+nav.tabs .tin{max-width:720px;margin:0 auto;display:grid;grid-template-columns:repeat(6,1fr);gap:2px}
 nav.tabs button{border:0;background:none;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px;border-radius:12px;font:700 11px var(--display);font-stretch:85%;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;position:relative}
 nav.tabs svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 nav.tabs button[aria-selected="true"]{color:var(--green-2);background:var(--green-soft)}
@@ -235,6 +235,7 @@ footer{color:var(--muted);font-size:12px;margin-top:24px;line-height:1.5}
   <button role="tab" data-tab="cortes"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h3"/></svg>Cortes</button>
   <button role="tab" data-tab="control"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>Control<span class="dot" id="ctlDot" hidden></span></button>
   <button role="tab" data-tab="reportes"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Reportes</button>
+  <button role="tab" data-tab="rh"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.2c3 0 5.5 2.4 5.5 5.8"/></svg>Personal</button>
 </div></nav>
 
 <script>
@@ -1101,6 +1102,205 @@ function rResultados(){
     ${ivaA?`<tr><td>IVA de las compras capturadas <small style="color:var(--muted)">(posible acreditable)</small></td><td>${fmt2(ivaA)}</td></tr>`:''}</tbody></table>
     <p class="empty" style="margin-top:10px">Ventas y compras se comparan con IVA incluido. Es un resultado aproximado: toma las compras como lo que se consumió; después se puede agregar el inventario inicial y final.</p></div>`;
 }
+// ================= RECURSOS HUMANOS (los datos viven solo en la computadora de la caja: personal.json) =================
+let RH=null, RHERR='', rhTab=st.rhTab||'emp', rhEdit=null, rhSem=null, rhBajas=false;
+const RH_DIAS=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+const RH_EST={T:['Trabaja','var(--good)','var(--good-bg)'],D:['Descansa','var(--muted)','var(--surface-2)'],F:['Faltó','var(--bad)','var(--bad-bg)'],V:['Vacaciones','#2563eb','#dbeafe'],I:['Incapacidad','#7c3aed','#ede9fe']};
+const RH_CICLO=['T','D','F','V','I'];
+const RH_CONTRATOS=['Tiempo indeterminado','Tiempo determinado','Periodo de prueba','Capacitación inicial'];
+const isoD=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const rhPd=s=>{const [y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)};
+const rhLunes=s=>{const d=rhPd(s);d.setDate(d.getDate()-((d.getDay()+6)%7));return isoD(d)};
+const rhMas=(s,n)=>{const d=rhPd(s);d.setDate(d.getDate()+n);return isoD(d)};
+const rhCorta=s=>{const d=rhPd(s);return d.getDate()+' '+['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'][d.getMonth()]};
+const rhNorm=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/[^A-Z ]/g,' ').replace(/\s+/g,' ').trim();
+const rhAct=()=>(RH.empleados||[]).filter(e=>e.activo).sort((a,b)=>(RH.puestos.indexOf(a.puesto)-RH.puestos.indexOf(b.puesto))||a.nombre.localeCompare(b.nombre));
+const rhEmp=id=>(RH.empleados||[]).find(e=>e.id===id);
+const rhDiario=e=>(+e.sueldo||0)/7;
+function rhQuien(texto){ // a quién corresponde un vale o comida escrito con nombre libre
+  const t=' '+rhNorm(texto).replace(/^VALES? /,'')+' ', A=rhAct();
+  let m=A.filter(e=>t.includes(' '+rhNorm(e.nombre)+' '));
+  if(m.length===1)return m[0];
+  const p=t.trim().split(' ')[0]; if(!p)return null;
+  m=A.filter(e=>rhNorm(e.nombre).split(' ')[0]===p);
+  return m.length===1?m[0]:null;
+}
+async function rhCargar(){
+  try{const r=await fetch('/api/rh?'+Date.now(),{cache:'no-store',credentials:'same-origin'});const j=await r.json();if(!j.ok)throw new Error(j.error||'');RH=j.rh;RHERR='';if(!rhSem)rhSem=rhLunes(RH.hoy)}
+  catch(e){RHERR='No pude leer los datos de personal de la caja. '+e.message}
+  if(tab==='rh')render();
+}
+async function rhApi(body){const j=await api('/api/rh',body);RH=j.rh;return j}
+function vRH(){
+  if(COPIA)return '<p class="note">Recursos Humanos solo funciona en la app en vivo, con la caja prendida.</p>';
+  if(!RH){if(!RHERR)rhCargar();return `<section><p class="${RHERR?'note':'empty'}">${RHERR?esc(RHERR):'Cargando personal…'}</p></section>`}
+  const head=`<div class="card"><h2>Recursos Humanos <small>solo tú tienes acceso</small></h2>${segBtns('rhtab',[['emp','Empleados'],['rol','Rol de descansos'],['nom','Nómina'],['vp','Vales y préstamos'],['vac','Vacaciones y aguinaldo']],rhTab)}</div>`;
+  return '<section>'+head+({emp:rhEmpleados,rol:rhRol,nom:rhNomina,vp:rhValesPrest,vac:rhVacaciones}[rhTab]||rhEmpleados)()+'</section>';
+}
+const rhIn=(id,lab,val,extra='')=>`<div class="field"><label for="${id}">${lab}</label><input id="${id}" value="${esc(val??'')}" ${extra}></div>`;
+const rhSel=(id,lab,opts,val)=>`<div class="field"><label for="${id}">${lab}</label><select id="${id}" class="msel" style="width:100%;height:44px">${opts.map(([v,l])=>`<option value="${esc(v)}" ${String(v)===String(val??'')?'selected':''}>${esc(l)}</option>`).join('')}</select></div>`;
+function rhAntig(ing){
+  if(!ing)return null; const a=rhPd(ing), h=rhPd(RH.hoy); let y=h.getFullYear()-a.getFullYear(), m=h.getMonth()-a.getMonth(); if(h.getDate()<a.getDate())m--; if(m<0){y--;m+=12}
+  return {y,m,txt:(y?y+(y===1?' año':' años'):'')+(y&&m?' ':'')+(m||!y?m+(m===1?' mes':' meses'):'')};
+}
+// ---- Empleados
+function rhEmpleados(){
+  const A=rhAct(), B=(RH.empleados||[]).filter(e=>!e.activo), pend=A.filter(e=>(e.contrato||{}).estado!=='firmado').length;
+  let h=`<div class="kpis"><div class="kpi"><b class="num">${A.length}</b><span>empleados activos</span></div><div class="kpi"><b class="num" style="color:${pend?'var(--warn)':'var(--good)'}">${pend}</b><span>contratos pendientes</span></div></div>`;
+  if(rhEdit)h+=rhForm(rhEdit==='nuevo'?{contrato:{}}:rhEmp(rhEdit));
+  else h+=`<div class="btns"><button class="btn pri" data-rh="nuevo">+ Agregar empleado</button></div>`;
+  h+=`<div class="card"><h2>Catálogo de empleados <small>${A.length}</small></h2>${A.length?`<div class="list">${A.map(e=>{const an=rhAntig(e.ingreso),c=e.contrato||{};return `<div class="item"><span><b>${esc(e.nombre)}</b> <span class="pill ${c.estado==='firmado'?'good':'warn'}">${c.estado==='firmado'?'Contrato firmado':'Contrato pendiente'}</span></span><span><a href="#" data-rh="editar" data-id="${e.id}" style="color:var(--green-2);font-size:13px">Expediente</a></span><span class="meta">${esc(e.puesto)}${e.sueldo?' · '+fmt2(e.sueldo)+' por semana':''}${an?' · '+an.txt:' · sin fecha de ingreso'}${e.descanso?' · descansa '+esc(e.descanso):''}</span></div>`}).join('')}</div>`:'<p class="empty">Todavía no hay empleados. Toca "Agregar empleado".</p>'}</div>`;
+  if(B.length)h+=`<div class="card"><h2>Dados de baja <small><a href="#" data-rh="bajas" style="color:var(--green-2)">${rhBajas?'Ocultar':'Ver '+B.length}</a></small></h2>${rhBajas?`<div class="list">${B.map(e=>`<div class="item"><span>${esc(e.nombre)}</span><span><a href="#" data-rh="reactivar" data-id="${e.id}" style="color:var(--green-2);font-size:13px">Reactivar</a></span><span class="meta">${esc(e.puesto)} · baja ${e.fecha_baja?rhCorta(e.fecha_baja):''}</span></div>`).join('')}</div>`:''}</div>`;
+  return h;
+}
+function rhForm(e){
+  const c=e.contrato||{}, mt=[['','— Ninguno —'],...(RH.emp_mrtienda||[]).map(x=>[x.cod,x.nombre+' ('+x.cod+')'])];
+  return `<div class="card" id="rhForm"><h2>${e.id?'Expediente':'Nuevo empleado'} <small>${e.id&&e.alta?'alta '+rhCorta(e.alta.slice(0,10)):''}</small></h2>
+    ${rhIn('rfNom','Nombre completo',e.nombre,'autocomplete="off" style="text-transform:uppercase"')}
+    ${rhSel('rfPue','Puesto',RH.puestos.map(p=>[p,p]),e.puesto||'Mesero')}
+    ${rhSel('rfMt','Usuario en MrTienda (para el comandero y sus ventas)',mt,e.cod_mt||'')}
+    ${rhIn('rfIng','Fecha de ingreso',e.ingreso,'type="date"')}
+    ${rhIn('rfSue','Sueldo por semana',e.sueldo||'','inputmode="decimal" placeholder="Ej. 3500"')}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${rhIn('rfEnt','Entra',e.entrada,'type="time"')}${rhIn('rfSal','Sale',e.salida,'type="time"')}</div>
+    ${rhSel('rfDes','Día de descanso',[['',' — '],...['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'].map(d=>[d,d])],e.descanso||'')}
+    ${rhIn('rfTel','Teléfono',e.telefono,'inputmode="tel"')}
+    ${rhIn('rfNss','Número de seguro social (NSS)',e.nss,'inputmode="numeric"')}
+    ${rhIn('rfCurp','CURP',e.curp,'style="text-transform:uppercase"')}
+    ${rhIn('rfRfc','RFC',e.rfc,'style="text-transform:uppercase"')}
+    ${rhIn('rfDom','Domicilio',e.domicilio)}
+    <h2 style="margin-top:20px">Contrato</h2>
+    ${rhSel('rfCe','Estado',[['pendiente','Pendiente'],['firmado','Firmado']],c.estado||'pendiente')}
+    ${rhSel('rfCt','Tipo de contrato',[['',' — '],...RH_CONTRATOS.map(t=>[t,t])],c.tipo||'')}
+    ${rhIn('rfCf','Fecha de firma',c.fecha,'type="date"')}
+    ${rhIn('rfCn','Nota del contrato',c.nota,'placeholder="Ej. original en la carpeta de la oficina"')}
+    <p class="empty" style="margin-top:8px">Cuando me mandes tu formato de contrato, aquí aparecerá el botón "Generar contrato" con los datos de este empleado ya llenos.</p>
+    ${rhIn('rfNot','Notas del expediente',e.notas,'placeholder="Memorándums, actas, observaciones"')}
+    <div class="btns"><button class="btn pri" data-rh="guardar" data-id="${e.id||''}">Guardar</button><button class="btn" data-rh="cancelar">Cancelar</button>${e.id?`<button class="btn" data-rh="baja" data-id="${e.id}" style="color:var(--bad)">Dar de baja</button>`:''}</div>
+    <p class="empty" style="margin-top:10px">Estos datos se guardan solo en la computadora de la caja.</p></div>`;
+}
+// ---- Rol de descansos
+function rhRolDe(e,sem){const r=(RH.roles[sem]||{})[e.id];if(r)return {d:r,g:true};const di=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'].indexOf(e.descanso);return {d:RH_DIAS.map((_,i)=>i===di?'D':'T'),g:false}}
+const rhSemNav=()=>`<div class="card"><div style="display:flex;align-items:center;gap:8px;justify-content:space-between"><button class="btn" data-rh="semant" aria-label="Semana anterior">‹</button><b style="text-align:center">Semana del ${rhCorta(rhSem)} al ${rhCorta(rhMas(rhSem,6))}</b><button class="btn" data-rh="semsig" aria-label="Semana siguiente">›</button></div></div>`;
+function rhRol(){
+  const A=rhAct(); if(!A.length)return '<p class="empty">Primero da de alta a los empleados.</p>';
+  const dias=RH_DIAS.map((d,i)=>{const f=rhMas(rhSem,i);return `<th style="text-align:center;padding:4px 1px">${d.slice(0,2)}<br><small style="font-weight:500">${rhPd(f).getDate()}</small></th>`}).join('');
+  const filas=A.map(e=>{const r=rhRolDe(e,rhSem);return `<tr><td style="padding:6px 2px;max-width:92px"><b style="font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.nombre.split(' ').slice(0,2).join(' '))}</b><small style="color:var(--muted);font-size:11px">${esc(e.puesto)}${r.g?'':' · sin guardar'}</small></td>${r.d.map((c,i)=>{const s=RH_EST[c];return `<td style="text-align:center;padding:4px 1px"><button data-rh="dia" data-id="${e.id}" data-i="${i}" title="${s[0]}" aria-label="${RH_DIAS[i]}: ${s[0]}" style="width:30px;height:34px;border-radius:9px;border:1px solid ${s[1]};background:${s[2]};color:${s[1]};font:800 13px var(--body);cursor:pointer">${c}</button></td>`}).join('')}</tr>`}).join('');
+  return rhSemNav()+`<div class="card"><h2>Rol de descansos <small>toca un día para cambiarlo</small></h2>
+    <div class="tscroll"><table class="tk"><thead><tr><th>Empleado</th>${dias}</tr></thead><tbody>${filas}</tbody></table></div>
+    <p class="empty" style="margin-top:10px">${Object.entries(RH_EST).map(([k,v])=>`<b style="color:${v[1]}">${k}</b> ${v[0]}`).join(' · ')}</p>
+    <div class="btns"><button class="btn" data-rh="copiar">Copiar la semana anterior</button></div>
+    <p class="empty" style="margin-top:10px">Si no has guardado la semana, se propone según el día de descanso de cada empleado. Pronto: quien descanse, falte o esté de vacaciones no podrá usar el comandero ese día.</p></div>`;
+}
+// ---- Nómina
+function rhNomCalc(e,sem){
+  const r=rhRolDe(e,sem).d, f=r.filter(c=>c==='F').length, t=r.filter(c=>c==='T').length, g=(RH.nominas[sem]||{})[e.id], fin=rhMas(sem,6);
+  const enSem=x=>x.fecha>=sem&&x.fecha<=fin;
+  const valesM=(RH.vales||[]).filter(v=>v.emp===e.id&&enSem(v)).reduce((a,v)=>a+v.monto,0);
+  const valesC=(RH.vales_caja||[]).filter(v=>enSem(v)&&rhQuien(v.ref)===e).reduce((a,v)=>a+(+v.monto||0),0);
+  const comidas=(RH.comidas||[]).filter(c=>enSem(c)&&rhQuien(c.persona)===e).reduce((a,c)=>a+(+c.total||0),0);
+  const pr=rhPrest(e.id), abonoSug=Math.min(pr.saldo+(g?g.abono:0),pr.sug||0);
+  const v=g||{base:Math.round(((+e.sueldo||0)-f*rhDiario(e))*100)/100,extras:0,comida:0,vales:Math.round((valesM+valesC)*100)/100,abono:abonoSug,otros:0,transfer:0,nota:'',pagada:false};
+  return {v,g:!!g,f,t,valesM,valesC,comidas,pr};
+}
+const rhTot=v=>(+v.base||0)+(+v.extras||0)-(+v.comida||0)-(+v.vales||0)-(+v.abono||0)-(+v.otros||0);
+function rhNomina(){
+  const A=rhAct().filter(e=>e.sueldo>0||(RH.nominas[rhSem]||{})[e.id]); let T=0,TR=0;
+  const cards=A.map(e=>{const c=rhNomCalc(e,rhSem),v=c.v,tot=rhTot(v);T+=tot;TR+=(+v.transfer||0);
+    const inp=(k,l,hint='')=>`<div class="field" style="margin-top:8px"><label>${l}${hint?` <small style="color:var(--muted)">${hint}</small>`:''}</label><input class="rhn" data-emp="${e.id}" data-k="${k}" inputmode="decimal" value="${v[k]||''}"></div>`;
+    return `<div class="card"><h2>${esc(e.nombre)} <small>${esc(e.puesto)} · ${c.t} días${c.f?` · <b style="color:var(--bad)">${c.f} ${c.f===1?'falta':'faltas'}</b>`:''}${c.g?(v.pagada?' · <span class="pill good">Pagada</span>':' · <span class="pill mut">Guardada</span>'):''}</small></h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
+        ${inp('base','Nómina completa',c.f?'(menos faltas)':'')}${inp('extras','Extras / bonos')}
+        ${inp('comida','Descuento de comida',c.comidas?'(registró '+fmt2(c.comidas)+')':'')}${inp('vales','Vales',c.valesC?'(caja '+fmt2(c.valesC)+')':'')}
+        ${inp('abono','Abono préstamo',c.pr.saldo?'(debe '+fmt2(c.pr.saldo)+')':'')}${inp('otros','Otros descuentos')}
+      </div>
+      <table class="ledger num" style="margin-top:12px"><tbody>
+        <tr><td><b>Total a pagar</b></td><td><b id="rt_${e.id}">${fmt2(tot)}</b></td></tr></tbody></table>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">${inp('transfer','Transferencia')}<div class="field" style="margin-top:8px"><label>Efectivo</label><input id="re_${e.id}" readonly value="${fmt2(tot-(+v.transfer||0))}"></div></div>
+      <div class="btns"><button class="btn pri" data-rh="nomguardar" data-id="${e.id}">Guardar</button><button class="btn" data-rh="nompagar" data-id="${e.id}">${v.pagada?'Quitar pagada':'Marcar pagada'}</button><a class="btn" data-rh="recibo" data-id="${e.id}" href="#">Recibo por WhatsApp</a></div></div>`}).join('');
+  return rhSemNav()+`<div class="kpis"><div class="kpi"><b class="num">${fmt2(T)}</b><span>total de la nómina</span></div><div class="kpi"><b class="num">${fmt2(T-TR)}</b><span>en efectivo · ${fmt2(TR)} transferido</span></div></div>`+
+    (cards||'<p class="empty">Captura el sueldo semanal de cada empleado en su expediente para calcular la nómina.</p>')+
+    `<p class="empty" style="margin-top:10px">La nómina completa se calcula con el sueldo semanal menos las faltas del rol de descansos (sueldo ÷ 7 por falta). Los vales salen de los capturados aquí y de las salidas de caja de MrTienda que digan VALE y el nombre. Todo se puede corregir a mano antes de guardar.</p>`;
+}
+function rhLeeNom(id){const o={};document.querySelectorAll(`.rhn[data-emp="${id}"]`).forEach(i=>o[i.dataset.k]=i.value);return o}
+// ---- Vales y préstamos
+function rhPrest(id){
+  const P=(RH.prestamos||[]).filter(p=>p.emp===id), pres=P.reduce((a,p)=>a+p.monto,0);
+  const ab=Object.values(RH.nominas||{}).reduce((a,n)=>a+((n[id]||{}).abono||0),0);
+  return {P,pres,ab,saldo:Math.max(0,Math.round((pres-ab)*100)/100),sug:P.length?P[P.length-1].abono_sugerido||0:0};
+}
+function rhValesPrest(){
+  const A=rhAct(), op=[['','Elige…'],...A.map(e=>[e.id,e.nombre])];
+  const conP=A.map(e=>({e,p:rhPrest(e.id)})).filter(x=>x.p.P.length);
+  const VC=(RH.vales_caja||[]).slice().sort((a,b)=>b.fecha.localeCompare(a.fecha)).slice(0,40);
+  return `<div class="card"><h2>Registrar préstamo</h2>
+      ${rhSel('rpEmp','Empleado',op,'')}<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">${rhIn('rpMon','Monto','','inputmode="decimal"')}${rhIn('rpAb','Abono por semana','','inputmode="decimal" placeholder="Ej. 250"')}</div>
+      ${rhIn('rpFec','Fecha',RH.hoy,'type="date"')}${rhIn('rpCon','Concepto','','placeholder="Ej. préstamo para renta"')}
+      <div class="btns"><button class="btn pri" data-rh="prestamo">Registrar préstamo</button></div></div>
+    <div class="card"><h2>Préstamos <small>saldo de cada quien</small></h2>${conP.length?`<div class="list">${conP.map(({e,p})=>`<div class="item"><span><b>${esc(e.nombre)}</b></span><span class="num" style="color:${p.saldo?'var(--bad)':'var(--good)'}">${p.saldo?'Debe '+fmt2(p.saldo):'Pagado'}</span><span class="meta">Prestado ${fmt2(p.pres)} · abonado ${fmt2(p.ab)}<br>${p.P.map(x=>`${rhCorta(x.fecha)}: ${fmt2(x.monto)}${x.concepto?' ('+esc(x.concepto)+')':''}${x.abono_sugerido?' · abona '+fmt2(x.abono_sugerido):''} <a href="#" data-rh="borrarprest" data-id="${x.id}" style="color:var(--bad)">borrar</a>`).join('<br>')}</span></div>`).join('')}</div>`:'<p class="empty">No hay préstamos registrados.</p>'}
+      <p class="empty" style="margin-top:10px">Los abonos se descuentan en la nómina de cada semana y el saldo baja solo.</p></div>
+    <div class="card"><h2>Registrar vale</h2><p class="empty">Para vales que no pasaron por la caja de MrTienda.</p>
+      ${rhSel('rvEmp','Empleado',op,'')}<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">${rhIn('rvMon','Monto','','inputmode="decimal"')}${rhIn('rvFec','Fecha',RH.hoy,'type="date"')}</div>${rhIn('rvNot','Nota','')}
+      <div class="btns"><button class="btn pri" data-rh="vale">Registrar vale</button></div>
+      ${(RH.vales||[]).length?`<div class="list" style="margin-top:10px">${RH.vales.slice().reverse().slice(0,30).map(v=>`<div class="item"><span>${esc((rhEmp(v.emp)||{}).nombre||'')}</span><span class="num">${fmt2(v.monto)}</span><span class="meta">${rhCorta(v.fecha)}${v.nota?' · '+esc(v.nota):''} · <a href="#" data-rh="borrarvale" data-id="${v.id}" style="color:var(--bad)">borrar</a></span></div>`).join('')}</div>`:''}</div>
+    <div class="card"><h2>Vales de la caja <small>salidas de MrTienda</small></h2>${VC.length?`<div class="list">${VC.map(v=>{const q=rhQuien(v.ref);return `<div class="item"><span>${esc(v.ref)} ${q?'':'<span class="pill warn">Sin identificar</span>'}</span><span class="num">${fmt2(+v.monto||0)}</span><span class="meta">${rhCorta(v.fecha)} ${esc(v.hora||'')}${q?' · '+esc(q.nombre):''}</span></div>`}).join('')}</div>`:'<p class="empty">No hay vales en la caja en los últimos días.</p>'}
+      <p class="empty" style="margin-top:10px">Para que se identifiquen solos, la cajera debe capturarlos como "VALE" y el nombre completo, igual que en el catálogo de empleados.</p></div>`;
+}
+// ---- Vacaciones, prima vacacional y aguinaldo (Ley Federal del Trabajo, reforma 2023)
+const rhDiasVac=n=>n<1?0:n<=5?10+2*n:20+2*Math.ceil((n-5)/5);
+function rhVacaciones(){
+  const A=rhAct(), hoy=rhPd(RH.hoy), y=hoy.getFullYear();
+  const filas=A.map(e=>{
+    if(!e.ingreso)return {e,sin:true};
+    const an=rhAntig(e.ingreso), ing=rhPd(e.ingreso), d=rhDiario(e);
+    let prox=new Date(y,ing.getMonth(),ing.getDate()); if(prox<=hoy)prox=new Date(y+1,ing.getMonth(),ing.getDate());
+    const falta=Math.round((prox-hoy)/864e5), cumple=prox.getFullYear()-ing.getFullYear();
+    const ult=new Date(prox);ult.setFullYear(prox.getFullYear()-1);
+    const tomadas=Object.entries(RH.roles||{}).reduce((a,[sem,r])=>a+((r[e.id]||[]).filter((c,i)=>c==='V'&&rhPd(rhMas(sem,i))>=ult&&rhPd(rhMas(sem,i))<=hoy).length),0);
+    const toca=rhDiasVac(an.y), ini=ing>new Date(y,0,1)?ing:new Date(y,0,1), dAno=Math.round((new Date(y,11,31)-ini)/864e5)+1;
+    return {e,an,toca,tomadas,prima:toca*d*0.25,falta,cumple,prox,agui:15*d*Math.min(1,dAno/365),dAno};
+  });
+  const avisos=filas.filter(f=>!f.sin&&f.falta<=30);
+  return (avisos.length?`<div class="note" style="margin-bottom:12px">${avisos.map(f=>`<b>${esc(f.e.nombre)}</b> cumple ${f.cumple} ${f.cumple===1?'año':'años'} el ${rhCorta(isoD(f.prox))} (en ${f.falta} días): le tocan <b>${rhDiasVac(f.cumple)} días</b> de vacaciones.`).join('<br>')}</div>`:'')+
+  `<div class="card"><h2>Vacaciones y prima vacacional <small>año actual de cada quien</small></h2><div class="tscroll"><table class="tk num"><thead><tr><th>Empleado</th><th>Antigüedad</th><th class="r">Le tocan</th><th class="r">Tomadas</th><th class="r">Prima 25%</th></tr></thead><tbody>
+    ${filas.map(f=>f.sin?`<tr><td>${esc(f.e.nombre)}</td><td colspan="4" class="empty">Falta la fecha de ingreso</td></tr>`:`<tr><td>${esc(f.e.nombre)}</td><td>${f.an.txt}</td><td class="r">${f.toca} días</td><td class="r">${f.tomadas}${f.toca?` <small>(quedan ${Math.max(0,f.toca-f.tomadas)})</small>`:''}</td><td class="r">${f.toca?fmt2(f.prima):'—'}</td></tr>`).join('')}</tbody></table></div>
+    <p class="empty" style="margin-top:10px">Días según la ley vigente: 12 el primer año, +2 por año hasta 20 al quinto, y +2 cada 5 años después. Las vacaciones tomadas se cuentan del rol de descansos (V). Salario diario = sueldo semanal ÷ 7.</p></div>
+  <div class="card"><h2>Aguinaldo ${hoy.getFullYear()} <small>mínimo de ley: 15 días</small></h2><div class="tscroll"><table class="tk num"><thead><tr><th>Empleado</th><th class="r">Días del año</th><th class="r">Aguinaldo</th></tr></thead><tbody>
+    ${filas.map(f=>f.sin?`<tr><td>${esc(f.e.nombre)}</td><td colspan="2" class="empty">Falta la fecha de ingreso</td></tr>`:`<tr><td>${esc(f.e.nombre)}</td><td class="r">${Math.min(365,f.dAno)}</td><td class="r">${fmt2(f.agui)}</td></tr>`).join('')}
+    <tr class="tt"><td>Total</td><td></td><td class="r">${fmt2(filas.reduce((a,f)=>a+(f.agui||0),0))}</td></tr></tbody></table></div>
+    <p class="empty" style="margin-top:10px">Se paga a más tardar el 20 de diciembre. Si entró este año, es proporcional a los días trabajados.</p></div>`;
+}
+// ---- acciones
+document.addEventListener('input',e=>{const i=e.target.closest('.rhn');if(!i)return;const id=i.dataset.emp,o=rhLeeNom(id),t=rhTot(o);const a=$('#rt_'+id),b=$('#re_'+id);if(a)a.textContent=fmt2(t);if(b)b.value=fmt2(t-(+o.transfer||0))});
+document.addEventListener('click',async e=>{
+  const t=e.target.closest('[data-rh],[data-rhtab]');if(!t||tab!=='rh')return;e.preventDefault();
+  const d=t.dataset, a=d.rh;
+  if(d.rhtab){rhTab=d.rhtab;st.rhTab=rhTab;save();rhEdit=null;return render()}
+  if(a==='nuevo'){rhEdit='nuevo';render();return $('#rhForm')?.scrollIntoView({behavior:'smooth'})}
+  if(a==='editar'){rhEdit=d.id;render();return $('#rhForm')?.scrollIntoView({behavior:'smooth'})}
+  if(a==='cancelar'){rhEdit=null;return render()}
+  if(a==='bajas'){rhBajas=!rhBajas;return render()}
+  if(a==='semant'||a==='semsig'){rhSem=rhMas(rhSem,a==='semant'?-7:7);return render()}
+  if(a==='recibo'){const e_=rhEmp(d.id),v=rhLeeNom(d.id),tot=rhTot(v),L=[`*Nómina La Holandesa*`,`${e_.nombre}`,`Semana del ${rhCorta(rhSem)} al ${rhCorta(rhMas(rhSem,6))}`,``,`Nómina completa: ${fmt2(+v.base||0)}`];
+    if(+v.extras)L.push(`Extras: ${fmt2(+v.extras)}`);[['comida','Comida'],['vales','Vales'],['abono','Abono préstamo'],['otros','Otros']].forEach(([k,l])=>{if(+v[k])L.push(`${l}: -${fmt2(+v[k])}`)});
+    const pr=rhPrest(d.id);L.push(``,`*Total a pagar: ${fmt2(tot)}*`);if(+v.transfer)L.push(`Transferencia: ${fmt2(+v.transfer)}`,`Efectivo: ${fmt2(tot-(+v.transfer))}`);if(pr.saldo)L.push(``,`Saldo de préstamo: ${fmt2(Math.max(0,pr.saldo-((+v.abono||0)-((RH.nominas[rhSem]||{})[d.id]||{abono:0}).abono)))}`);
+    window.open('https://wa.me/?text='+encodeURIComponent(L.join('\n')),'_blank');return}
+  try{
+    if(t.tagName==='BUTTON')t.disabled=true;
+    if(a==='guardar'){const g=id=>($('#'+id)||{}).value||'';
+      await rhApi({accion:'emp_guardar',emp:{id:d.id,nombre:g('rfNom'),puesto:g('rfPue'),cod_mt:g('rfMt'),ingreso:g('rfIng'),sueldo:g('rfSue'),entrada:g('rfEnt'),salida:g('rfSal'),descanso:g('rfDes'),telefono:g('rfTel'),nss:g('rfNss'),curp:g('rfCurp'),rfc:g('rfRfc'),domicilio:g('rfDom'),notas:g('rfNot'),contrato:{estado:g('rfCe'),tipo:g('rfCt'),fecha:g('rfCf'),nota:g('rfCn')}}});
+      rhEdit=null;toast('Expediente guardado')}
+    else if(a==='baja'){if(!confirm('¿Dar de baja a este empleado? Su expediente se conserva.')){t.disabled=false;return}await rhApi({accion:'emp_baja',id:d.id});rhEdit=null;toast('Dado de baja')}
+    else if(a==='reactivar'){await rhApi({accion:'emp_baja',id:d.id,reactivar:true});toast('Reactivado')}
+    else if(a==='dia'){const e_=rhEmp(d.id),r=rhRolDe(e_,rhSem).d.slice();r[+d.i]=RH_CICLO[(RH_CICLO.indexOf(r[+d.i])+1)%RH_CICLO.length];await rhApi({accion:'rol_guardar',semana:rhSem,emp:d.id,dias:r})}
+    else if(a==='copiar'){await rhApi({accion:'rol_copiar',semana:rhSem,anterior:rhMas(rhSem,-7)});toast('Semana copiada')}
+    else if(a==='nomguardar'||a==='nompagar'){const g=(RH.nominas[rhSem]||{})[d.id];const c=rhLeeNom(d.id);c.pagada=a==='nompagar'?!(g&&g.pagada):!!(g&&g.pagada);await rhApi({accion:'nomina_guardar',semana:rhSem,emp:d.id,campos:c});toast(a==='nompagar'?(c.pagada?'Marcada como pagada':'Ya no está marcada como pagada'):'Nómina guardada')}
+    else if(a==='prestamo'){await rhApi({accion:'prestamo_alta',emp:$('#rpEmp').value,monto:$('#rpMon').value,abono:$('#rpAb').value,fecha:$('#rpFec').value,concepto:$('#rpCon').value});toast('Préstamo registrado')}
+    else if(a==='vale'){await rhApi({accion:'vale_alta',emp:$('#rvEmp').value,monto:$('#rvMon').value,fecha:$('#rvFec').value,nota:$('#rvNot').value});toast('Vale registrado')}
+    else if(a==='borrarprest'||a==='borrarvale'){if(!confirm('¿Borrar este registro?'))return;await rhApi({accion:a==='borrarprest'?'prestamo_borrar':'vale_borrar',id:d.id});toast('Borrado')}
+    render();
+  }catch(err){toast(err.message);if(t.tagName==='BUTTON')t.disabled=false}
+});
+
 async function accionAdmin(t,d){
   try{
     if(t.tagName==='BUTTON')t.disabled=true;
@@ -1210,7 +1410,7 @@ function render(){
   const n=D.borrados.length+D.cancelados.length+D.precios.length; const dot=$('#ctlDot'); dot.hidden=!n; dot.textContent=n;
   const na=esHoy()?(DATA.abiertas||[]).length:0; const td=$('#tkDot'); td.hidden=!na; td.textContent=na;
   const open=[...document.querySelectorAll('#view details[open]')].map(d=>d.querySelector('summary')?.textContent);
-  $('#view').innerHTML= tab==='hoy'?vHoy(D):tab==='tickets'?vTickets(D):tab==='cortes'?vCortes(D):tab==='control'?vControl(D):vReportes();
+  $('#view').innerHTML= tab==='hoy'?vHoy(D):tab==='tickets'?vTickets(D):tab==='cortes'?vCortes(D):tab==='control'?vControl(D):tab==='rh'?vRH():vReportes();
   if(open.length) document.querySelectorAll('#view details').forEach(d=>{if(open.includes(d.querySelector('summary')?.textContent))d.open=true});
 }
 function irA(t){tab=t;st.tab=t;save();render();window.scrollTo(0,0)}
@@ -1290,7 +1490,7 @@ async function cargar(force){
     $('#gen').textContent=(COPIA?'Copia del ':'')+(COPIA?new Date(DATA.generado).toLocaleDateString('es-MX',{day:'numeric',month:'short'})+' ':'')+hm(DATA.generado)+' · v'+(DATA.version||'');
     if(COPIA){$('#live').classList.add('off');$('#note').hidden=false;$('#note').textContent='Estás viendo la copia guardada en tu Google Drive, con todo hasta la hora de arriba. Para ver en vivo y quitar cuentas, abre la app normal con la caja prendida.'}
     else{const mins=(Date.now()-new Date(DATA.generado))/60000;if(mins>15){$('#live').classList.add('off');$('#note').hidden=false;$('#note').textContent='La última actualización fue hace '+Math.round(mins)+' minutos. Revisa que la computadora de la caja esté encendida y con internet.'}}
-    if(!$('#sheet')&&(force||primera||!(tab==='reportes'&&repModo==='gastos'))) render();
+    if(!$('#sheet')&&(force||primera||!((tab==='reportes'&&repModo==='gastos')||tab==='rh'))) render();
   }catch(e){$('#live').classList.add('off');$('#gen').textContent='Sin conexión';$('#note').hidden=false;$('#note').textContent='No pude conectarme con la computadora de la caja. Revisa que esté encendida, con internet y con Tailscale activo. ('+e.message+')'}
 }
 const CAPMODE=!COPIA&&location.pathname.startsWith('/captura');

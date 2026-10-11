@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 43            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '26.8'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 44            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '27.0'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -33,7 +33,9 @@ QUITADAS_FILE = os.path.join(AQUI, 'cuentas_quitadas.json')
 GASTOS_FILE = os.path.join(AQUI, 'gastos.json')       # compras y gastos capturados (no es de MrTienda)
 FOTOS_DIR = os.path.join(AQUI, 'fotos_compras')        # fotos de tickets de compra
 CAJEROS_FILE = os.path.join(AQUI, 'cajeros.json')       # cajeros con su clave (solo se guarda la huella de la clave)
-MESEROS_FILE = os.path.join(AQUI, 'meseros.json')       # meseros del comandero: código de MrTienda + huella de su clave
+MESEROS_FILE = os.path.join(AQUI, 'meseros.json')
+RH_FILE = os.path.join(AQUI, 'personal.json')           # Recursos Humanos: expedientes, rol, nómina, vales y préstamos (solo en la caja)
+PUESTOS = ['Mesero', 'Cajero', 'Encargada', 'Cocinero', 'Ayudante de cocina', 'Repartidor', 'Lavaloza', 'Otro']       # meseros del comandero: código de MrTienda + huella de su clave
 IA_URL = 'https://api.anthropic.com/v1/messages'
 IA_MODELO = 'claude-haiku-5-5'
 PROMPT_TICKET = '''Eres el capturista de compras de un restaurante en Ensenada, México. Lee la foto de este ticket o factura de compra y responde SOLO con un objeto JSON, sin texto antes ni después, con esta forma:
@@ -1322,6 +1324,103 @@ class Monitor:
         self.refresh()
         return {'ok': True}
 
+    # ------------------------------------------------ Recursos Humanos (personal.json, solo en la caja; nunca va en data.json ni a Drive)
+    def rh(self):
+        try:
+            with open(RH_FILE, encoding='utf-8') as f: d = json.load(f)
+        except (OSError, ValueError): d = {}
+        for k, v in (('empleados', []), ('roles', {}), ('nominas', {}), ('prestamos', []), ('vales', [])):
+            if not isinstance(d.get(k), type(v)): d[k] = v
+        return d
+
+    def _rh_guardar(self, d):
+        tmp = RH_FILE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f: json.dump(d, f, ensure_ascii=False, indent=1)
+        if os.path.exists(RH_FILE):
+            os.makedirs(os.path.join(AQUI, 'respaldos_personal'), exist_ok=True)
+            hoy = os.path.join(AQUI, 'respaldos_personal', 'personal_' + datetime.date.today().isoformat() + '.json')
+            if not os.path.exists(hoy): shutil.copy2(RH_FILE, hoy)   # una copia por día, por si algo se borra por error
+        os.replace(tmp, RH_FILE)
+
+    def rh_info(self):
+        d = self.rh()
+        d['puestos'] = PUESTOS
+        d['emp_mrtienda'] = sorted([{'cod': k, 'nombre': v} for k, v in getattr(self, 'EMP', {}).items() if v], key=lambda e: e['nombre'])
+        try: d['vales_caja'] = self.vales_caja()
+        except Exception as e: log('No pude leer vales de caja: ' + str(e)); d['vales_caja'] = []
+        d['comidas'] = [{'fecha': q.get('fecha'), 'persona': q.get('persona'), 'total': q.get('total')} for q in self.quitadas() if q.get('motivo') == 'Empleado']
+        d['hoy'] = datetime.date.today().isoformat()
+        return d
+
+    def vales_caja(self):
+        # salidas de caja de MrTienda que la cajera capturó como vale (últimos 70 días)
+        out = []
+        try: data = json.loads(self.json)
+        except ValueError: return out
+        for f, D in (data.get('detalle') or {}).items():
+            for m in D.get('salidas', []) if isinstance(D.get('salidas'), list) else []:
+                if (m.get('cat') or '') == 'Vales' or re.match(r'^\s*VALE', str(m.get('ref') or ''), re.I):
+                    out.append({'fecha': f, 'ref': m.get('ref', ''), 'monto': m.get('importe', 0), 'hora': m.get('hora', '')})
+        return out
+
+    def rh_accion(self, a):
+        d = self.rh(); acc = a.get('accion')
+        txt = lambda v, n=80: re.sub(r'\s+', ' ', str(v or '')).strip()[:n]
+        def num(v):
+            try: return round(float(str(v).replace('$', '').replace(',', '') or 0), 2)
+            except ValueError: raise ValueError('Revisa las cantidades: solo números.')
+        def fecha(v, req=False):
+            v = txt(v, 10)
+            if not v and not req: return ''
+            try: datetime.date.fromisoformat(v); return v
+            except ValueError: raise ValueError('Revisa la fecha.')
+        def emp_id(v):
+            if not any(e['id'] == v for e in d['empleados']): raise ValueError('No encontré a ese empleado.')
+            return v
+        if acc == 'emp_guardar':
+            e = a.get('emp') or {}
+            nombre = txt(e.get('nombre'), 80).upper()
+            if not nombre: raise ValueError('Escribe el nombre completo.')
+            puesto = e.get('puesto') if e.get('puesto') in PUESTOS else 'Otro'
+            reg = {'nombre': nombre, 'puesto': puesto, 'cod_mt': txt(e.get('cod_mt'), 6), 'ingreso': fecha(e.get('ingreso')), 'sueldo': num(e.get('sueldo')),
+                   'telefono': txt(e.get('telefono'), 20), 'nss': txt(e.get('nss'), 15), 'curp': txt(e.get('curp'), 18).upper(), 'rfc': txt(e.get('rfc'), 13).upper(),
+                   'domicilio': txt(e.get('domicilio'), 160), 'entrada': txt(e.get('entrada'), 5), 'salida': txt(e.get('salida'), 5), 'descanso': txt(e.get('descanso'), 10),
+                   'contrato': {'estado': 'firmado' if (e.get('contrato') or {}).get('estado') == 'firmado' else 'pendiente',
+                                'tipo': txt((e.get('contrato') or {}).get('tipo'), 30), 'fecha': fecha((e.get('contrato') or {}).get('fecha')),
+                                'nota': txt((e.get('contrato') or {}).get('nota'), 200)},
+                   'notas': txt(e.get('notas'), 500)}
+            x = next((x for x in d['empleados'] if x['id'] == e.get('id')), None) if e.get('id') else None
+            if x: x.update(reg)
+            else: reg.update({'id': secrets.token_hex(4), 'activo': True, 'alta': datetime.datetime.now().isoformat(timespec='seconds')}); d['empleados'].append(reg)
+        elif acc == 'emp_baja':
+            for x in d['empleados']:
+                if x['id'] == a.get('id'): x['activo'] = bool(a.get('reactivar')); x['fecha_baja'] = '' if a.get('reactivar') else datetime.date.today().isoformat()
+        elif acc == 'rol_guardar':
+            sem = fecha(a.get('semana'), True); dias = [c if c in ('T', 'D', 'F', 'V', 'I') else 'T' for c in (a.get('dias') or [])][:7]
+            if len(dias) != 7: raise ValueError('Faltan días.')
+            d['roles'].setdefault(sem, {})[emp_id(a.get('emp'))] = dias
+        elif acc == 'rol_copiar':
+            sem, ant = fecha(a.get('semana'), True), fecha(a.get('anterior'), True)
+            if ant not in d['roles']: raise ValueError('La semana anterior no tiene rol capturado.')
+            d['roles'][sem] = {k: list(v) for k, v in d['roles'][ant].items()}
+        elif acc == 'nomina_guardar':
+            sem = fecha(a.get('semana'), True); c = a.get('campos') or {}
+            d['nominas'].setdefault(sem, {})[emp_id(a.get('emp'))] = {k: num(c.get(k)) for k in ('base', 'extras', 'comida', 'vales', 'abono', 'otros', 'transfer')} | {'nota': txt(c.get('nota'), 200), 'pagada': bool(c.get('pagada'))}
+        elif acc == 'prestamo_alta':
+            m = num(a.get('monto'))
+            if m <= 0: raise ValueError('Escribe el monto del préstamo.')
+            d['prestamos'].append({'id': secrets.token_hex(4), 'emp': emp_id(a.get('emp')), 'fecha': fecha(a.get('fecha'), True), 'monto': m, 'concepto': txt(a.get('concepto'), 120), 'abono_sugerido': num(a.get('abono'))})
+        elif acc == 'vale_alta':
+            m = num(a.get('monto'))
+            if m <= 0: raise ValueError('Escribe el monto del vale.')
+            d['vales'].append({'id': secrets.token_hex(4), 'emp': emp_id(a.get('emp')), 'fecha': fecha(a.get('fecha'), True), 'monto': m, 'nota': txt(a.get('nota'), 120)})
+        elif acc in ('prestamo_borrar', 'vale_borrar'):
+            k = 'prestamos' if acc == 'prestamo_borrar' else 'vales'
+            d[k] = [x for x in d[k] if x['id'] != a.get('id')]
+        else: raise ValueError('Acción no válida.')
+        self._rh_guardar(d)
+        return {'ok': True, 'rh': self.rh_info()}
+
     # ------------------------------------------------ lectura de tickets con la API de Claude
     def catalogo_insumos(self):
         c = collections.Counter()
@@ -1549,7 +1648,8 @@ class Monitor:
         return persona if motivo in CON_PERSONA or motivo == 'Cortesía' else ''
 
     def empleados(self):
-        return sorted(set(v for v in getattr(self, 'EMP', {}).values() if v) | {x['nombre'] for x in self.cajeros() if x.get('activo')} | set(self.cfg.get('empleados_extra') or []))
+        rh = {e['nombre'].title() for e in self.rh()['empleados'] if e.get('activo')}
+        return sorted(set(v for v in getattr(self, 'EMP', {}).values() if v) | {x['nombre'] for x in self.cajeros() if x.get('activo')} | set(self.cfg.get('empleados_extra') or []) | rh)
 
     def familia(self):
         f = self.cfg.get('familia')
@@ -1749,7 +1849,7 @@ def make_handler(mon, cfg):
                     body = json.dumps({'ok': False, 'error': str(e), 'sesion': not isinstance(e, PermissionError)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(409); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
             if not self._auth(caja_ok=(self.path in ('/api/compra', '/api/leer-ticket'))): return
-            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/comandero-envio', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia'): self.send_response(404); self.end_headers(); return
+            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/comandero-envio', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return
             try:
@@ -1761,6 +1861,7 @@ def make_handler(mon, cfg):
                 elif self.path == '/api/leer-ticket': out={'ok': True, 'lectura': mon.leer_ticket(d.get('foto') or '')}
                 elif self.path == '/api/cajeros': out=mon.cajero_accion(d)
                 elif self.path == '/api/meseros': out=mon.mesero_accion(d)
+                elif self.path == '/api/rh': out=mon.rh_accion(d)
                 elif self.path == '/api/comandero-envio': out=mon.comandero_interruptor(d)
                 elif self.path == '/api/leer-pendientes': out=mon.leer_pendientes()
                 elif self.path == '/api/drive':
@@ -1835,6 +1936,9 @@ def make_handler(mon, cfg):
             if p0 == '/api/drive-script':
                 body = SCRIPT_DRIVE.replace('{SECRETO}', cfg['drive_secreto']).encode('utf-8')
                 return self._send(body, 'text/plain; charset=utf-8')
+            if p0 == '/api/rh':
+                body = json.dumps({'ok': True, 'rh': mon.rh_info()}, ensure_ascii=False).encode('utf-8')
+                return self._send(body, 'application/json; charset=utf-8')
             if p0 == '/api/acceso':
                 body = json.dumps({'ok': True, 'puerto': cfg['puerto'], 'ips': ips_locales()}, ensure_ascii=False).encode('utf-8')
                 return self._send(body, 'application/json; charset=utf-8')
