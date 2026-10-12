@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 65            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '29.7'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 66            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '29.8'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -2298,20 +2298,20 @@ def make_handler(mon, cfg):
         with open(icon_path, 'rb') as f: icon_png = f.read()
     except OSError:
         icon_png = b''
-    manifest_caja = json.dumps({'name':'Compras Holandesa','short_name':'Compras','start_url':'/captura','display':'standalone','background_color':'#fbf6f1','theme_color':'#ea580c','icons':[{'src':'/icon.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
+    manifest_caja = json.dumps({'name':'Compras Holandesa','short_name':'Compras','start_url':'/captura','display':'standalone','background_color':'#fbf6f1','theme_color':'#ea580c','icons':[{'src':'/icono_panel_192.png','sizes':'192x192','type':'image/png','purpose':'any'},{'src':'/icono_panel_512.png','sizes':'512x512','type':'image/png','purpose':'any'}]}, ensure_ascii=False).encode('utf-8')
     def _leer(nombre):
         try:
             with open(os.path.join(AQUI, nombre), 'rb') as f: return f.read()
         except OSError: return b''
     page_cmd = _leer('comandero.html')
     logo_cmd = _leer('logo_comandero.png')
-    iconos_cmd = {n: _leer(n) for n in ('icono_comandero_180.png', 'icono_comandero_192.png', 'icono_comandero_512.png')}
+    iconos_cmd = {n: _leer(n) for n in ('icono_comandero_180.png', 'icono_comandero_192.png', 'icono_comandero_512.png', 'icono_panel_180.png', 'icono_panel_192.png', 'icono_panel_512.png')}
     icon_rh = _leer('icon_personal.png')
     page_rol = _leer('descansos.html')
     manifest_rol = json.dumps({'name':'Descansos La Holandesa','short_name':'Descansos','start_url':'/descansos','display':'standalone','background_color':'#f3f6f2','theme_color':'#1d5c3b','icons':[{'src':'/icon_personal.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
     manifest_rh = json.dumps({'name':'Personal Holandesa','short_name':'Personal','start_url':'/personal','display':'standalone','background_color':'#f3f6f2','theme_color':'#1d5c3b','icons':[{'src':'/icon_personal.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
     manifest_cmd = json.dumps({'name':'La Holandesa Comandero','short_name':'Holandesa Comandero','start_url':'/comandero','scope':'/comandero','display':'standalone','background_color':'#ffffff','theme_color':'#1d5c3b','icons':[{'src':'/icono_comandero_192.png','sizes':'192x192','type':'image/png','purpose':'any'},{'src':'/icono_comandero_512.png','sizes':'512x512','type':'image/png','purpose':'any'}]}, ensure_ascii=False).encode('utf-8')
-    manifest = json.dumps({'name':'Control Holandesa','short_name':'Control Holandesa','start_url':'/','display':'standalone','background_color':'#fbf6f1','theme_color':'#ea580c','icons':[{'src':'/icon.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
+    manifest = json.dumps({'name':'Control Holandesa','short_name':'Control Holandesa','start_url':'/','display':'standalone','background_color':'#fbf6f1','theme_color':'#ea580c','icons':[{'src':'/icono_panel_192.png','sizes':'192x192','type':'image/png','purpose':'any'},{'src':'/icono_panel_512.png','sizes':'512x512','type':'image/png','purpose':'any'}]}, ensure_ascii=False).encode('utf-8')
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a): pass
         def _auth(self, caja_ok=False):
@@ -2496,6 +2496,8 @@ def make_handler(mon, cfg):
                     self.send_response(500); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
             if p0 in ('/manifest-caja.webmanifest',):
                 return self._send(manifest_caja, 'application/manifest+json; charset=utf-8')
+            if p0 == '/manifest.webmanifest':
+                return self._send(manifest, 'application/manifest+json; charset=utf-8')
             if p0 == '/icon.png' and icon_png and self.headers.get('Authorization'):
                 return self._send(icon_png, 'image/png')
             if not self._auth(): return

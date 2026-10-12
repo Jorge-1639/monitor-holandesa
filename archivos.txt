@@ -12,3 +12,6 @@ abrir_wifi_comandero.bat
 icono_comandero_180.png
 icono_comandero_192.png
 icono_comandero_512.png
+icono_panel_180.png
+icono_panel_192.png
+icono_panel_512.png

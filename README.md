@@ -87,3 +87,6 @@ por eso el comandero no abría desde el WiFi del restaurante. Este archivo, ejec
 "Comandero La Holandesa (WiFi)" para el puerto 8765 desde la red local (LocalSubnet). El programa sigue revisando por su cuenta quién es WiFi y quién no.
 
 Versión 29.7 — ícono del comandero en la pantalla de inicio: logo de La Holandesa en cuadrado (icono_comandero_180/192/512.png) y nombre "Holandesa Comandero".
+
+Versión 29.8 — ícono del panel de ventas: logo de La Holandesa sobre naranja (icono_panel_180/192/512.png). El manifest del panel ya se entrega sin contraseña
+(no trae datos), porque el teléfono lo pide sin ella; antes el ícono salía gris con un "1". El icon.png anterior nunca existió en la caja (había icon.jpeg).
