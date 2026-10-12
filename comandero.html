@@ -234,7 +234,7 @@ const PRECIO=(p,modo)=>modo==='llevar'?p.p2:p.p;
 const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{v==null?localStorage.removeItem(k):localStorage.setItem(k,v)}catch(e){}}};
 
 let M={cats:[]}, CUENTAS=[], ESCRIBE=false, poll=null;
-const S={modo:'aqui',user:null,tok:store.get('cmd_tok'),pin:'',err:'',view:'login',filtro:'mias',sel:null,grp:null,sub:null,q:'',draft:[],nuevo:null,cargando:false,falla:''};
+const S={modo:'aqui',user:null,tok:null,pin:'',err:'',view:'login',filtro:'mias',sel:null,grp:null,sub:null,q:'',draft:[],nuevo:null,cargando:false,falla:''};
 
 function toast(t){const e=$('#toast');e.textContent=t;e.hidden=false;clearTimeout(toast.h);toast.h=setTimeout(()=>e.hidden=true,2200)}
 const tot=items=>items.reduce((a,i)=>a+i.qty*i.price,0);
@@ -252,7 +252,7 @@ async function entrar(pin){
     const r=await fetch('/api/mesero-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin})});
     const j=await r.json();
     if(!j.ok){S.err=j.error||'Clave incorrecta';return render()}
-    S.tok=j.token;store.set('cmd_tok',j.token);S.err='';await inicio();
+    S.tok=j.token;S.pinActual=pin;S.err='';await inicio();
   }catch(e){S.err='No hay conexión con la caja. ¿Estás en el WiFi del restaurante?';render()}
 }
 async function inicio(){
@@ -510,17 +510,26 @@ function agregar(){
 }
 let enviando=false;
 // la clave se pide cada vez que se envía una comanda
-function pedirClave(){return new Promise(res=>{
-  $('#sheet').innerHTML=`<div class="veil"><form class="sheet" id="fk"><h2>Escribe tu clave para enviar</h2><input id="kpin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" class="search" style="margin-top:0;font-size:28px;letter-spacing:.5em;text-align:center"><div style="display:flex;gap:8px"><button type="button" class="big" id="kno" style="background:var(--surface);color:var(--ink);border:1px solid var(--line)">Cancelar</button><button class="big" type="submit">Enviar</button></div></form></div>`;
+function pedirClave(titulo){return new Promise(res=>{
+  $('#sheet').innerHTML=`<div class="veil"><form class="sheet" id="fk"><h2>${titulo||'Escribe tu clave'}</h2><input id="kpin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" class="search" style="margin-top:0;font-size:28px;letter-spacing:.5em;text-align:center"><div style="display:flex;gap:8px"><button type="button" class="big" id="kno" style="background:var(--surface);color:var(--ink);border:1px solid var(--line)">Cancelar</button><button class="big" type="submit">Continuar</button></div></form></div>`;
   const i=$('#kpin');setTimeout(()=>i.focus(),50);
   const fin=v=>{$('#sheet').innerHTML='';res(v)};
   $('#kno').onclick=()=>fin(null);
   i.oninput=()=>{i.value=i.value.replace(/\D/g,'').slice(0,4);if(i.value.length===4)fin(i.value)};
   $('#fk').onsubmit=e=>{e.preventDefault();if(i.value.length===4)fin(i.value)};
 })}
+async function conClave(titulo,sigue){
+  const pin=await pedirClave(titulo);if(!pin)return;
+  try{
+    const r=await fetch('/api/mesero-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin})});
+    const j=await r.json();
+    if(!j.ok)return toast(j.error||'Clave incorrecta');
+    S.tok=j.token;S.pinActual=pin;await cargar(false);render();sigue();
+  }catch(e){toast('No hay conexión con la caja')}
+}
 async function enviar(btn){
   if(enviando||!S.draft.length)return;
-  const pin=await pedirClave();if(!pin)return;
+  const pin=S.pinActual;if(!pin)return salir('Vuelve a entrar con tu clave.');
   enviando=true;document.querySelectorAll('[data-act="enviar"]').forEach(b=>{b.disabled=true;b.textContent='Enviando…'});
   if(!S.envio)S.envio=Date.now().toString(36)+Math.random().toString(36).slice(2,8);
   const body={pin,envio:S.envio,llevar:!!S.sel.llevar,items:S.draft.map(i=>({id:i.id,qty:i.qty,llevar:i.llevar,g:i.g,o:i.o,nota:i.nota}))};
@@ -550,9 +559,9 @@ document.addEventListener('click',e=>{
     if(S.pin.length===4){const pin=S.pin;S.pin='';render();return entrar(pin)}
     S.err='';return render()}
   if(d.f){S.filtro=d.f;return render()}
-  if(d.k&&S.view==='mesas'){const c=cuentaDe(d.k);if(!c)return;
-    if(!mia(c)){toast('Esa cuenta es de '+c.mesero);return}
-    return abrir({k:c.archivo,llevar:c.llevar})}
+  if(d.k&&S.view==='mesas'){const k=d.k;if(!cuentaDe(k))return;
+    return conClave('Escribe tu clave para agregar a esta cuenta',()=>{const c=cuentaDe(k);if(!c)return;
+      if(!mia(c)){toast('Esa cuenta es de '+c.mesero);return}abrir({k:c.archivo,llevar:c.llevar})})}
   if(d.libre){return hojaPersonas(d.libre)}
   if(d.pers){$('#sheet').innerHTML='';return abrir({mesa:d.mesa,pers:+d.pers})}
   if(d.nueva){return d.nueva==='comedor'?hojaMesas():hojaCanal(d.nueva)}
@@ -572,7 +581,7 @@ document.addEventListener('click',e=>{
     const f=$('#fl');setTimeout(()=>$('#nl').focus(),50);
     f.onsubmit=ev=>{ev.preventDefault();const nm=$('#nl').value.trim();if(!nm)return;$('#sheet').innerHTML='';abrir({nombre:nm,llevar:true})};
     return}
-  if(a==='nueva')return hojaNueva();
+  if(a==='nueva')return conClave('Escribe tu clave para la nueva cuenta',hojaNueva);
   if(a==='yasalio'){const v=vistos();v[t.dataset.dk]=1;guardaVistos(v);alarmaK=null;$('#alarma').hidden=true;return revisarDemoras()}
   if(a==='buscarcte')return buscarCte();
   if(a==='agregar')return agregar();

@@ -151,3 +151,7 @@ Versión 30.6.13 — al abrir el comandero aparece el logo de La Holandesa con l
 
 Versión 30.6.15 — el comandero pide la clave del mesero en cada envío a cocina (aunque la sesión siga abierta). Clave equivocada = no se envía
 y los platillos se quedan; 5 errores seguidos bloquean 5 minutos.
+
+Versión 30.6.16 — clave al entrar al comandero (ya no se guarda la sesión en el teléfono) y otra vez al empezar cada comanda
+("+ Nueva cuenta" o abrir una cuenta para agregar). La clave que se escribe define el mesero de esa comanda, aunque el teléfono sea de otro.
+Al enviar ya no se pide (se usa la de la captura; la caja la sigue verificando).
