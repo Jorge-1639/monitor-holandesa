@@ -127,3 +127,5 @@ Sugerencias (sopa y agua, jugo, soda italiana) parpadean en su color. Soda itali
 hamburguesas, tortas, bistec, empanizados, milanesa, sándwich.
 
 Versión 30.6.3 — comanda: platillo en doble de alto (las variantes igual) y 3 renglones de espacio antes del bloque de abajo (PARA LLEVAR / MESA 5).
+
+Versión 30.6.4 — el ícono del comandero va dentro de la misma página (data URI) para que Chrome lo use al crear el acceso directo en direcciones http.
