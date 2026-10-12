@@ -132,3 +132,5 @@ Versión 30.6.4 — el ícono del comandero va dentro de la misma página (data 
 
 Versión 30.6.5 — comandero instalable: service worker mínimo (/comandero-sw.js) y botón azul "📲 Instalar Holandesa Comandero en este teléfono"
 que aparece abajo cuando Chrome permite instalarlo (dirección segura https://newcaja…/comandero). Manifest con id /comandero.
+
+Versión 30.6.6 — el ícono del panel de ventas también es el logo sobre fondo blanco (sin el marco naranja), igual que el del comandero.
