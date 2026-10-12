@@ -142,3 +142,5 @@ y Chrome no dejaba instalarlo aparte (salía "Crear acceso directo" con una letr
 Versión 30.6.8 — íconos: Control Holandesa con el logo a todo color sobre blanco; Holandesa Comandero con el logo todo en negro sobre blanco.
 
 Versión 30.6.9 — ícono del comandero: solo el contorno del molino y las letras "La Holandesa" en negro, sin la mancha verde ni la franja de Restaurante, fondo blanco.
+
+Versión 30.6.10 — ícono del comandero con trazo más delgado: solo el negro del logo, sin mezclar el naranja.
