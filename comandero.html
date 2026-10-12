@@ -509,11 +509,21 @@ function agregar(){
   else toast('Agregado');
 }
 let enviando=false;
+// la clave se pide cada vez que se envía una comanda
+function pedirClave(){return new Promise(res=>{
+  $('#sheet').innerHTML=`<div class="veil"><form class="sheet" id="fk"><h2>Escribe tu clave para enviar</h2><input id="kpin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" class="search" style="margin-top:0;font-size:28px;letter-spacing:.5em;text-align:center"><div style="display:flex;gap:8px"><button type="button" class="big" id="kno" style="background:var(--surface);color:var(--ink);border:1px solid var(--line)">Cancelar</button><button class="big" type="submit">Enviar</button></div></form></div>`;
+  const i=$('#kpin');setTimeout(()=>i.focus(),50);
+  const fin=v=>{$('#sheet').innerHTML='';res(v)};
+  $('#kno').onclick=()=>fin(null);
+  i.oninput=()=>{i.value=i.value.replace(/\D/g,'').slice(0,4);if(i.value.length===4)fin(i.value)};
+  $('#fk').onsubmit=e=>{e.preventDefault();if(i.value.length===4)fin(i.value)};
+})}
 async function enviar(btn){
   if(enviando||!S.draft.length)return;
+  const pin=await pedirClave();if(!pin)return;
   enviando=true;document.querySelectorAll('[data-act="enviar"]').forEach(b=>{b.disabled=true;b.textContent='Enviando…'});
   if(!S.envio)S.envio=Date.now().toString(36)+Math.random().toString(36).slice(2,8);
-  const body={envio:S.envio,llevar:!!S.sel.llevar,items:S.draft.map(i=>({id:i.id,qty:i.qty,llevar:i.llevar,g:i.g,o:i.o,nota:i.nota}))};
+  const body={pin,envio:S.envio,llevar:!!S.sel.llevar,items:S.draft.map(i=>({id:i.id,qty:i.qty,llevar:i.llevar,g:i.g,o:i.o,nota:i.nota}))};
   if(S.sel.k)body.k=S.sel.k;else if(S.sel.mesa){body.mesa=S.sel.mesa;body.pers=S.sel.pers||1}else if(S.sel.canal)Object.assign(body,S.sel.canal,{nombre:S.sel.canal.nombre||''});else body.nombre=S.sel.nombre;
   try{
     const r=await fetch('/api/comandero/enviar',{method:'POST',headers:{'Content-Type':'application/json','X-Mesero-Token':S.tok||''},body:JSON.stringify(body)});

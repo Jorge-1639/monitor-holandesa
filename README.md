@@ -148,3 +148,6 @@ Versión 30.6.10 — ícono del comandero con trazo más delgado: solo el negro 
 Versión 30.6.11 — íconos para la pantalla de inicio: el comandero usa archivos normales (no data URI), /favicon.ico sin contraseña y los íconos con caché de un día.
 
 Versión 30.6.13 — al abrir el comandero aparece el logo de La Holandesa con las aspas del molino dando dos vueltas (1.6 s) y luego entra.
+
+Versión 30.6.15 — el comandero pide la clave del mesero en cada envío a cocina (aunque la sesión siga abierta). Clave equivocada = no se envía
+y los platillos se quedan; 5 errores seguidos bloquean 5 minutos.

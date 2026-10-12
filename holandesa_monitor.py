@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 88            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.6.14'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 89            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.6.15'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -2405,6 +2405,16 @@ def make_handler(mon, cfg):
                     if not m_: raise PermissionError('Tu sesion termino. Vuelve a entrar con tu clave.' if ip_del_restaurante(self.client_address[0]) else FUERA_WIFI)
                     n = min(int(self.headers.get('Content-Length', '0') or 0), 65536)
                     d = json.loads(self.rfile.read(n).decode('utf-8'))
+                    # la clave se pide en cada envío: así nadie manda comandas con el teléfono de otro mesero
+                    k_ = 'e:' + self.client_address[0]; f_ = FALLOS.get(k_, [0, 0])
+                    if f_[1] > time.time(): raise ValueError('Demasiados intentos. Espera unos minutos.')
+                    x_ = next((x for x in mon.meseros() if x.get('id') == m_['id'] and x.get('activo')), None)
+                    if not x_ or not verifica_pin(x_, str(d.get('pin') or '')):
+                        f_[0] += 1
+                        if f_[0] >= 5: f_ = [0, time.time() + 300]
+                        FALLOS[k_] = f_
+                        raise ValueError('Clave incorrecta. La comanda no se envió.')
+                    FALLOS.pop(k_, None)
                     body = json.dumps(mon.enviar_comandero(m_, d), ensure_ascii=False).encode('utf-8')
                     return self._send(body, 'application/json; charset=utf-8')
                 except Exception as e:
