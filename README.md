@@ -97,3 +97,7 @@ Comedor (elige mesa libre), Para llevar, Servicio a domicilio, Didi, Uber. En Mr
 Versión 30.0 — cuentas abiertas por corte: cada cuenta abierta cuenta cuántos cortes (turnos cerrados en CORTESZ) han pasado desde que se abrió,
 usando la fecha más reciente de los archivos del turno. 1 corte = amarillo ("Del corte anterior"), 2 o más = rojo ("De hace N cortes"),
 en el panel (Tickets → Mesas abiertas y el aviso de Hoy) y en los mosaicos del comandero. MrTienda no se puede pintar desde aquí.
+
+Versión 30.1 — comandero: alarma roja arriba (con vibración y pitido) cuando una comanda de las cuentas del mesero lleva 15 minutos o más
+desde que se envió; una vez por envío, se apaga con "Ya salió" (se recuerda en ese teléfono). Solo suena con el comandero abierto.
+Al elegir "Comida del día" o "Especial del día" sale el recordatorio "Lleva la sopa y el agua" (en la ficha y al agregarlo).
