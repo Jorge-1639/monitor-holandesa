@@ -268,7 +268,10 @@ function revisarDemoras(){
 function pitido(){try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return;const ac=pitido.ac||(pitido.ac=new C());const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=880;g.gain.value=.25;o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+.35)}catch(e){}}
 setInterval(revisarDemoras,30000);
 // ---- comida del día: recordatorio para el mesero
-const esComidaDia=n=>/comida\s+del\s+d[ií]a|especial\s+del\s+d[ií]a/i.test(n||'');
+// comida del día: por nombre (aunque esté abreviado) o porque está en la sección "Especial del día" del menú de MrTienda
+const sinAcento=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/\s+/g,' ').trim();
+const nombresEspecial=()=>{const c=(M.cats||[]).find(c=>/especial/i.test(sinAcento(c.n))&&/dia/i.test(sinAcento(c.n)));return new Set(c?(c.i||[]).map(x=>sinAcento(x.n)):[])};
+const esComidaDia=n=>{const t=sinAcento(n);return /COM(IDA)?\.?\s*(DEL?\s*)?DIA|ESPECIAL\s*(DEL?\s*)?DIA/.test(t)||nombresEspecial().has(t)};
 const CATS_DESAYUNO=['Desayunos Tradicionales','Omellettes','Hot Cakes','Chilaquiles','Burritos En Desayuno','Lo Nuevo En Desayunos','Desayunos Especialidades'];
 const CATS_CARTA=['Ordenes A La Carta','Antojitos Mexicanos','Ensaladas','Burritos Solos','Burritos 1/2 Orden','Burritos Orden','Tortas','Sandwiches','Hamburguesas'];
 const catDe=id=>{const c=(M.cats||[]).find(c=>(c.i||[]).some(x=>x.id===id));return c?c.n.toLowerCase():''};
@@ -280,7 +283,7 @@ function ofertaDe(p){
   if(CATS_CARTA.some(x=>x.toLowerCase()===c))return {k:'soda',t:'🥤 Ofrece la soda italiana',d:'Agua mineral con extracto de fresa.'};
   return null;
 }
-const recuerdaComida=n=>/sin\s+agua/i.test(n||'')?'🍲 Lleva la sopa (sin agua)':'🍲 Lleva la sopa y el agua';
+const recuerdaComida=n=>/S\/?\s*AGUA|SIN\s*AGUA/.test(sinAcento(n))?'🍲 Lleva la sopa (sin agua)':'🍲 Lleva la sopa y el agua';
 function salir(msg){S.tok=null;store.set('cmd_tok',null);S.user=null;S.pin='';S.view='login';S.err=msg||'';S.draft=[];clearInterval(poll);render()}
 
 // ---- cuentas: la referencia de MrTienda dice la mesa (M 2, MESA9) o el nombre (LLEVAR, DIDI…)

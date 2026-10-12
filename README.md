@@ -113,3 +113,5 @@ Versión 30.4 — comanda de cocina más limpia: arriba solo "CUENTA NUEVA", mes
 COMER AQUI + MESA 2, RECOGER AQUI / SERVICIO A DOMICILIO + nombre, o DIDI / UBER + los últimos 3 números de la clave.
 El "> PARA LLEVAR / COMER AQUI" por platillo solo sale si ese platillo va distinto al resto. Los textos de MrTienda (cp850) ya se imprimen
 y se ven en el comandero con su Ñ y acentos (antes la Ñ salía como ¥). Las referencias que escribe el comandero se guardan en cp850.
+
+Versión 30.5 — "comida del día" se reconoce aunque el nombre esté abreviado (COM. DEL DIA, S/AGUA…) o por estar en la sección "Especial del día" del menú.
