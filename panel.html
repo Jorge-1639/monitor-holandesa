@@ -1170,6 +1170,10 @@ const RH_DIAS_L=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Dom
 const rhHm=v=>{const m=/^(\d{1,2}):(\d{2})$/.exec(String(v||'').trim());return m?(+m[1])*60+(+m[2]):null};
 // horas como las maneja La Holandesa: 7:30 am, 3:30 pm (corta en el rol: 7:30a, 3:30p)
 const rhH12=(v,corta)=>{const m=/^(\d{1,2}):(\d{2})$/.exec(String(v||'').trim());if(!m)return String(v||'');const H=+m[1],ap=H<12?'a':'p';return (H%12||12)+':'+m[2]+(corta?ap:' '+ap+'m')};
+// selector de hora (en lugar del reloj del teléfono, que en algunos Android no deja escribir): cada 15 min, en formato 7:30 am
+const RH_HORAS=(()=>{const o=[];for(let m=5*60;m<24*60;m+=15)o.push(String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'));return o})();
+function rhHoraSel(id,val,attrs=''){const v=String(val||'');const L=RH_HORAS.includes(v)||!v?RH_HORAS:[...RH_HORAS,v].sort();
+  return `<select id="${id}" ${attrs}><option value="">—</option>${L.map(x=>`<option value="${x}" ${x===v?'selected':''}>${rhH12(x)}</option>`).join('')}</select>`}
 function rhBase(e){ // horario base de la semana: [entra, sale] o null si descansa
   if(Array.isArray(e.horario)&&e.horario.length===7)return e.horario.map(x=>Array.isArray(x)&&x.length===2?x:null);
   const d=RH_DIAS_L.indexOf(e.descanso);return RH_DIAS_L.map((_,i)=>i===d?null:[e.entrada||'',e.salida||'']);
@@ -1223,8 +1227,8 @@ function rhForm(e){
   const base=rhBase(e), diario=e.diario||(e.sueldo&&e.pago!=='hora'?Math.round(e.sueldo/7*100)/100:''), comida=e.id?(e.comida_min||30):30, porHora=e.pago==='hora';
   const filas=RH_DIAS_L.map((d,i)=>{const h=base[i];return `<div class="rhhr" style="display:grid;grid-template-columns:54px 1fr 1fr 40px;gap:4px;align-items:center;margin-top:6px">
       <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600"><input type="checkbox" id="rfHd${i}" ${h?'':'checked'} style="width:18px;height:18px">${d.slice(0,3)}</label>
-      <input type="time" id="rfHe${i}" value="${h?esc(h[0]):''}" aria-label="${d}: entra" ${h?'':'disabled'} style="height:40px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--ink);padding:0 3px;min-width:0;font-size:14px">
-      <input type="time" id="rfHs${i}" value="${h?esc(h[1]):''}" aria-label="${d}: sale" ${h?'':'disabled'} style="height:40px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--ink);padding:0 3px;min-width:0;font-size:14px">
+      ${rhHoraSel('rfHe'+i,h?h[0]:'',`aria-label="${d}: entra" ${h?'':'disabled'} style="height:40px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--ink);padding:0 3px;min-width:0;font-size:14px;width:100%"`)}
+      ${rhHoraSel('rfHs'+i,h?h[1]:'',`aria-label="${d}: sale" ${h?'':'disabled'} style="height:40px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--ink);padding:0 3px;min-width:0;font-size:14px;width:100%"`)}
       <small id="rfHh${i}" class="num" style="text-align:right;color:var(--muted)"></small></div>`}).join('');
   const docs=(e.archivos||[]).slice().reverse();
   return `<div class="card" id="rhForm"><h2>${e.id?'Expediente':'Nuevo empleado'} <small>${e.id&&e.alta?'alta '+rhCorta(e.alta.slice(0,10)):''}</small></h2>
@@ -1339,7 +1343,7 @@ function rhEditorDia(){
   if(!rhDia)return '';const e=rhEmp(rhDia.id);if(!e){rhDia=null;return ''}const r=rhRolDe(e,rhSem),i=rhDia.i,c=r.d[i],h=r.h[i]||['',''];
   return `<div class="note" id="rhEdDia" style="background:var(--surface-2);color:var(--ink);margin-top:10px"><b>${esc(e.nombre.split(' ').slice(0,2).join(' '))} · ${SEM_DIAS_L[i]} ${rhPd(rhMas(rhSem,i)).getDate()}</b>
     <div class="seg" style="margin-top:8px;flex-wrap:wrap">${RH_CICLO.map(k=>`<button data-rh="diaest" data-k="${k}" aria-pressed="${c===k}">${k} · ${RH_EST[k][0]}</button>`).join('')}</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">${rhIn('rdE','Entra',h[0],'type="time"')}${rhIn('rdS','Sale',h[1],'type="time"')}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px"><div class="field"><label for="rdE">Entra</label>${rhHoraSel('rdE',h[0],'class="msel" style="width:100%;height:44px"')}</div><div class="field"><label for="rdS">Sale</label>${rhHoraSel('rdS',h[1],'class="msel" style="width:100%;height:44px"')}</div></div>
     <div class="btns"><button class="btn pri" data-rh="diaguardar">Guardar</button><button class="btn" data-rh="diacerrar">Cerrar</button></div>
     <p class="empty" style="margin-top:6px">El horario solo cuenta los días que trabaja (T). Si no lo cambias, se usa el de su expediente.</p></div>`;
 }

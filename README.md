@@ -159,3 +159,5 @@ Al enviar ya no se pide (se usa la de la captura; la caja la sigue verificando).
 Versión 30.6.18 — nómina por día: si en el rol se le ponen menos horas que su horario (ej. 6 h de 8), ese día se paga en proporción. El mensaje de WhatsApp a la encargada trae también el link de Tailscale para capturar desde su casa.
 
 Versión 30.6.19 — botón "Personal ›" arriba en el panel de ventas para abrir Recursos Humanos.
+
+Versión 30.6.20 — horas con lista para elegir (7:30 am, 7:45 am…, cada 15 min) en lugar del reloj del teléfono, que en algunos Android no dejaba escribir: expediente, rol de Jorge y página de la encargada.

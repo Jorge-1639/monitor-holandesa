@@ -65,7 +65,7 @@ button:focus-visible{outline:2px solid var(--green-2);outline-offset:2px}
 .edit .est4 button[aria-pressed="true"]{background:var(--green);color:var(--on-green);border-color:var(--green)}
 .edit .hrs{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
 .edit label{font-size:13px;color:var(--muted);display:block;margin-bottom:4px}
-.edit input{width:100%;height:44px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:500 16px var(--body);padding:0 10px}
+.edit input,.edit select{width:100%;height:44px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:500 16px var(--body);padding:0 10px}
 .edit .dos{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .dias button:disabled{opacity:.6;cursor:default}
 .est{font-size:12px;margin-top:8px;color:var(--muted)}
@@ -145,6 +145,10 @@ const baseDe=e=>Array.isArray(e.base)&&e.base.length===7?e.base:DIAS.map(()=>[''
 const rolDe=e=>{const b=baseDe(e),r=INFO.rol[e.id],hs=(INFO.horas||{})[e.id],h=b.map((x,i)=>Array.isArray(hs)&&hs[i]?hs[i]:x);
   return r?{d:r,g:true,h}:{d:b.map(x=>x?'T':'D'),g:false,h}};
 // 7:30a, 3:30p (como lo maneja La Holandesa)
+const HORAS=(()=>{const o=[];for(let m=5*60;m<24*60;m+=15)o.push(String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'));return o})();
+const horaLarga=v=>{const m=/^(\d{1,2}):(\d{2})$/.exec(String(v||''));if(!m)return v;const H=+m[1];return (H%12||12)+':'+m[2]+(H<12?' am':' pm')};
+function horaSel(id,val){const v=String(val||''),L=HORAS.includes(v)||!v?HORAS:[...HORAS,v].sort();
+  return `<select id="${id}"><option value="">—</option>${L.map(x=>`<option value="${x}" ${x===v?'selected':''}>${horaLarga(x)}</option>`).join('')}</select>`}
 const h12=v=>{const m=/^(\d{1,2}):(\d{2})$/.exec(String(v||'').trim());if(!m)return String(v||'');const H=+m[1];return (H%12||12)+':'+m[2]+(H<12?'a':'p')};
 const hora=s=>{if(!s)return '';const d=new Date(s);let h=d.getHours(),m=String(d.getMinutes()).padStart(2,'0'),ap=h<12?'am':'pm';h=h%12||12;return corta(iso(d))+', '+h+':'+m+' '+ap};
 
@@ -152,7 +156,7 @@ const hora=s=>{if(!s)return '';const d=new Date(s);let h=d.getHours(),m=String(d
 function editor(e,r){const i=ED.i,h=r.h[i]||['',''];
   return `<div class="edit"><b>${DIAS_L[i]} ${pd(mas(SEM,i)).getDate()}</b>
     <div class="est4">${CICLO.map(k=>`<button data-k="${k}" aria-pressed="${ED.k===k}">${k} · ${EST[k][0]}</button>`).join('')}</div>
-    <div class="hrs" ${ED.k==='T'?'':'hidden'}><div><label for="edE">Entra</label><input type="time" id="edE" value="${h[0]||''}"></div><div><label for="edS">Sale</label><input type="time" id="edS" value="${h[1]||''}"></div></div>
+    <div class="hrs" ${ED.k==='T'?'':'hidden'}><div><label for="edE">Entra</label>${horaSel('edE',h[0])}</div><div><label for="edS">Sale</label>${horaSel('edS',h[1])}</div></div>
     <div class="dos"><button class="btn pri" data-guardar="1">Guardar</button><button class="btn" data-cerrar="1">Cerrar</button></div></div>`}
 // ---------- pantalla principal
 function pintar(){
