@@ -140,3 +140,5 @@ comandero /comandero, personal /personal, descansos /descansos, compras /captura
 y Chrome no dejaba instalarlo aparte (salía "Crear acceso directo" con una letra).
 
 Versión 30.6.8 — íconos: Control Holandesa con el logo a todo color sobre blanco; Holandesa Comandero con el logo todo en negro sobre blanco.
+
+Versión 30.6.9 — ícono del comandero: solo el contorno del molino y las letras "La Holandesa" en negro, sin la mancha verde ni la franja de Restaurante, fondo blanco.
