@@ -103,3 +103,8 @@ desde que se envió; una vez por envío, se apaga con "Ya salió" (se recuerda e
 Al elegir "Comida del día" o "Especial del día" sale el recordatorio "Lleva la sopa y el agua" (en la ficha y al agregarlo).
 
 Versión 30.2 — "Comida del día completa": "Lleva la sopa y el agua". "Comida del día sin agua": "Lleva la sopa (sin agua)".
+
+Versión 30.3 — comandero: al abrir una mesa pregunta cuántas personas son (se guarda en COMENSALES de MrTienda). En Comedor y Para llevar,
+la primera vez que se agrega un desayuno a la cuenta sale "Ofrece jugo: jugo del día y jugo verde"; con platillos a la carta, antojitos,
+ensaladas, burritos, tortas, sándwiches y hamburguesas sale "Ofrece la soda italiana (agua mineral con extracto de fresa)". 20 minutos después
+de mandar una comida del día sale el aviso "¿Ya llevaste el postre?".

@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 70            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.2'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 71            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.3'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -298,7 +298,7 @@ def _totales(detalle_b, tc):
         iva += imp - imp / (1 + tasa / 100) if tasa else 0
     return round(tot, 2), round(iva, 2), int(round(arts)), (round(tot / tc, 2) if tc else 0)
 
-def _abrir_cuenta(com, pend, folios, ref, cod, nombre, escala, ren, tc, ahora):
+def _abrir_cuenta(com, pend, folios, ref, cod, nombre, escala, ren, tc, ahora, pers=1):
     with open(pend, 'rb') as f: pb = bytearray(f.read())
     pn, phl, prl, pfl = _layout(pb)
     if not all(c in pfl for c in CAMPOS_PEND): raise RuntimeError('PENDIENT.DBF no tiene la estructura esperada.')
@@ -349,6 +349,7 @@ def _abrir_cuenta(com, pend, folios, ref, cod, nombre, escala, ren, tc, ahora):
             'REF': ref, 'HORA': ahora.strftime('%H:%M'), 'ARTS': arts, 'COD_CAJERO': cod, 'COD_VENDED': cod, 'DES_CAJERO': nombre[:15], 'DES_VENDED': nombre[:15],
             'IVA': iva, 'IMPORTE_MN': total, 'IMPORTE_DL': dl, 'COD_ESCALA': escala, 'FECHA_ENT': ahora.strftime('%Y%m%d'), 'HORA_ENT': ahora.strftime('%H:%M'),
             'FOL_ORDEN': orden + 1 if 0 < orden < 20 else 1}
+    if 'COMENSALES' in pfl: vals['COMENSALES'] = max(1, min(int(pers or 1), 99))   # personas en la mesa (lo pregunta el comandero)
     for k, v in vals.items(): _pon(rec, pfl, k, v)
     enc_rec = bytearray(rec)
     for c in ('IVA2', 'IVA3', 'IVA4', 'IVA5'): _pon(enc_rec, efl, c, 0)
@@ -1670,7 +1671,8 @@ class Monitor:
                 else:
                     ref = re.sub(r'\s+', ' ', str(d.get('nombre') or '')).strip().upper()[:10]
                     if not ref: raise ValueError('Escribe para quién es el pedido.')
-                res = _abrir_cuenta(com, pend, folios, ref, mesero['cod'], nombre, '02' if (d.get('llevar') or canal) else '01', ren, self._tc(), ahora)
+                res = _abrir_cuenta(com, pend, folios, ref, mesero['cod'], nombre, '02' if (d.get('llevar') or canal) else '01', ren, self._tc(), ahora,
+                                   pers=int(d.get('pers') or 1) if str(d.get('pers') or '1').isdigit() else 1)
             with self.rows_lock:
                 self.cache = {k: v for k, v in self.cache.items() if not k[0].upper().startswith(com.upper())}
         log(f'COMANDERO: {mesero["nombre"]} {"agregó a" if d.get("k") else "abrió"} {res["ref"]} ({res["archivo"]}) · {len(ren)} renglones · ${res["agregado"]:.2f}. Respaldo: {res["respaldo"]}')

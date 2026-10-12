@@ -251,12 +251,17 @@ function revisarDemoras(){
     const hs=[...new Set((c.items||[]).map(i=>i.h).filter(h=>/^\d{1,2}:\d{2}$/.test(h||'')))];
     hs.forEach(h=>{const [hh,mm]=h.split(':').map(Number);const t=new Date(ahora);t.setHours(hh,mm,0,0);if(t>ahora)t.setDate(t.getDate()-1);
       const min=(ahora-t)/6e4,k=c.archivo+'|'+(c.fecha||'')+'|'+h;
-      if(min>=DEMORA_MIN&&min<180&&!v[k])pend.push({k,c,h,min})});
+      if(min>=DEMORA_MIN&&min<180&&!v[k])pend.push({k,c,h,min,tipo:'demora'});
+      const kp='postre|'+k;
+      if(min>=20&&min<240&&!v[kp]&&(c.items||[]).some(i=>i.h===h&&esComidaDia(i.n)))pend.push({k:kp,c,h,min,tipo:'postre'})});
   });
   if(!pend.length){el.hidden=true;alarmaK=null;return}
   pend.sort((a,b)=>b.min-a.min);const a=pend[0],n=numMesa(a.c.ref),k=canalDe(a.c);
   const quien=n?'Mesa '+n:(k?canalTxt(k):a.c.ref);
-  el.innerHTML=`<div><b>⏰ ${esc(quien)}</b><p>La comanda de las ${esc(a.h)} lleva ${Math.floor(a.min)} min. Revisa con cocina.${pend.length>1?` (+${pend.length-1} más)`:''}</p></div><button data-act="yasalio" data-dk="${esc(a.k)}">Ya salió</button>`;
+  el.innerHTML=a.tipo==='postre'
+    ?`<div><b>🍮 ${esc(quien)}: ¿ya llevaste el postre?</b><p>Comida del día de las ${esc(a.h)}.${pend.length>1?` (+${pend.length-1} avisos más)`:''}</p></div><button data-act="yasalio" data-dk="${esc(a.k)}">Ya lo llevé</button>`
+    :`<div><b>⏰ ${esc(quien)}</b><p>La comanda de las ${esc(a.h)} lleva ${Math.floor(a.min)} min. Revisa con cocina.${pend.length>1?` (+${pend.length-1} avisos más)`:''}</p></div><button data-act="yasalio" data-dk="${esc(a.k)}">Ya salió</button>`;
+  el.style.background=a.tipo==='postre'?'#7a5600':'';
   el.hidden=false;
   if(alarmaK!==a.k){alarmaK=a.k;try{navigator.vibrate&&navigator.vibrate([400,200,400])}catch(e){}pitido()}
 }
@@ -264,6 +269,17 @@ function pitido(){try{const C=window.AudioContext||window.webkitAudioContext;if(
 setInterval(revisarDemoras,30000);
 // ---- comida del día: recordatorio para el mesero
 const esComidaDia=n=>/comida\s+del\s+d[ií]a|especial\s+del\s+d[ií]a/i.test(n||'');
+const CATS_DESAYUNO=['Desayunos Tradicionales','Omellettes','Hot Cakes','Chilaquiles','Burritos En Desayuno','Lo Nuevo En Desayunos','Desayunos Especialidades'];
+const CATS_CARTA=['Ordenes A La Carta','Antojitos Mexicanos','Ensaladas','Burritos Solos','Burritos 1/2 Orden','Burritos Orden','Tortas','Sandwiches','Hamburguesas'];
+const catDe=id=>{const c=(M.cats||[]).find(c=>(c.i||[]).some(x=>x.id===id));return c?c.n.toLowerCase():''};
+const enPersona=()=>{const k=S.sel&&S.sel.k?canalDe(cuentaDe(S.sel.k)):(S.sel&&S.sel.canal);return !k||k.canal==='recoger'};   // comedor o para llevar (no domicilio, Didi ni Uber)
+function ofertaDe(p){
+  if(!enPersona())return null;
+  const c=catDe(p.id);
+  if(CATS_DESAYUNO.some(x=>x.toLowerCase()===c))return {k:'jugo',t:'🍊 Ofrece jugo',d:'Hoy tenemos <b>jugo del día</b> y <b>jugo verde</b>.'};
+  if(CATS_CARTA.some(x=>x.toLowerCase()===c))return {k:'soda',t:'🥤 Ofrece la soda italiana',d:'Agua mineral con extracto de fresa.'};
+  return null;
+}
 const recuerdaComida=n=>/sin\s+agua/i.test(n||'')?'🍲 Lleva la sopa (sin agua)':'🍲 Lleva la sopa y el agua';
 function salir(msg){S.tok=null;store.set('cmd_tok',null);S.user=null;S.pin='';S.view='login';S.err=msg||'';S.draft=[];clearInterval(poll);render()}
 
@@ -275,7 +291,7 @@ const itemsDe=c=>c?c.items.map(i=>({n:i.n,qty:i.q,price:i.q?i.imp/i.q:i.imp,deta
 function titulo(){
   if(S.sel&&S.sel.k){const c=cuentaDe(S.sel.k);if(c){const n=numMesa(c.ref);if(n)return 'Mesa '+n;const k=canalDe(c);return k?canalTxt(k):(c.llevar?'Llevar · ':'')+c.ref}}
   if(S.sel&&S.sel.canal)return canalTxt(S.sel.canal);
-  if(S.sel&&S.sel.mesa)return 'Mesa '+S.sel.mesa;
+  if(S.sel&&S.sel.mesa)return 'Mesa '+S.sel.mesa+(S.sel.pers?' · '+S.sel.pers+' pers.':'');
   if(S.sel&&S.sel.nombre)return 'Llevar · '+S.sel.nombre;
   return 'Cuenta';
 }
@@ -366,6 +382,9 @@ function hojaNueva(){
   const ops=[['comedor','Comedor','Elige la mesa'],['recoger','Para llevar','Recoge aquí'],['domicilio','Servicio a domicilio','Busca al cliente'],['didi','Didi','Clave y forma de pago'],['uber','Uber','Clave del pedido']];
   $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Nueva cuenta</h2><div class="opciones">${ops.map(([c,t,d])=>`<button data-nueva="${c}"><span>${t}</span><small>${d}</small></button>`).join('')}</div></div></div>`;
 }
+function hojaPersonas(m){
+  $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Mesa ${esc(m)} · ¿cuántas personas?</h2><div class="mesas">${[1,2,3,4,5,6,7,8,9,10,12,15].map(n=>`<button class="mesa" data-mesa="${esc(m)}" data-pers="${n}"><b>${n}</b><span>${n===1?'persona':'personas'}</span></button>`).join('')}</div></div></div>`;
+}
 function hojaMesas(){
   const ocup={};CUENTAS.forEach(c=>{const n=numMesa(c.ref);if(n)ocup[n]=1});
   const libres=MESAS.filter(m=>!ocup[m]);
@@ -424,7 +443,7 @@ function drawSheet(){
   const faltan=p.g.some((g,gi)=>g.ob&&cur.g[gi]==null);
   $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet" role="dialog" aria-label="${esc(p.n)}">
     <h2>${esc(p.n)}</h2>
-    ${esComidaDia(p.n)?`<div class="recuerda">${recuerdaComida(p.n)}</div>`:''}
+    ${esComidaDia(p.n)?`<div class="recuerda">${recuerdaComida(p.n)}</div>`:''}${(o=>o?`<div class="recuerda" style="background:#e2efe5;border-color:#2f7d52;color:#15231a">${o.t}<div style="font:500 14px var(--body);margin-top:4px">${o.d}</div></div>`:'')(ofertaDe(p))}
     <div class="modo small" role="group" aria-label="Este platillo es"><button data-im="aqui" aria-pressed="${cur.modo==='aqui'}">${ICON.aqui}Aquí ${money(p.p)}</button><button data-im="llevar" aria-pressed="${cur.modo==='llevar'}">${ICON.llevar}Llevar ${money(p.p2)}</button></div>
     ${p.g.map((g,gi)=>`<h3>${esc(g.n)} ${g.ob?'<em>· elige uno</em>':''}</h3><div class="choices">${g.o.map((o,oi)=>`<button data-g="${gi}" data-o="${oi}" aria-pressed="${cur.g[gi]===oi}">${esc(o.n)}${o.p?' +'+money(o.p):''}</button>`).join('')}</div>`).join('')}
     ${p.o.length?`<h3>Opciones</h3><div class="choices">${p.o.map((o,oi)=>`<button data-ox="${oi}" aria-pressed="${cur.o.has(oi)}">${esc(o.n)}${o.p?' +'+money(o.p):''}</button>`).join('')}</div>`:''}
@@ -441,7 +460,11 @@ function agregar(){
   S.draft.push({id:p.id,n:p.n,qty:cur.qty,price:PRECIO(p,cur.modo)+extra,llevar:cur.modo==='llevar',detail:det,nota:cur.nota.trim(),sent:false,
     g:p.g.map((g,gi)=>cur.g[gi]==null?null:[g.cv,g.o[cur.g[gi]].cs]).filter(Boolean),o:[...cur.o].map(i=>p.o[i].cv)});
   cur=null;drawSheet();render();
-  if(esComidaDia(p.n)){$('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><div class="recuerda" style="font-size:22px;padding:18px">${recuerdaComida(p.n)}</div><button class="big" data-act="cerrar">Entendido</button></div></div>`}
+  const of=ofertaDe(p),llave=(S.sel&&(S.sel.k||S.sel.mesa||S.sel.nombre))+'|'+(of&&of.k);
+  S.ofrecido=S.ofrecido||{};const ofrecer=of&&!S.ofrecido[llave];if(ofrecer)S.ofrecido[llave]=1;   // una vez por cuenta
+  const avisos=[esComidaDia(p.n)?`<div class="recuerda" style="font-size:22px;padding:18px">${recuerdaComida(p.n)}</div>`:'',
+    ofrecer?`<div class="recuerda" style="font-size:20px;padding:16px;background:#e2efe5;border-color:#2f7d52;color:#15231a">${of.t}<div style="font:500 16px var(--body);margin-top:6px">${of.d}</div></div>`:''].join('');
+  if(avisos){$('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet">${avisos}<button class="big" data-act="cerrar">Entendido</button></div></div>`}
   else toast('Agregado');
 }
 let enviando=false;
@@ -450,13 +473,13 @@ async function enviar(btn){
   enviando=true;document.querySelectorAll('[data-act="enviar"]').forEach(b=>{b.disabled=true;b.textContent='Enviando…'});
   if(!S.envio)S.envio=Date.now().toString(36)+Math.random().toString(36).slice(2,8);
   const body={envio:S.envio,llevar:!!S.sel.llevar,items:S.draft.map(i=>({id:i.id,qty:i.qty,llevar:i.llevar,g:i.g,o:i.o,nota:i.nota}))};
-  if(S.sel.k)body.k=S.sel.k;else if(S.sel.mesa)body.mesa=S.sel.mesa;else if(S.sel.canal)Object.assign(body,S.sel.canal,{nombre:S.sel.canal.nombre||''});else body.nombre=S.sel.nombre;
+  if(S.sel.k)body.k=S.sel.k;else if(S.sel.mesa){body.mesa=S.sel.mesa;body.pers=S.sel.pers||1}else if(S.sel.canal)Object.assign(body,S.sel.canal,{nombre:S.sel.canal.nombre||''});else body.nombre=S.sel.nombre;
   try{
     const r=await fetch('/api/comandero/enviar',{method:'POST',headers:{'Content-Type':'application/json','X-Mesero-Token':S.tok||''},body:JSON.stringify(body)});
     const j=await r.json().catch(()=>({ok:false,error:'Sin respuesta de la caja. Revisa en la caja si llegó antes de volver a enviar.'}));
     if(j.sesion===false){enviando=false;return salir(j.error)}
     if(!j.ok){S.envio=null;throw new Error(j.error||'No se pudo enviar')}
-    S.draft=[];S.envio=null;S.sel={k:j.archivo,llevar:S.sel.llevar};
+    S.draft=[];S.envio=null;{const viejo=S.sel.k||S.sel.mesa||S.sel.nombre;S.ofrecido=S.ofrecido||{};Object.keys(S.ofrecido).forEach(x=>{const [c,t]=x.split('|');if(c==String(viejo))S.ofrecido[j.archivo+'|'+t]=1})}S.sel={k:j.archivo,llevar:S.sel.llevar};
     try{await cargar(false)}catch(e){}
     S.view='cuenta';render();
     if(j.aviso){$('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Enviado, pero sin imprimir</h2><p style="margin:0">${esc(j.aviso)}</p><button class="big" data-act="cerrar">Entendido</button></div></div>`}
@@ -479,7 +502,8 @@ document.addEventListener('click',e=>{
   if(d.k&&S.view==='mesas'){const c=cuentaDe(d.k);if(!c)return;
     if(!mia(c)){toast('Esa cuenta es de '+c.mesero);return}
     return abrir({k:c.archivo,llevar:c.llevar})}
-  if(d.libre){$('#sheet').innerHTML='';return abrir({mesa:d.libre})}
+  if(d.libre){return hojaPersonas(d.libre)}
+  if(d.pers){$('#sheet').innerHTML='';return abrir({mesa:d.mesa,pers:+d.pers})}
   if(d.nueva){return d.nueva==='comedor'?hojaMesas():hojaCanal(d.nueva)}
   if(d.canal&&S.view==='mesas'){return hojaCanal(d.canal)}
   if(d.modo){S.modo=d.modo;return render()}
