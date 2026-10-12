@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 64            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '29.6'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 65            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '29.7'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -2305,11 +2305,12 @@ def make_handler(mon, cfg):
         except OSError: return b''
     page_cmd = _leer('comandero.html')
     logo_cmd = _leer('logo_comandero.png')
+    iconos_cmd = {n: _leer(n) for n in ('icono_comandero_180.png', 'icono_comandero_192.png', 'icono_comandero_512.png')}
     icon_rh = _leer('icon_personal.png')
     page_rol = _leer('descansos.html')
     manifest_rol = json.dumps({'name':'Descansos La Holandesa','short_name':'Descansos','start_url':'/descansos','display':'standalone','background_color':'#f3f6f2','theme_color':'#1d5c3b','icons':[{'src':'/icon_personal.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
     manifest_rh = json.dumps({'name':'Personal Holandesa','short_name':'Personal','start_url':'/personal','display':'standalone','background_color':'#f3f6f2','theme_color':'#1d5c3b','icons':[{'src':'/icon_personal.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
-    manifest_cmd = json.dumps({'name':'Comandero La Holandesa','short_name':'Comandero','start_url':'/comandero','display':'standalone','background_color':'#f3f6f2','theme_color':'#1d5c3b','icons':[{'src':'/logo_comandero.png','sizes':'240x336','type':'image/png','purpose':'any'}]}, ensure_ascii=False).encode('utf-8')
+    manifest_cmd = json.dumps({'name':'La Holandesa Comandero','short_name':'Holandesa Comandero','start_url':'/comandero','scope':'/comandero','display':'standalone','background_color':'#ffffff','theme_color':'#1d5c3b','icons':[{'src':'/icono_comandero_192.png','sizes':'192x192','type':'image/png','purpose':'any'},{'src':'/icono_comandero_512.png','sizes':'512x512','type':'image/png','purpose':'any'}]}, ensure_ascii=False).encode('utf-8')
     manifest = json.dumps({'name':'Control Holandesa','short_name':'Control Holandesa','start_url':'/','display':'standalone','background_color':'#fbf6f1','theme_color':'#ea580c','icons':[{'src':'/icon.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a): pass
@@ -2462,6 +2463,8 @@ def make_handler(mon, cfg):
                 return self._send(manifest_rh, 'application/manifest+json; charset=utf-8')
             if p0 == '/icon_personal.png' and icon_rh:
                 return self._send(icon_rh, 'image/png')
+            if p0.lstrip('/') in iconos_cmd and iconos_cmd[p0.lstrip('/')]:
+                return self._send(iconos_cmd[p0.lstrip('/')], 'image/png')
             if p0 == '/logo_comandero.png' and logo_cmd:
                 return self._send(logo_cmd, 'image/png')
             if p0 == '/api/comandero/clientes':

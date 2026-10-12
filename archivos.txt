@@ -9,3 +9,6 @@ logo_comandero.png
 icon_personal.png
 descansos.html
 abrir_wifi_comandero.bat
+icono_comandero_180.png
+icono_comandero_192.png
+icono_comandero_512.png
