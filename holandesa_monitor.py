@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 87            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.6.13'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 88            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.6.14'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -2311,6 +2311,7 @@ class Monitor:
             time.sleep(max(30, float(self.cfg['minutos_actualizacion']) * 60))
 
 # ---------------------------------------------------------------- servidor web
+ULTIMA_PAGINA = {}   # qué app se abrió al último (para elegir el favicon cuando el navegador no dice de dónde viene)
 def make_handler(mon, cfg):
     token = base64.b64encode(f"{cfg['usuario']}:{cfg['contrasena']}".encode()).decode()
     token_caja = base64.b64encode(f"{cfg['usuario_caja']}:{cfg['contrasena_caja']}".encode()).decode()
@@ -2475,6 +2476,7 @@ def make_handler(mon, cfg):
                 body = json.dumps(info, ensure_ascii=False).encode('utf-8')
                 return self._send(body, 'application/json; charset=utf-8')
             if p0 in ('/comandero', '/comandero/'):
+                ULTIMA_PAGINA.update(p='cmd', t=time.time())
                 if not page_cmd: self.send_response(404); self.end_headers(); return
                 return self._send(page_cmd, 'text/html; charset=utf-8')   # la página no trae datos; pide la clave del mesero
             if p0 == '/comandero-sw.js':   # service worker mínimo: Chrome lo pide para ofrecer "Instalar app"
@@ -2502,8 +2504,10 @@ def make_handler(mon, cfg):
                 return self._send(manifest_rh, 'application/manifest+json; charset=utf-8')
             if p0 == '/icon_personal.png' and icon_rh:
                 return self._send(icon_rh, 'image/png')
-            if p0 == '/favicon.ico':   # el navegador lo pide sin decir de qué app: si viene del comandero, el logo negro
-                p0 = '/icono_comandero_192.png' if '/comandero' in (self.headers.get('Referer') or '') else '/icono_panel_192.png'
+            if p0 == '/favicon.ico':   # el navegador lo pide sin decir de qué app: por Referer o por la última página que se abrió
+                ref = self.headers.get('Referer') or ''
+                cmd_ = '/comandero' in ref or (not ref and ULTIMA_PAGINA.get('p') == 'cmd' and time.time() - ULTIMA_PAGINA.get('t', 0) < 300)
+                p0 = '/icono_comandero_192.png' if cmd_ else '/icono_panel_192.png'
             if p0.lstrip('/') in iconos_cmd and iconos_cmd[p0.lstrip('/')]:
                 b_ = iconos_cmd[p0.lstrip('/')]   # íconos: sin contraseña y con caché, como los piden los navegadores para la pantalla de inicio
                 self.send_response(200); self.send_header('Content-Type', 'image/png'); self.send_header('Cache-Control', 'public, max-age=86400')
@@ -2602,7 +2606,8 @@ def make_handler(mon, cfg):
                 usegz = 'gzip' in self.headers.get('Accept-Encoding', '')
                 with mon.lock: body = mon.jsongz if usegz else mon.json
                 return self._send(body, 'application/json; charset=utf-8', usegz)
-            if self.path in ('/', '/index.html') or p0 in ('/personal', '/personal/', '/panel', '/panel/'): return self._send(page, 'text/html; charset=utf-8')
+            if self.path in ('/', '/index.html') or p0 in ('/personal', '/personal/', '/panel', '/panel/'):
+                ULTIMA_PAGINA.update(p='panel', t=time.time()); return self._send(page, 'text/html; charset=utf-8')
             self.send_response(404); self.end_headers()
     return H
 
