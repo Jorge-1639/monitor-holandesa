@@ -1314,7 +1314,9 @@ function rhAccesoRol(){
 2. Abre esta dirección: ${url}
 3. Entra con la clave que te di.
 4. En el navegador toca "Agregar a pantalla de inicio" para que te quede como app.
-
+${tsIp?`
+Desde tu casa (con Tailscale prendido en tu teléfono): http://${tsIp}:${ACCESO.puerto}/descansos
+`:''}
 Toca cada día para cambiarlo: T trabaja, D descansa, F faltó, V vacaciones, I incapacidad. Se guarda solo.`;
   return `<div class="card"><h2>Captura de la encargada <small>${esc(ac.nombre)}</small></h2>
     <div style="display:flex;align-items:center;gap:8px;font-size:15px">Clave: <b class="num" style="letter-spacing:.25em;min-width:60px" id="raClave">••••</b><button class="btn" data-rh="raver" aria-label="Ver clave" style="padding:4px 10px;min-height:0"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
@@ -1355,10 +1357,15 @@ function rhNomCalc(e,sem){
   const porHora=e.pago==='hora', tar=+e.tarifa||0, resta=g&&'resta_comida' in g?!!g.resta_comida:!!e.resta_comida, hs=rhHorasSem(e,sem,resta);
   // por hora: horas del rol × pago por hora (la comida se resta solo si se marca); prima dominical 25% de lo del domingo
   // por día: días trabajados y vacaciones × sueldo diario; prima dominical 25% si trabajó domingo; incentivo proporcional a los días trabajados
-  const base=porHora?Math.round(hs.t*tar*100)/100:d?Math.round(d*(t+vac)*100)/100:Math.round(((+e.sueldo||0)-f*rhDiario(e))*100)/100;
+  // por día: si en el rol se le pusieron menos horas que las de su horario (ej. día que se cerró y se le pagan 6 h de 8), ese día se paga en proporción
+  const rr=rhRolDe(e,sem), b0=rhBase(e), hsRaw=((RH.roles_h||{})[sem]||{})[e.id]; let diasPag=vac, parcial=[];
+  rr.d.forEach((c_,i)=>{if(c_!=='T')return;const bh=rhHoras(b0[SEM_IDX[i]],0),hh=rhHoras(rr.h[i],0);
+    if(Array.isArray(hsRaw)&&hsRaw[i]&&bh>0&&hh>0&&hh<bh-0.01){diasPag+=hh/bh;parcial.push(SEM_DIAS[i]+' '+rhHtxt(hh)+' de '+rhHtxt(bh))}else diasPag+=1});
+  diasPag=Math.round(diasPag*1000)/1000;
+  const base=porHora?Math.round(hs.t*tar*100)/100:d?Math.round(d*diasPag*100)/100:Math.round(((+e.sueldo||0)-f*rhDiario(e))*100)/100;
   const prima=porHora?(dom?Math.round(hs.dom*tar*0.25*100)/100:0):d&&dom?Math.round(d*0.25*100)/100:0, inc=+e.incentivo?Math.round((+e.incentivo)*Math.min(1,t/prog)*100)/100:0;
   const calc={base,prima_dom:prima,incentivo:inc,extras:0,comida:Math.round(vs.comida*100)/100,vales:Math.round((valesM+valesC)*100)/100,abono:abonoSug,otros:0,transfer:0,horas:hs.t,resta_comida:resta,nota:'',pagada:false}, v=g||calc;
-  return {v,calc,g:!!g,f,t,vac,prog,dom,valesM,valesC,comidas,sinDesc,pr,porHora,tar,resta,hs};
+  return {v,calc,diasPag,parcial,g:!!g,f,t,vac,prog,dom,valesM,valesC,comidas,sinDesc,pr,porHora,tar,resta,hs};
 }
 const rhBruto=v=>(+v.base||0)+(+v.prima_dom||0)+(+v.incentivo||0)+(+v.extras||0);
 const rhTot=v=>rhBruto(v)-(+v.comida||0)-(+v.vales||0)-(+v.abono||0)-(+v.otros||0);
@@ -1372,7 +1379,7 @@ function rhNomina(){
       <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-weight:600"><input type="checkbox" class="rhn rhrc" data-emp="${e.id}" data-k="resta_comida" data-sin="${hsSin}" data-con="${hsCon}" data-tar="${c.porHora?c.tar:0}" data-dsin="${rhHorasSem(e,rhSem,false).dom}" data-dcon="${rhHorasSem(e,rhSem,true).dom}" ${c.resta?'checked':''} style="width:20px;height:20px">Restar ${mins} min de comida por día</label></div>`;
     return `<div class="card"><h2>${esc(e.nombre)} <small>${esc(e.puesto)} · ${c.t} días${c.f?` · <b style="color:var(--bad)">${c.f} ${c.f===1?'falta':'faltas'}</b>`:''}${c.g?(v.pagada?' · <span class="pill good">Pagada</span>':' · <span class="pill mut">Guardada</span>'):''}</small></h2>${horas}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
-        ${inp('base',c.porHora?'Sueldo por horas':+e.diario?'Sueldo':'Nómina completa',c.porHora?'':+e.diario?'('+(c.t+c.vac)+' × '+fmt2(+e.diario)+')':c.f?'(menos faltas)':'')}${inp('incentivo','Incentivo',+e.incentivo&&c.t<c.prog?'('+c.t+' de '+c.prog+' días)':'')}
+        ${inp('base',c.porHora?'Sueldo por horas':+e.diario?'Sueldo':'Nómina completa',c.porHora?'':+e.diario?'('+(c.parcial.length?(+c.diasPag.toFixed(2))+' días':(c.t+c.vac))+' × '+fmt2(+e.diario)+')'+(c.parcial.length?'<br><span style="color:var(--warn)">por horas: '+esc(c.parcial.join(', '))+'</span>':''):c.f?'(menos faltas)':'')}${inp('incentivo','Incentivo',+e.incentivo&&c.t<c.prog?'('+c.t+' de '+c.prog+' días)':'')}
         ${inp('prima_dom','Prima dominical',c.dom?'(25%)':'')}${inp('extras','Extras / bonos','(autorizadas)')}
       </div>
       <table class="ledger num" style="margin-top:12px"><tbody><tr><td>Nómina sin descuentos</td><td><b id="rb_${e.id}">${fmt2(rhBruto(v))}</b></td></tr></tbody></table>
