@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 94            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.6.20'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 95            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.6.21'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -1923,7 +1923,7 @@ class Monitor:
             return {'ok': True, 'clave': (d.get('acceso_rol') or {}).get('clave', '')}
         elif acc == 'nomina_guardar':
             sem = fecha(a.get('semana'), True); c = a.get('campos') or {}
-            d['nominas'].setdefault(sem, {})[emp_id(a.get('emp'))] = {k: num(c.get(k)) for k in ('base', 'prima_dom', 'incentivo', 'extras', 'comida', 'vales', 'abono', 'otros', 'transfer', 'horas')} | {'nota': txt(c.get('nota'), 200), 'pagada': bool(c.get('pagada')), 'resta_comida': bool(c.get('resta_comida'))}
+            d['nominas'].setdefault(sem, {})[emp_id(a.get('emp'))] = {k: num(c.get(k)) for k in ('base', 'septimo', 'prima_dom', 'incentivo', 'extras', 'comida', 'vales', 'abono', 'otros', 'transfer', 'horas')} | {'nota': txt(c.get('nota'), 200), 'pagada': bool(c.get('pagada')), 'resta_comida': bool(c.get('resta_comida'))}
         elif acc == 'prestamo_alta':
             m = num(a.get('monto'))
             if m <= 0: raise ValueError('Escribe el monto del préstamo.')

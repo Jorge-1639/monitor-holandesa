@@ -161,3 +161,5 @@ Versión 30.6.18 — nómina por día: si en el rol se le ponen menos horas que 
 Versión 30.6.19 — botón "Personal ›" arriba en el panel de ventas para abrir Recursos Humanos.
 
 Versión 30.6.20 — horas con lista para elegir (7:30 am, 7:45 am…, cada 15 min) en lugar del reloj del teléfono, que en algunos Android no dejaba escribir: expediente, rol de Jorge y página de la encargada.
+
+Versión 30.6.21 — nómina con séptimo día: lo ganado en la semana ÷ 6 (si falta un día o trabaja menos horas, baja en proporción). Sale en el expediente, la nómina, el resumen y el recibo.
