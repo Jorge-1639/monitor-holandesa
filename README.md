@@ -108,3 +108,8 @@ Versión 30.3 — comandero: al abrir una mesa pregunta cuántas personas son (s
 la primera vez que se agrega un desayuno a la cuenta sale "Ofrece jugo: jugo del día y jugo verde"; con platillos a la carta, antojitos,
 ensaladas, burritos, tortas, sándwiches y hamburguesas sale "Ofrece la soda italiana (agua mineral con extracto de fresa)". 20 minutos después
 de mandar una comida del día sale el aviso "¿Ya llevaste el postre?".
+
+Versión 30.4 — comanda de cocina más limpia: arriba solo "CUENTA NUEVA", mesero y hora; abajo, en grande y una sola vez:
+COMER AQUI + MESA 2, RECOGER AQUI / SERVICIO A DOMICILIO + nombre, o DIDI / UBER + los últimos 3 números de la clave.
+El "> PARA LLEVAR / COMER AQUI" por platillo solo sale si ese platillo va distinto al resto. Los textos de MrTienda (cp850) ya se imprimen
+y se ven en el comandero con su Ñ y acentos (antes la Ñ salía como ¥). Las referencias que escribe el comandero se guardan en cp850.

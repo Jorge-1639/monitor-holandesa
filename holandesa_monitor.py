@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 71            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.3'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 72            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.4'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -346,7 +346,7 @@ def _abrir_cuenta(com, pend, folios, ref, cod, nombre, escala, ren, tc, ahora, p
         if plant is not None and c in pfl: rec[pfl[c][3]:pfl[c][3] + pfl[c][1]] = _campo(plant, pfl, c)
     if not _campo(rec, pfl, 'COD_ALMA').strip(): _pon(rec, pfl, 'COD_ALMA', '001')
     vals = {'FECHA_AP': ahora.strftime('%Y%m%d'), 'HORA_AP': ahora.strftime('%H:%M'), 'FECHA': ahora.strftime('%Y%m%d'), 'FILE': archivo, 'FOL_CTA_P': fol_cta,
-            'REF': ref, 'HORA': ahora.strftime('%H:%M'), 'ARTS': arts, 'COD_CAJERO': cod, 'COD_VENDED': cod, 'DES_CAJERO': nombre[:15], 'DES_VENDED': nombre[:15],
+            'REF': str(ref).encode('cp850', 'replace'), 'HORA': ahora.strftime('%H:%M'), 'ARTS': arts, 'COD_CAJERO': cod, 'COD_VENDED': cod, 'DES_CAJERO': nombre[:15], 'DES_VENDED': nombre[:15],
             'IVA': iva, 'IMPORTE_MN': total, 'IMPORTE_DL': dl, 'COD_ESCALA': escala, 'FECHA_ENT': ahora.strftime('%Y%m%d'), 'HORA_ENT': ahora.strftime('%H:%M'),
             'FOL_ORDEN': orden + 1 if 0 < orden < 20 else 1}
     if 'COMENSALES' in pfl: vals['COMENSALES'] = max(1, min(int(pers or 1), 99))   # personas en la mesa (lo pregunta el comandero)
@@ -436,39 +436,47 @@ def _agregar_a_cuenta(com, pend, archivo, cod, ren, tc, ahora):
     return {'archivo': archivo, 'ref': _campo(rec, pfl, 'REF').decode('latin-1').strip(), 'folio': _campo(rec, pfl, 'FOL_CTA_P').decode('latin-1').strip(),
             'total': total, 'agregado': agregado, 'respaldo': os.path.basename(resp)}
 
+def _dbf_txt(x):
+    """Texto leído de MrTienda (viene en cp850 leído como latin-1, por eso la Ñ salía como ¥): lo regresa a su letra real."""
+    try: return str(x or '').encode('latin-1').decode('cp850')
+    except (UnicodeEncodeError, UnicodeDecodeError): return str(x or '')
+
 def comanda_bytes(ref, mesero, renglones, folio, nueva, ahora, canal=None):
-    """Comanda de cocina en ESC/POS: letra normal como las de MrTienda, una variante por renglón,
-    la nota abajo y si es para comer aquí o para llevar."""
+    """Comanda de cocina en ESC/POS (versión 30.4, como la pidió Jorge): arriba solo cuenta nueva, mesero y hora;
+    los platillos; y abajo, en grande, una sola vez: COMER AQUI + mesa, RECOGER AQUI / SERVICIO A DOMICILIO + nombre,
+    o DIDI / UBER + los últimos 3 números de la clave."""
     ESC, GS = b'\x1b', b'\x1d'
-    e = lambda x: x.encode('cp850', 'replace')
+    e = lambda x: str(x).encode('cp850', 'replace')
     n_ = re.match(r'^M\s*(\d+)$', ref)
-    titulo = ('MESA ' + n_.group(1)) if n_ else ref
     modos = {r['COD_ESCALA'] for r in renglones}
-    modo = 'PARA LLEVAR' if modos == {'02'} else ('COMER AQUI' if modos == {'01'} else 'AQUI Y LLEVAR')
     canal = canal or {}
-    if canal.get('canal') in CANALES:      # pedidos para llevar del comandero: el canal arriba y el nombre o el pedido en grande
-        c_ = canal['canal']
-        modo = CANALES[c_]                  # el pago (efectivo/tarjeta) se guarda para el panel, no se imprime
-        titulo = ((c_.upper() + ' ' + canal.get('pedido', '')) if c_ in ('didi', 'uber') else (canal.get('nombre') or ref)).upper()[:21]
-    t = ESC + b'@' + ESC + b't\x02' + ESC + b'a\x00'
-    inv = modo != 'COMER AQUI'   # si hay algo para llevar: blanco sobre negro para que no se pase en cocina
-    t += ESC + b'!\x38' + (GS + b'B\x01' + e(' ' + modo + ' ') + GS + b'B\x00' if inv else e(modo)) + b'\n' + ESC + b'!\x00'   # letra grande y negritas
-    t += ESC + b'a\x01' + ESC + b'!\x18' + e(titulo) + b'\n' + ESC + b'!\x00'     # mesa: doble alto, negritas
-    t += e('CUENTA NUEVA' if nueva else 'SE AGREGA A LA CUENTA') + b'\n'
-    t += ESC + b'a\x00' + e('Mesero: ') + ESC + b'!\x08' + e(mesero.upper()) + ESC + b'!\x00' + b'\n'   # nombre en negritas
+    c_ = canal.get('canal') if canal.get('canal') in CANALES else None
+    if c_ in ('didi', 'uber'):
+        dig = re.sub(r'\D', '', canal.get('pedido', '')) or canal.get('pedido', '')
+        abajo = [c_.upper(), dig[-3:]]
+    elif c_:
+        abajo = [CANALES[c_], (canal.get('nombre') or ref).upper()[:21]]
+    elif n_:
+        abajo = ['COMER AQUI' if modos != {'02'} else 'PARA LLEVAR', 'MESA ' + n_.group(1)]
+    else:
+        abajo = ['PARA LLEVAR' if modos == {'02'} else 'COMER AQUI', _dbf_txt(ref).upper()[:21]]
+    principal = '02' if (c_ or abajo[0] == 'PARA LLEVAR') else '01'      # lo normal de esta cuenta; solo se marca el platillo que sea distinto
+    t = ESC + b'@' + ESC + b't\x02' + ESC + b'a\x01'
+    t += ESC + b'!\x08' + e('CUENTA NUEVA' if nueva else 'SE AGREGA A LA CUENTA') + ESC + b'!\x00' + b'\n' + ESC + b'a\x00'
+    t += e('Mesero: ') + ESC + b'!\x08' + e(_dbf_txt(mesero).upper()) + ESC + b'!\x00' + b'\n'
     t += e(f'Enviado: {ahora.strftime("%d/%m/%Y %H:%M")}   Cuenta #{folio[-5:].lstrip("0")}') + b'\n'
     t += b'-' * 42 + b'\n'
     for r in renglones:
         cant = int(r['CANTIDAD']) if float(r['CANTIDAD']).is_integer() else r['CANTIDAD']
-        t += ESC + b'!\x08' + e(f'{cant}  {r["DES_CANTAR"]}') + b'\n' + ESC + b'!\x00'  # platillo en negritas
+        t += ESC + b'!\x08' + e(f'{cant}  {_dbf_txt(r["DES_CANTAR"])}') + b'\n' + ESC + b'!\x00'  # platillo en negritas
         for v in [v for v in (r.get('_det') or '').split(' · ') if v]:
-            t += e('     - ' + v.upper()) + b'\n'
+            t += e('     - ' + _dbf_txt(v).upper()) + b'\n'
         if r.get('VAR_LIBRE'): t += e('     * NOTA: ' + r['VAR_LIBRE']) + b'\n'
-        t += ESC + b'!\x08' + e('     > ' + ('PARA LLEVAR' if r['COD_ESCALA'] == '02' else 'COMER AQUI')) + ESC + b'!\x00' + b'\n\n'
+        if r['COD_ESCALA'] != principal:   # solo si este platillo va distinto al resto
+            t += ESC + b'!\x08' + e('     > ' + ('PARA LLEVAR' if r['COD_ESCALA'] == '02' else 'COMER AQUI')) + ESC + b'!\x00' + b'\n'
+        t += b'\n'
     t += b'-' * 42 + b'\n' + ESC + b'a\x01'
-    if canal.get('canal') in ('didi', 'uber'): t += ESC + b'!\x38' + e(titulo) + ESC + b'!\x00' + b'\n'          # abajo: DIDI 4821
-    elif canal.get('canal'): t += ESC + b'!\x38' + e(modo) + b'\n' + e(titulo) + ESC + b'!\x00' + b'\n'        # abajo: RECOGER AQUI / nombre
-    else: t += ESC + b'!\x38' + e('PARA LLEVAR' if modos == {'02'} else 'COMER AQUI' if modos == {'01'} else 'AQUI Y LLEVAR') + ESC + b'!\x00' + b'\n'
+    t += ESC + b'!\x38' + e(abajo[0]) + b'\n' + e(abajo[1]) + ESC + b'!\x00' + b'\n'      # abajo, grande y en negritas
     t += e('Enviado desde el COMANDERO') + b'\n' + b'\n' * 6 + GS + b'VB\x0a'
     return t
 
@@ -1469,7 +1477,7 @@ class Monitor:
             v = x.get('ACTIVO') if x.get('ACTIVO') is not None else x.get('PRECIO')
             precio[(x['COD_PROD'], x['COD_ESCALA'])] = round(v or 0, 2)
         var, svar = self._variantes()
-        lim = lambda s: re.sub(r'(?<=\b\w) (?=\w\b)', '', (s or '')).replace('  ', ' ').strip()
+        lim = lambda s: re.sub(r'(?<=\b\w) (?=\w\b)', '', _dbf_txt(s or '')).replace('  ', ' ').strip()
         def opciones(cp):
             g, o = [], []
             for v in sorted(var.get(cp, []), key=lambda v: v['COD_VAR']):
@@ -1485,7 +1493,7 @@ class Monitor:
             if not p or (cp, '01') not in precio: return None
             g, o = opciones(cp)
             p1 = precio[(cp, '01')]
-            return {'id': cp, 'n': (p.get('DES_PROD') or '').strip(), 'p': p1, 'p2': precio.get((cp, '02'), p1), 'g': g, 'o': o,
+            return {'id': cp, 'n': _dbf_txt(p.get('DES_PROD') or '').strip(), 'p': p1, 'p2': precio.get((cp, '02'), p1), 'g': g, 'o': o,
                     'pt': (p.get('PUERTO') or '').strip()}
         def num(s):
             try: return float(s or 0)
@@ -1541,7 +1549,7 @@ class Monitor:
             out.append({'archivo': a['archivo'], 'ref': a['ref'], 'abrio': a['abrio'], 'fecha': a['fecha'], 'mesero': a['mesero'], 'cod': a['cod'],
                         'llevar': a['llevar'], 'pers': a['pers'], 'total': a['total'],
                         'canal': {k: v for k, v in (ped.get(a['archivo']) or {}).items() if k in ('canal', 'pedido', 'pago', 'nombre')}, 'cortes': a.get('cortes', 0),
-                        'items': [{'n': i['n'], 'q': i['q'], 'imp': i['imp'], 'det': i.get('det', ''), 'h': i['h'], 'llevar': i['llevar']} for i in a['items']]})
+                        'items': [{'n': _dbf_txt(i['n']), 'q': i['q'], 'imp': i['imp'], 'det': _dbf_txt(i.get('det', '')), 'h': i['h'], 'llevar': i['llevar']} for i in a['items']]})
         return out
 
     # ------------------------------------------------ comandero: enviar pedidos a MrTienda (versión 2)
