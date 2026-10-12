@@ -157,3 +157,5 @@ Versión 30.6.16 — clave al entrar al comandero (ya no se guarda la sesión en
 Al enviar ya no se pide (se usa la de la captura; la caja la sigue verificando).
 
 Versión 30.6.18 — nómina por día: si en el rol se le ponen menos horas que su horario (ej. 6 h de 8), ese día se paga en proporción. El mensaje de WhatsApp a la encargada trae también el link de Tailscale para capturar desde su casa.
+
+Versión 30.6.19 — botón "Personal ›" arriba en el panel de ventas para abrir Recursos Humanos.

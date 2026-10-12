@@ -1758,6 +1758,9 @@ if(RHMODE){
   document.querySelector('.wrap').style.paddingBottom='40px';
   cargarCaptura();
 }else{
+  if(!COPIA){const l=document.createElement('a');l.href='/personal';l.textContent='Personal ›';l.setAttribute('aria-label','Abrir Personal (Recursos Humanos)');
+    l.style.cssText='color:var(--hero-ink);font:700 12px var(--body);text-decoration:none;border:1px solid rgba(255,255,255,.55);border-radius:14px;padding:4px 10px;white-space:nowrap';
+    const live=document.getElementById('live');if(live){live.parentNode.insertBefore(l,live);live.parentNode.style.flexWrap='wrap';live.parentNode.style.rowGap='6px'}}
   cargar(); if(!COPIA) setInterval(cargar,120000);
   setTimeout(avisoSeguro,3000);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!COPIA)cargar()});
