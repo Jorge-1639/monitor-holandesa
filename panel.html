@@ -1303,7 +1303,7 @@ function rhResumenRol(){const M=(RH.roles_meta||{})[rhSem]||{}, v=Object.values(
   const d=new Date(ult);let h=d.getHours();const hh=(h%12||12)+':'+String(d.getMinutes()).padStart(2,'0')+(h<12?' am':' pm');
   return `<p class="note" style="margin:0 0 10px;background:var(--good-bg);color:var(--good)"><b>Esta semana la capturó ${esc(q)}</b> · último cambio ${rhCorta(isoD(d))}, ${hh}. Revísala; toca un día para corregirlo.</p>`}
 function rhAccesoRol(){
-  const ac=RH.acceso_rol||{}, wifi=ACCESO?ACCESO.ips.filter(ip=>!ip.startsWith('100.')):[], ts=ACCESO&&ACCESO.https;
+  const ac=RH.acceso_rol||{}, wifi=ACCESO?ACCESO.ips.filter(ip=>!ip.startsWith('100.')):[], ts=ACCESO&&ACCESO.https, tsIp=ACCESO?(ACCESO.ips.find(ip=>ip.startsWith('100.'))||''):'';
   const url=wifi.length?`http://${wifi[0]}:${ACCESO.puerto}/descansos`:'';
   if(!ac.activo)return `<div class="card"><h2>Captura de la encargada</h2>
     <p class="empty" style="margin-top:0">Dale a la encargada su propia entrada. Con ella solo puede capturar el rol de descansos: no ve sueldos, nómina, vales ni préstamos.</p>
@@ -1319,6 +1319,7 @@ Toca cada día para cambiarlo: T trabaja, D descansa, F faltó, V vacaciones, I 
   return `<div class="card"><h2>Captura de la encargada <small>${esc(ac.nombre)}</small></h2>
     <div style="display:flex;align-items:center;gap:8px;font-size:15px">Clave: <b class="num" style="letter-spacing:.25em;min-width:60px" id="raClave">••••</b><button class="btn" data-rh="raver" aria-label="Ver clave" style="padding:4px 10px;min-height:0"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
     ${url?`<p style="margin:10px 0 0;font-weight:700;word-break:break-all" class="num">${esc(url)}</p>`:'<p class="note" style="margin-top:10px">No pude saber la dirección de la caja en el WiFi del restaurante.</p>'}
+    ${tsIp?`<p class="empty" style="margin:8px 0 0">Para probarla tú desde fuera del restaurante (con Tailscale prendido): <a href="http://${tsIp}:${ACCESO.puerto}/descansos" target="_blank" rel="noopener" style="color:var(--green-2);font-weight:700;word-break:break-all">http://${tsIp}:${ACCESO.puerto}/descansos</a></p>`:''}
     <div class="btns" style="margin-top:8px">${url?`<a class="btn pri" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">Mandarle el link por WhatsApp</a>`:''}<button class="btn" data-rh="raclave">Cambiar clave</button><button class="btn" data-rh="raquitar" style="color:var(--bad)">Quitar acceso</button></div>
     <p class="empty" style="margin-top:8px">Solo ve nombres y puestos, y solo cambia el rol. No puede cambiar semanas con la nómina ya pagada. La clave no va en el mensaje: dásela tú en persona. Funciona con su teléfono en el WiFi del restaurante${ts?' (o con Tailscale si lo tiene instalado)':''}.</p></div>`;
 }
