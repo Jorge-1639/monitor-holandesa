@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 95            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.6.21'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 96            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.6.22'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -2398,6 +2398,18 @@ def make_handler(mon, cfg):
                     if not isinstance(e, (ValueError, PermissionError, RuntimeError)): log('Rol de descansos: ' + traceback.format_exc())
                     body = json.dumps({'ok': False, 'error': str(e), 'sesion': not isinstance(e, PermissionError)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(409); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
+            if self.path == '/api/comandero/tarde':   # comandas que llegaron a CRÍTICO (20 min), para el reporte por turno
+                m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'), self.client_address[0])
+                try:
+                    if not m_: raise PermissionError('sin sesion')
+                    d = json.loads(self.rfile.read(min(int(self.headers.get('Content-Length', '0') or 0), 4096)).decode('utf-8'))
+                    f_ = os.path.join(AQUI, 'comandas_tarde.json')
+                    try: L = json.load(open(f_, encoding='utf-8'))
+                    except (OSError, ValueError): L = []
+                    L.append({'fecha': datetime.datetime.now().isoformat(timespec='minutes'), 'mesero': (m_ or {}).get('nombre', ''), 'cuenta': str(d.get('ref', ''))[:20], 'enviada': str(d.get('h', ''))[:5], 'min': int(d.get('min') or 0)})
+                    json.dump(L[-2000:], open(f_, 'w', encoding='utf-8'), ensure_ascii=False)
+                except Exception as e: log('Comandas tarde: ' + str(e))
+                return self._send(b'{"ok":true}', 'application/json')
             if self.path == '/api/comandero/enviar':
                 m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'), self.client_address[0])
                 try:

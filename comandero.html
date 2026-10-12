@@ -173,6 +173,12 @@ textarea{width:100%;border:1px solid var(--line);background:var(--bg);color:var(
 @keyframes parpadeoVerde{0%,100%{background:#e3f4e8;border-color:#2f9e5b}50%{background:#b6e6c6;border-color:#1c7a42}}
 .alarma.amarilla{background:#f5c400!important;color:#3d2e00;animation:alAm 1s ease-in-out infinite}
 .alarma.amarilla button{color:#7a5600}
+.alarma.rojaclara{background:#f28b82!important;color:#3d0000}
+.alarma.rojaclara button{color:#a11}
+.alarma.sirena{overflow:hidden}
+.alarma.sirena::before{content:'';position:absolute;inset:-60%;background:conic-gradient(from 0deg,transparent 0 300deg,rgba(255,255,255,.55) 330deg,transparent 360deg);animation:sirena 1.1s linear infinite;pointer-events:none}
+.alarma.sirena>*{position:relative}
+@keyframes sirena{to{transform:rotate(360deg)}}
 .alarma.roja{background:#c62828!important;animation:alRo .7s ease-in-out infinite}
 .alarma.cafe{background:#7a5600!important;animation:alCa 1s ease-in-out infinite}
 @keyframes alAm{0%,100%{background:#f5c400}50%{background:#ffe680}}
@@ -274,7 +280,7 @@ try{if('serviceWorker' in navigator&&window.isSecureContext)navigator.serviceWor
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();instalarEv=e;const b=document.getElementById('instalarBar');if(b&&!yaInstalada())b.hidden=false});
 window.addEventListener('appinstalled',()=>{instalarEv=null;const b=document.getElementById('instalarBar');if(b)b.hidden=true;toast('Listo: ya está en tu pantalla de inicio')});
 document.addEventListener('DOMContentLoaded',()=>{const b=document.getElementById('instalarBar');if(b)b.onclick=async()=>{if(!instalarEv)return;instalarEv.prompt();try{await instalarEv.userChoice}catch(e){}instalarEv=null;b.hidden=true}});
-const DEMORA_MIN=15, DEMORA_ROJA=25;
+const DEMORA_MIN=10, DEMORA_ROJA=14, DEMORA_CRITICA=20;
 function vistos(){try{return JSON.parse(localStorage.getItem('cmd_demoras')||'{}')}catch(e){return {}}}
 function guardaVistos(v){try{const k=Object.keys(v);if(k.length>300)k.slice(0,k.length-300).forEach(x=>delete v[x]);localStorage.setItem('cmd_demoras',JSON.stringify(v))}catch(e){}}
 let alarmaK=null;
@@ -286,17 +292,19 @@ function revisarDemoras(){
     const hs=[...new Set((c.items||[]).map(i=>i.h).filter(h=>/^\d{1,2}:\d{2}$/.test(h||'')))];
     hs.forEach(h=>{const [hh,mm]=h.split(':').map(Number);const t=new Date(ahora);t.setHours(hh,mm,0,0);if(t>ahora)t.setDate(t.getDate()-1);
       const min=(ahora-t)/6e4,k=c.archivo+'|'+(c.fecha||'')+'|'+h;
-      if(min>=DEMORA_MIN&&min<180&&!v[k])pend.push({k:min>=DEMORA_ROJA?k:k,c,h,min,tipo:min>=DEMORA_ROJA?'roja':'demora',kv:k+(min>=DEMORA_ROJA?'|r':'|a')});
+      const pz=v['p|'+k]&&Date.now()<v['p|'+k];   // "No ha salido": escondida 5 min
+      if(min>=DEMORA_MIN&&min<180&&!v[k]&&!pz){const t=min>=DEMORA_CRITICA?'critica':min>=DEMORA_ROJA?'roja':'demora';pend.push({k,c,h,min,tipo:t,kv:k+'|'+t});
+        if(t==='critica'&&!v['c|'+k]){v['c|'+k]=1;guardaVistos(v);fetch('/api/comandero/tarde',{method:'POST',headers:{'Content-Type':'application/json','X-Mesero-Token':S.tok||''},body:JSON.stringify({archivo:c.archivo,ref:c.ref,h,min:Math.floor(min)})}).catch(()=>{})}}
       const kp='postre|'+k;
       if(min>=20&&min<240&&!v[kp]&&(c.items||[]).some(i=>i.h===h&&esComidaDia(i.n)))pend.push({k:kp,c,h,min,tipo:'postre'})});
   });
   if(!pend.length){el.hidden=true;alarmaK=null;return}
-  pend.sort((a,b)=>(b.tipo==='roja')-(a.tipo==='roja')||b.min-a.min);const a=pend[0],n=numMesa(a.c.ref),k=canalDe(a.c);
+  const rk={critica:3,roja:2,demora:1,postre:0};pend.sort((a,b)=>(rk[b.tipo]||0)-(rk[a.tipo]||0)||b.min-a.min);const a=pend[0],n=numMesa(a.c.ref),k=canalDe(a.c);
   const quien=n?'Mesa '+n:(k?canalTxt(k):a.c.ref);
   el.innerHTML=a.tipo==='postre'
     ?`<div><b>🍮 ${esc(quien)}: ¿ya llevaste el postre?</b><p>Comida del día de las ${esc(a.h)}.${pend.length>1?` (+${pend.length-1} avisos más)`:''}</p></div><button data-act="yasalio" data-dk="${esc(a.k)}">Ya lo llevé</button>`
-    :`<div><b>⏰ ${esc(quien)}</b><p>La comanda de las ${esc(a.h)} lleva ${Math.floor(a.min)} min. Revisa con cocina.${pend.length>1?` (+${pend.length-1} avisos más)`:''}</p></div><button data-act="yasalio" data-dk="${esc(a.k)}">Ya salió</button>`;
-  el.className='alarma '+(a.tipo==='postre'?'cafe':a.tipo==='roja'?'roja':'amarilla');
+    :`<div><b>${a.tipo==='critica'?'🚨 CRÍTICO: ya tardó la comanda':'⏰'} ${esc(quien)}</b><p>La comanda de las ${esc(a.h)} lleva ${Math.floor(a.min)} min. Revisa con cocina.${pend.length>1?` (+${pend.length-1} avisos más)`:''}</p></div><span style="display:flex;flex-direction:column;gap:6px;margin-left:auto"><button data-act="yasalio" data-dk="${esc(a.k)}">Ya salió</button><button data-act="nosalio" data-dk="${esc(a.k)}" style="background:rgba(255,255,255,.75)">No ha salido</button></span>`;
+  el.className='alarma '+(a.tipo==='postre'?'cafe':a.tipo==='critica'?'roja sirena':a.tipo==='roja'?'rojaclara sirena':'amarilla');
   el.hidden=false;
   const ka=a.kv||a.k;   // suena otra vez cuando pasa de amarilla a roja
   if(alarmaK!==ka){alarmaK=ka;try{navigator.vibrate&&navigator.vibrate([400,200,400])}catch(e){}pitido()}
@@ -469,7 +477,7 @@ function tile(c){
 }
 function modoHTML(){return `<div class="modo" role="group" aria-label="Tipo de pedido"><button data-modo="aqui" aria-pressed="${S.modo==='aqui'}">${ICON.aqui}Comer aquí</button><button data-modo="llevar" aria-pressed="${S.modo==='llevar'}">${ICON.llevar}Para llevar</button></div>`}
 function lineHTML(it,di){
-  return `<div class="line"><span class="q">${+it.qty}</span><div><div>${esc(it.n)}${it.llevar?'<span class="tag llevar">Para llevar</span>':''}${it.sent?'<span class="tag">Enviado</span>':'<span class="tag new">Nuevo</span>'}</div>${it.detail?`<div class="d">${esc(it.detail)}</div>`:''}${it.nota?`<div class="d">Nota: ${esc(it.nota)}</div>`:''}${it.sent?'':`<button class="x" data-del="${di}">Quitar</button>`}</div><span class="num">${money(it.qty*it.price)}</span></div>`;
+  return `<div class="line"><span class="q">${+it.qty}</span><div><div>${esc(it.n)}${it.llevar?'<span class="tag llevar">Para llevar</span>':''}${it.sent?'<span class="tag">Enviado</span>':'<span class="tag new">Nuevo</span>'}</div>${it.detail?`<div class="d">${esc(it.detail)}</div>`:''}${it.nota?`<div class="d">Nota: ${esc(it.nota)}</div>`:''}${it.sent?'':`<button class="x" data-del="${di}">🗑️ Quitar</button>`}</div><span class="num">${money(it.qty*it.price)}</span></div>`;
 }
 // ---- hoja del platillo
 let cur=null;
@@ -511,7 +519,7 @@ function agregar(){
 let enviando=false;
 // la clave se pide cada vez que se envía una comanda
 function pedirClave(titulo){return new Promise(res=>{
-  $('#sheet').innerHTML=`<div class="veil"><form class="sheet" id="fk"><h2>${titulo||'Escribe tu clave'}</h2><input id="kpin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" class="search" style="margin-top:0;font-size:28px;letter-spacing:.5em;text-align:center"><div style="display:flex;gap:8px"><button type="button" class="big" id="kno" style="background:var(--surface);color:var(--ink);border:1px solid var(--line)">Cancelar</button><button class="big" type="submit">Continuar</button></div></form></div>`;
+  $('#sheet').innerHTML=`<div class="veil" style="align-items:center;justify-content:center"><form class="sheet" id="fk" style="max-width:300px;border-radius:16px;margin:auto;gap:10px"><h2>${titulo||'Escribe tu clave'}</h2><input id="kpin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" class="search" style="margin-top:0;font-size:22px;letter-spacing:.4em;text-align:center;padding:8px"><div style="display:flex;gap:8px"><button type="button" class="big" id="kno" style="background:var(--surface);color:var(--ink);border:1px solid var(--line)">Cancelar</button><button class="big" type="submit">Continuar</button></div></form></div>`;
   const i=$('#kpin');setTimeout(()=>i.focus(),50);
   const fin=v=>{$('#sheet').innerHTML='';res(v)};
   $('#kno').onclick=()=>fin(null);
@@ -574,7 +582,7 @@ document.addEventListener('click',e=>{
   if(d.g){const gi=+d.g,oi=+d.o;cur.g[gi]=cur.g[gi]===oi?null:oi;return drawSheet()}
   if(d.ox){const oi=+d.ox;cur.o.has(oi)?cur.o.delete(oi):cur.o.add(oi);return drawSheet()}
   if(d.qty){cur.qty=Math.max(1,cur.qty+(+d.qty));return drawSheet()}
-  if(d.del!=null){S.draft.splice(+d.del,1);return render()}
+  if(d.del!=null){const it=S.draft[+d.del];if(!it||!confirm('¿Seguro que deseas quitar '+it.n+'?'))return;S.draft.splice(+d.del,1);return render()}
   const a=d.act;
   if(a==='cerrar'&&e.target===t){cur=null;return drawSheet()}
   if(a==='nuevollevar'){$('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><form class="sheet" id="fl"><h2>Pedido para llevar</h2><label for="nl" style="font-weight:600">¿Para quién es?</label><input id="nl" class="search" style="margin-top:0" maxlength="10" autocomplete="off" placeholder="Nombre del cliente"><button class="big" type="submit">Continuar</button></form></div>`;
@@ -582,6 +590,7 @@ document.addEventListener('click',e=>{
     f.onsubmit=ev=>{ev.preventDefault();const nm=$('#nl').value.trim();if(!nm)return;$('#sheet').innerHTML='';abrir({nombre:nm,llevar:true})};
     return}
   if(a==='nueva')return conClave('Escribe tu clave para la nueva cuenta',hojaNueva);
+  if(a==='nosalio'){const v=vistos();v['p|'+t.dataset.dk]=Date.now()+5*60000;guardaVistos(v);alarmaK=null;$('#alarma').hidden=true;return}
   if(a==='yasalio'){const v=vistos();v[t.dataset.dk]=1;guardaVistos(v);alarmaK=null;$('#alarma').hidden=true;return revisarDemoras()}
   if(a==='buscarcte')return buscarCte();
   if(a==='agregar')return agregar();
