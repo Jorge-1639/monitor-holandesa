@@ -90,3 +90,6 @@ Versión 29.7 — ícono del comandero en la pantalla de inicio: logo de La Hola
 
 Versión 29.8 — ícono del panel de ventas: logo de La Holandesa sobre naranja (icono_panel_180/192/512.png). El manifest del panel ya se entrega sin contraseña
 (no trae datos), porque el teléfono lo pide sin ella; antes el ícono salía gris con un "1". El icon.png anterior nunca existió en la caja (había icon.jpeg).
+
+Versión 29.9 — comandero: la pantalla principal solo tiene "+ Nueva cuenta" y las cuentas abiertas. "+ Nueva cuenta" abre las opciones en este orden:
+Comedor (elige mesa libre), Para llevar, Servicio a domicilio, Didi, Uber. En MrTienda, la cuenta de Didi queda como D + clave + E (efectivo) o T (tarjeta), ej. D4821E.

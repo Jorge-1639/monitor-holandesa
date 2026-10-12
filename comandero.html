@@ -74,6 +74,11 @@ button:focus-visible{outline:2px solid var(--green-2);outline-offset:2px}
 .mesa.llevar{border-style:dashed;border-color:var(--orange)}
 .mesa.llevar b{color:var(--orange)}
 .modo button[aria-pressed="true"][data-pago],.modo button[aria-pressed="true"][data-cte]{background:var(--green);color:var(--on-green)}
+.big.nueva{display:block;width:100%;margin:14px 0 4px;font-size:18px;padding:16px}
+.opciones{display:flex;flex-direction:column;gap:8px}
+.opciones button{display:flex;align-items:center;justify-content:space-between;width:100%;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:15px 14px;font:800 18px var(--display);color:var(--ink);text-align:left}
+.opciones button small{font:500 13px var(--body);color:var(--muted)}
+.opciones button:active{background:var(--green-soft)}
 .mesas.canales{grid-template-columns:repeat(2,minmax(0,1fr))!important}.mesas.canales .mesa{min-height:70px}.mesas.canales .mesa b{font-size:20px}
 .mesa .t{font-weight:700;font-size:14px;color:var(--ink);margin-top:auto}
 .section{font:800 13px var(--display);text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin:18px 0 8px}
@@ -261,11 +266,10 @@ function render(){
     const list=S.filtro==='mias'?mine:CUENTAS;
     app.innerHTML=`<header class="top"><img class="mini" src="${LOGO}" alt=""><h1>Comandero<small>${esc(S.user?S.user.nombre:'')} · ${mine.length} ${mine.length===1?'cuenta':'cuentas'} · ${money(totMine)}</small></h1><button class="chipbtn" data-act="salir">Salir</button></header>
       ${falla}${avisoV1}
+      <button class="big nueva" data-act="nueva">+ Nueva cuenta</button>
       <div class="seg"><button data-f="mias" aria-pressed="${S.filtro==='mias'}">Mis cuentas (${mine.length})</button><button data-f="todas" aria-pressed="${S.filtro==='todas'}">Todas (${CUENTAS.length})</button></div>
       <div class="section">${S.filtro==='mias'?'Mis cuentas abiertas':'Cuentas abiertas en la caja'}</div>
-      ${list.length?`<div class="mesas">${list.map(tile).join('')}</div>`:`<p class="empty">${S.filtro==='mias'?'No tienes cuentas abiertas. Elige una mesa libre para empezar.':'No hay cuentas abiertas.'}</p>`}
-      <div class="section">Pedidos para llevar</div><div class="mesas canales">${nuevoLlevar()}</div>
-      <div class="section">Mesas libres</div><div class="mesas">${libres.map(m=>`<button class="mesa" data-libre="${m}"><b>${m}</b><span>Libre</span></button>`).join('')||'<p class="empty">Todas las mesas están ocupadas.</p>'}</div>
+      ${list.length?`<div class="mesas">${list.map(tile).join('')}</div>`:`<p class="empty">${S.filtro==='mias'?'No tienes cuentas abiertas. Toca "+ Nueva cuenta" para empezar.':'No hay cuentas abiertas.'}</p>`}
       <p class="empty" style="margin-top:18px">Se actualiza solo cada 20 segundos.</p>`;
     return;
   }
@@ -320,6 +324,15 @@ function grupos(){
   return G;
 }
 const CANAL_TXT={recoger:'Para llevar',domicilio:'Domicilio',didi:'Didi',uber:'Uber'};
+function hojaNueva(){
+  const ops=[['comedor','Comedor','Elige la mesa'],['recoger','Para llevar','Recoge aquí'],['domicilio','Servicio a domicilio','Busca al cliente'],['didi','Didi','Clave y forma de pago'],['uber','Uber','Clave del pedido']];
+  $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Nueva cuenta</h2><div class="opciones">${ops.map(([c,t,d])=>`<button data-nueva="${c}"><span>${t}</span><small>${d}</small></button>`).join('')}</div></div></div>`;
+}
+function hojaMesas(){
+  const ocup={};CUENTAS.forEach(c=>{const n=numMesa(c.ref);if(n)ocup[n]=1});
+  const libres=MESAS.filter(m=>!ocup[m]);
+  $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Comedor · elige la mesa</h2>${libres.length?`<div class="mesas">${libres.map(m=>`<button class="mesa" data-libre="${m}"><b>${m}</b><span>Libre</span></button>`).join('')}</div>`:'<p class="empty">Todas las mesas están ocupadas.</p>'}</div></div>`;
+}
 const nuevoLlevar=()=>[['recoger','+ Llevar','Recoge aquí'],['domicilio','+ Domicilio','A su casa'],['didi','+ Didi','Pedido Didi'],['uber','+ Uber','Pedido Uber']]
   .map(([c,b,t])=>`<button class="mesa llevar" data-canal="${c}"><b>${b}</b><span>${t}</span></button>`).join('');
 const canalDe=c=>c&&c.canal&&c.canal.canal?c.canal:null;
@@ -330,7 +343,7 @@ function hojaCanal(c){
   if(c==='recoger')body=campo('cnN','¿Para quién es?','Nombre del cliente','maxlength="40"');
   else if(c==='didi'||c==='uber')body=campo('cnP','Clave del pedido','Ej. 4821','maxlength="5" autocapitalize="characters"')+(c==='didi'?`<label style="font-weight:600">¿Cómo paga?</label><div class="modo small" role="group" style="margin-top:0"><button type="button" data-pago="efectivo" aria-pressed="false">Efectivo</button><button type="button" data-pago="tarjeta" aria-pressed="false">Tarjeta</button></div>`:'<p class="empty" style="margin:0">Uber siempre es con tarjeta.</p>');
   else body=`<label for="cnT" style="font-weight:600">Teléfono del cliente</label><div style="display:flex;gap:8px"><input id="cnT" class="search" style="margin-top:0;flex:1" inputmode="tel" maxlength="14" autocomplete="off" placeholder="10 números"><button type="button" class="chipbtn" data-act="buscarcte">Buscar</button></div><div id="cnRes"></div>`+campo('cnN','Nombre del cliente','Si no aparece, escríbelo','maxlength="40"');
-  $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><form class="sheet" id="fl"><h2>${c==='recoger'?'Pedido para llevar':c==='domicilio'?'Servicio a domicilio':'Pedido de '+CANAL_TXT[c]}</h2>${body}<p id="cnErr" class="err2" hidden></p><button class="big" type="submit">Continuar</button></form></div>`;
+  $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><form class="sheet" id="fl"><h2>${c==='recoger'?'Para llevar':c==='domicilio'?'Servicio a domicilio':'Pedido de '+CANAL_TXT[c]}</h2>${body}<p id="cnErr" class="err2" hidden></p><button class="big" type="submit">Continuar</button></form></div>`;
   const f=$('#fl'),pri=f.querySelector('input');setTimeout(()=>pri&&pri.focus(),50);let pago='';
   f.addEventListener('click',ev=>{const b=ev.target.closest('[data-pago]');if(b){pago=b.dataset.pago;$('#cnErr').hidden=true;f.querySelectorAll('[data-pago]').forEach(x=>x.setAttribute('aria-pressed',x===b));}
     const r=ev.target.closest('[data-cte]');if(r){$('#cnN').value=r.dataset.cte;f.querySelectorAll('[data-cte]').forEach(x=>x.setAttribute('aria-pressed',x===r))}});
@@ -424,7 +437,8 @@ document.addEventListener('click',e=>{
   if(d.k&&S.view==='mesas'){const c=cuentaDe(d.k);if(!c)return;
     if(!mia(c)){toast('Esa cuenta es de '+c.mesero);return}
     return abrir({k:c.archivo,llevar:c.llevar})}
-  if(d.libre){return abrir({mesa:d.libre})}
+  if(d.libre){$('#sheet').innerHTML='';return abrir({mesa:d.libre})}
+  if(d.nueva){return d.nueva==='comedor'?hojaMesas():hojaCanal(d.nueva)}
   if(d.canal&&S.view==='mesas'){return hojaCanal(d.canal)}
   if(d.modo){S.modo=d.modo;return render()}
   if(d.im){cur.modo=d.im;return drawSheet()}
@@ -441,6 +455,7 @@ document.addEventListener('click',e=>{
     const f=$('#fl');setTimeout(()=>$('#nl').focus(),50);
     f.onsubmit=ev=>{ev.preventDefault();const nm=$('#nl').value.trim();if(!nm)return;$('#sheet').innerHTML='';abrir({nombre:nm,llevar:true})};
     return}
+  if(a==='nueva')return hojaNueva();
   if(a==='buscarcte')return buscarCte();
   if(a==='agregar')return agregar();
   if(a==='salir'){if(S.draft.length&&!confirm('Tienes platillos sin enviar. ¿Salir de todos modos?'))return;return salir()}

@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 66            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '29.8'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 67            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '29.9'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -1613,7 +1613,7 @@ class Monitor:
             if c_ in ('didi', 'uber'):
                 ped = re.sub(r'[^0-9A-Za-z]', '', str(d.get('pedido') or ''))[:5].upper()
                 if not ped: raise ValueError('Escribe la clave del pedido de ' + c_.title() + '.')
-                canal.update({'pedido': ped, 'pago': ('efectivo' if d.get('pago') == 'efectivo' else 'tarjeta') if c_ == 'didi' else 'tarjeta', 'ref': c_.upper() + ' ' + ped})
+                canal.update({'pedido': ped, 'pago': ('efectivo' if d.get('pago') == 'efectivo' else 'tarjeta') if c_ == 'didi' else 'tarjeta', 'ref': ('D' + ped + ('E' if d.get('pago') == 'efectivo' else 'T')) if c_ == 'didi' else 'UBER ' + ped})   # Didi: D + clave + E (efectivo) o T (tarjeta)
                 if c_ == 'didi' and d.get('pago') not in ('efectivo', 'tarjeta'): raise ValueError('Marca si el pedido de Didi es en efectivo o con tarjeta.')
             else:
                 nom = limpio(d.get('nombre'), 40)
