@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 80            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.6.6'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 81            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.6.7'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -2332,7 +2332,7 @@ def make_handler(mon, cfg):
         with open(icon_path, 'rb') as f: icon_png = f.read()
     except OSError:
         icon_png = b''
-    manifest_caja = json.dumps({'name':'Compras Holandesa','short_name':'Compras','start_url':'/captura','display':'standalone','background_color':'#fbf6f1','theme_color':'#ea580c','icons':[{'src':'/icono_panel_192.png','sizes':'192x192','type':'image/png','purpose':'any'},{'src':'/icono_panel_512.png','sizes':'512x512','type':'image/png','purpose':'any'}]}, ensure_ascii=False).encode('utf-8')
+    manifest_caja = json.dumps({'id':'/captura','name':'Compras Holandesa','short_name':'Compras','start_url':'/captura','scope':'/captura','display':'standalone','background_color':'#fbf6f1','theme_color':'#ea580c','icons':[{'src':'/icono_panel_192.png','sizes':'192x192','type':'image/png','purpose':'any'},{'src':'/icono_panel_512.png','sizes':'512x512','type':'image/png','purpose':'any'}]}, ensure_ascii=False).encode('utf-8')
     def _leer(nombre):
         try:
             with open(os.path.join(AQUI, nombre), 'rb') as f: return f.read()
@@ -2342,10 +2342,10 @@ def make_handler(mon, cfg):
     iconos_cmd = {n: _leer(n) for n in ('icono_comandero_180.png', 'icono_comandero_192.png', 'icono_comandero_512.png', 'icono_panel_180.png', 'icono_panel_192.png', 'icono_panel_512.png')}
     icon_rh = _leer('icon_personal.png')
     page_rol = _leer('descansos.html')
-    manifest_rol = json.dumps({'name':'Descansos La Holandesa','short_name':'Descansos','start_url':'/descansos','display':'standalone','background_color':'#f3f6f2','theme_color':'#1d5c3b','icons':[{'src':'/icon_personal.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
-    manifest_rh = json.dumps({'name':'Personal Holandesa','short_name':'Personal','start_url':'/personal','display':'standalone','background_color':'#f3f6f2','theme_color':'#1d5c3b','icons':[{'src':'/icon_personal.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
+    manifest_rol = json.dumps({'id':'/descansos','name':'Descansos La Holandesa','short_name':'Descansos','start_url':'/descansos','scope':'/descansos','display':'standalone','background_color':'#f3f6f2','theme_color':'#1d5c3b','icons':[{'src':'/icon_personal.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
+    manifest_rh = json.dumps({'id':'/personal','name':'Personal Holandesa','short_name':'Personal','start_url':'/personal','scope':'/personal','display':'standalone','background_color':'#f3f6f2','theme_color':'#1d5c3b','icons':[{'src':'/icon_personal.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
     manifest_cmd = json.dumps({'id':'/comandero','name':'La Holandesa Comandero','short_name':'Holandesa Comandero','start_url':'/comandero','scope':'/comandero','display':'standalone','background_color':'#ffffff','theme_color':'#2f6db3','icons':[{'src':'/icono_comandero_192.png','sizes':'192x192','type':'image/png','purpose':'any'},{'src':'/icono_comandero_512.png','sizes':'512x512','type':'image/png','purpose':'any'}]}, ensure_ascii=False).encode('utf-8')
-    manifest = json.dumps({'name':'Control Holandesa','short_name':'Control Holandesa','start_url':'/','display':'standalone','background_color':'#fbf6f1','theme_color':'#ea580c','icons':[{'src':'/icono_panel_192.png','sizes':'192x192','type':'image/png','purpose':'any'},{'src':'/icono_panel_512.png','sizes':'512x512','type':'image/png','purpose':'any'}]}, ensure_ascii=False).encode('utf-8')
+    manifest = json.dumps({'id':'/panel','name':'Control Holandesa','short_name':'Control Holandesa','start_url':'/panel','scope':'/panel','display':'standalone','background_color':'#fbf6f1','theme_color':'#ea580c','icons':[{'src':'/icono_panel_192.png','sizes':'192x192','type':'image/png','purpose':'any'},{'src':'/icono_panel_512.png','sizes':'512x512','type':'image/png','purpose':'any'}]}, ensure_ascii=False).encode('utf-8')
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a): pass
         def _auth(self, caja_ok=False):
@@ -2598,7 +2598,7 @@ def make_handler(mon, cfg):
                 usegz = 'gzip' in self.headers.get('Accept-Encoding', '')
                 with mon.lock: body = mon.jsongz if usegz else mon.json
                 return self._send(body, 'application/json; charset=utf-8', usegz)
-            if self.path in ('/', '/index.html') or p0 in ('/personal', '/personal/'): return self._send(page, 'text/html; charset=utf-8')
+            if self.path in ('/', '/index.html') or p0 in ('/personal', '/personal/', '/panel', '/panel/'): return self._send(page, 'text/html; charset=utf-8')
             self.send_response(404); self.end_headers()
     return H
 

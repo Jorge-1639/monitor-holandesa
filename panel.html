@@ -746,7 +746,7 @@ function avisoSeguro(){
   if(COPIA||CAPMODE||window.isSecureContext)return;
   fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{
     if(!j||!j.https){setTimeout(avisoSeguro,300000);return}
-    const url=j.https+(location.pathname||'/'),el=document.getElementById('segAviso');
+    const url=j.https+((location.pathname||'/')==='/'?'/panel':location.pathname),el=document.getElementById('segAviso');
     el.innerHTML=`<b>Tu panel ya tiene dirección segura</b><p style="margin:6px 0 10px;font-size:14px">Ábrelo con este botón y agrégalo a tu pantalla de inicio (⋮ → Agregar a pantalla de inicio). Con esa dirección funciona "Enviar PDF". Entras con tu misma clave.</p><a class="btn pri" href="${url}">Abrir panel seguro</a>`;
     el.hidden=false}).catch(()=>setTimeout(avisoSeguro,300000))}
 let cajaG=st.cajaG2===true, gImp=null, gNeg='todos', ACCESO=null;

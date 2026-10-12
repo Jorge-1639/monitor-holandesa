@@ -134,3 +134,7 @@ Versión 30.6.5 — comandero instalable: service worker mínimo (/comandero-sw.
 que aparece abajo cuando Chrome permite instalarlo (dirección segura https://newcaja…/comandero). Manifest con id /comandero.
 
 Versión 30.6.6 — el ícono del panel de ventas también es el logo sobre fondo blanco (sin el marco naranja), igual que el del comandero.
+
+Versión 30.6.7 — cada app tiene su propio alcance (scope) para que no se "traguen" entre sí en el teléfono: panel en /panel (también sigue en /),
+comandero /comandero, personal /personal, descansos /descansos, compras /captura. Antes el panel instalado (alcance "/") abarcaba al comandero
+y Chrome no dejaba instalarlo aparte (salía "Crear acceso directo" con una letra).
