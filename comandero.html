@@ -198,6 +198,7 @@ textarea{width:100%;border:1px solid var(--line);background:var(--bg);color:var(
 <div id="sheet"></div>
 <div class="toast" id="toast" hidden></div>
 <div class="alarma" id="alarma" hidden></div>
+<button id="instalarBar" hidden style="position:fixed;left:12px;right:12px;bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:30;border:0;border-radius:14px;padding:14px;background:#2f6db3;color:#fff;font:800 16px var(--display);box-shadow:0 10px 30px rgba(0,0,0,.3)">📲 Instalar Holandesa Comandero en este teléfono</button>
 
 <script>
 // Comandero La Holandesa · versión 1 (solo consulta): el menú, los precios, las variantes y las cuentas abiertas
@@ -256,6 +257,13 @@ async function refrescar(){
   if(!$('#sheet').innerHTML&&S.view!=='menu')render();
 }
 // ---- alarma: comanda enviada hace 15 minutos o más (una vez por envío; el mesero la apaga con "Ya salió")
+// ---- botón para instalar el comandero como app (Chrome en Android, dirección segura https)
+let instalarEv=null;
+const yaInstalada=()=>matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+try{if('serviceWorker' in navigator&&window.isSecureContext)navigator.serviceWorker.register('/comandero-sw.js',{scope:'/comandero'}).catch(()=>{})}catch(e){}
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();instalarEv=e;const b=document.getElementById('instalarBar');if(b&&!yaInstalada())b.hidden=false});
+window.addEventListener('appinstalled',()=>{instalarEv=null;const b=document.getElementById('instalarBar');if(b)b.hidden=true;toast('Listo: ya está en tu pantalla de inicio')});
+document.addEventListener('DOMContentLoaded',()=>{const b=document.getElementById('instalarBar');if(b)b.onclick=async()=>{if(!instalarEv)return;instalarEv.prompt();try{await instalarEv.userChoice}catch(e){}instalarEv=null;b.hidden=true}});
 const DEMORA_MIN=15, DEMORA_ROJA=25;
 function vistos(){try{return JSON.parse(localStorage.getItem('cmd_demoras')||'{}')}catch(e){return {}}}
 function guardaVistos(v){try{const k=Object.keys(v);if(k.length>300)k.slice(0,k.length-300).forEach(x=>delete v[x]);localStorage.setItem('cmd_demoras',JSON.stringify(v))}catch(e){}}

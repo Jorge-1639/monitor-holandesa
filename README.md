@@ -129,3 +129,6 @@ hamburguesas, tortas, bistec, empanizados, milanesa, sándwich.
 Versión 30.6.3 — comanda: platillo en doble de alto (las variantes igual) y 3 renglones de espacio antes del bloque de abajo (PARA LLEVAR / MESA 5).
 
 Versión 30.6.4 — el ícono del comandero va dentro de la misma página (data URI) para que Chrome lo use al crear el acceso directo en direcciones http.
+
+Versión 30.6.5 — comandero instalable: service worker mínimo (/comandero-sw.js) y botón azul "📲 Instalar Holandesa Comandero en este teléfono"
+que aparece abajo cuando Chrome permite instalarlo (dirección segura https://newcaja…/comandero). Manifest con id /comandero.
