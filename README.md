@@ -125,3 +125,5 @@ Para llevar negro, Domicilio letras negras con contorno verde, Didi naranja fuer
 Versión 30.6.2 — comandero: los avisos parpadean. Comanda sin "Ya salió": amarilla a los 15 min y roja a los 25 min (vuelve a sonar al pasar a rojo).
 Sugerencias (sopa y agua, jugo, soda italiana) parpadean en su color. Soda italiana "la especial de la casa" también por nombre: burritos,
 hamburguesas, tortas, bistec, empanizados, milanesa, sándwich.
+
+Versión 30.6.3 — comanda: platillo en doble de alto (las variantes igual) y 3 renglones de espacio antes del bloque de abajo (PARA LLEVAR / MESA 5).

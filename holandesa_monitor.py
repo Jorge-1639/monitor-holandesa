@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 76            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.6.2'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 77            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.6.3'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -468,14 +468,14 @@ def comanda_bytes(ref, mesero, renglones, folio, nueva, ahora, canal=None):
     t += b'-' * 42 + b'\n'
     for r in renglones:
         cant = int(r['CANTIDAD']) if float(r['CANTIDAD']).is_integer() else r['CANTIDAD']
-        t += ESC + b'!\x08' + e(f'{cant}  {_dbf_txt(r["DES_CANTAR"])}') + b'\n' + ESC + b'!\x00'  # platillo en negritas
+        t += ESC + b'!\x18' + e(f'{cant}  {_dbf_txt(r["DES_CANTAR"])}') + b'\n' + ESC + b'!\x00'  # platillo en negritas y doble de alto
         for v in [v for v in (r.get('_det') or '').split(' · ') if v]:
             t += e('     - ' + _dbf_txt(v).upper()) + b'\n'
         if r.get('VAR_LIBRE'): t += e('     * NOTA: ' + r['VAR_LIBRE']) + b'\n'
         if r['COD_ESCALA'] != principal:   # solo si este platillo va distinto al resto
             t += ESC + b'!\x08' + e('     > ' + ('PARA LLEVAR' if r['COD_ESCALA'] == '02' else 'COMER AQUI')) + ESC + b'!\x00' + b'\n'
         t += b'\n'
-    t += b'-' * 42 + b'\n' + ESC + b'a\x01'
+    t += b'-' * 42 + b'\n' + b'\n' * 3 + ESC + b'a\x01'      # espacio para que no se junte con los platillos
     t += ESC + b'!\x38' + e(abajo[0]) + b'\n' + e(abajo[1]) + ESC + b'!\x00' + b'\n'      # abajo, grande y en negritas
     t += e('Enviado desde el COMANDERO') + b'\n' + b'\n' * 6 + GS + b'VB\x0a'
     return t
