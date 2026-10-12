@@ -294,7 +294,7 @@ function revisarDemoras(){
       const min=(ahora-t)/6e4,k=c.archivo+'|'+(c.fecha||'')+'|'+h;
       const pz=v['p|'+k]&&Date.now()<v['p|'+k];   // "No ha salido": escondida 5 min
       if(min>=DEMORA_MIN&&min<180&&!v[k]&&!pz){const t=min>=DEMORA_CRITICA?'critica':min>=DEMORA_ROJA?'roja':'demora';pend.push({k,c,h,min,tipo:t,kv:k+'|'+t});
-        if(t==='critica'&&!v['c|'+k]){v['c|'+k]=1;guardaVistos(v);fetch('/api/comandero/tarde',{method:'POST',headers:{'Content-Type':'application/json','X-Mesero-Token':S.tok||''},body:JSON.stringify({archivo:c.archivo,ref:c.ref,h,min:Math.floor(min)})}).catch(()=>{})}}
+        if(t!=='demora'&&!v['s|'+k+'|'+t]){v['s|'+k+'|'+t]=1;guardaVistos(v);avisaTiempo('alarma',c.archivo,h)}}
       const kp='postre|'+k;
       if(min>=20&&min<240&&!v[kp]&&(c.items||[]).some(i=>i.h===h&&esComidaDia(i.n)))pend.push({k:kp,c,h,min,tipo:'postre'})});
   });
@@ -309,6 +309,7 @@ function revisarDemoras(){
   const ka=a.kv||a.k;   // suena otra vez cuando pasa de amarilla a roja
   if(alarmaK!==ka){alarmaK=ka;try{navigator.vibrate&&navigator.vibrate([400,200,400])}catch(e){}pitido()}
 }
+function avisaTiempo(ev,archivo,h){fetch('/api/comandero/tiempo',{method:'POST',headers:{'Content-Type':'application/json','X-Mesero-Token':S.tok||''},body:JSON.stringify({ev,archivo,h})}).catch(()=>{})}
 function pitido(){try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return;const ac=pitido.ac||(pitido.ac=new C());const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=880;g.gain.value=.25;o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+.35)}catch(e){}}
 setInterval(revisarDemoras,30000);
 // ---- comida del día: recordatorio para el mesero
@@ -591,7 +592,7 @@ document.addEventListener('click',e=>{
     return}
   if(a==='nueva')return conClave('Escribe tu clave para la nueva cuenta',hojaNueva);
   if(a==='nosalio'){const v=vistos();v['p|'+t.dataset.dk]=Date.now()+5*60000;guardaVistos(v);alarmaK=null;$('#alarma').hidden=true;return}
-  if(a==='yasalio'){const v=vistos();v[t.dataset.dk]=1;guardaVistos(v);alarmaK=null;$('#alarma').hidden=true;return revisarDemoras()}
+  if(a==='yasalio'){const dk=t.dataset.dk||'';if(!dk.startsWith('postre|')){const p=dk.split('|');avisaTiempo('salio',p[0],p[p.length-1])}const v=vistos();v[t.dataset.dk]=1;guardaVistos(v);alarmaK=null;$('#alarma').hidden=true;return revisarDemoras()}
   if(a==='buscarcte')return buscarCte();
   if(a==='agregar')return agregar();
   if(a==='salir'){if(S.draft.length&&!confirm('Tienes platillos sin enviar. ¿Salir de todos modos?'))return;return salir()}

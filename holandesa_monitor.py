@@ -14,8 +14,9 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 96            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.6.22'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+LOCK_TIEMPOS = threading.Lock()
+VERSION = 97            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.6.23'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -1543,6 +1544,49 @@ class Monitor:
             if len(out) >= 8: break
         return {'ok': True, 'clientes': out}
 
+    # ------------------------------------------------ tiempos de comanda (versión 30.6.23)
+    # El teléfono del mesero avisa cuando su alarma llega a 14 min (roja) o 20 min (crítico) y cuando toca "Ya salió".
+    # La caja calcula los minutos con la hora de envío que guardó MrTienda, guarda los platillos de esa comanda y el turno.
+    TIEMPOS_F = os.path.join(AQUI, 'comandas_tiempos.json')
+    def tiempos(self):
+        try: return json.load(open(self.TIEMPOS_F, encoding='utf-8'))
+        except (OSError, ValueError): return {}
+    def turno_de(self, ts):
+        """Turno del día: 1 + cortes de MrTienda cerrados ese mismo día antes de esa hora (de las 4 am en adelante)."""
+        d = datetime.datetime.fromtimestamp(ts); ini = d.replace(hour=4, minute=0, second=0, microsecond=0)
+        if d < ini: ini -= datetime.timedelta(days=1)
+        try: c = self.horas_de_corte()
+        except Exception: c = []
+        return 1 + sum(1 for t in c if ini.timestamp() <= t < ts)
+    def comanda_tiempo(self, d, mesero):
+        ev = d.get('ev'); arch = str(d.get('archivo') or ''); h = str(d.get('h') or '')[:5]
+        if ev not in ('alarma', 'salio') or not re.match(r'^\d{1,2}:\d{2}$', h) or not arch: return
+        a = next((a for a in self.abiertas() if a['archivo'] == arch), None)
+        if not a: return
+        its = [i for i in a['items'] if i['h'] == h]
+        if not its: return
+        f = its[0].get('f') or a['fecha'] or datetime.date.today().isoformat()
+        try: t0 = datetime.datetime.strptime(f + ' ' + h, '%Y-%m-%d %H:%M')
+        except ValueError: return
+        ahora = datetime.datetime.now(); mn = int((ahora - t0).total_seconds() // 60)
+        if mn < 0 or mn > 300: return
+        with LOCK_TIEMPOS:
+            T = self.tiempos(); k = arch + '|' + f + '|' + h; r = T.get(k)
+            if not r:
+                if mn < 14: return          # salió a tiempo: no se registra
+                canal = (self.pedidos().get(arch) or {})
+                r = T[k] = {'fecha': f, 'enviada': h, 'ref': a['ref'], 'canal': canal.get('canal', ''), 'nombre': canal.get('nombre', ''),
+                            'mesero': a['mesero'], 'turno': self.turno_de(t0.timestamp()), 'visto': 0, 'min': None,
+                            'platillos': [{'n': _dbf_txt(i['n']), 'q': i['q'], 'det': _dbf_txt(i.get('det', ''))} for i in its]}
+            if ev == 'alarma': r['visto'] = max(r.get('visto') or 0, mn)
+            elif r.get('min') is None: r['min'] = mn; r['salio'] = ahora.strftime('%H:%M'); r['confirmo'] = (mesero or {}).get('nombre', '')
+            lim = (datetime.date.today() - datetime.timedelta(days=180)).isoformat()
+            T = {x: y for x, y in T.items() if y.get('fecha', '') >= lim}
+            tmp = self.TIEMPOS_F + '.tmp'
+            json.dump(T, open(tmp, 'w', encoding='utf-8'), ensure_ascii=False); os.replace(tmp, self.TIEMPOS_F)
+    def tiempos_lista(self):
+        return sorted(({'k': k, **v} for k, v in self.tiempos().items()), key=lambda r: (r['fecha'], r['enviada']))
+
     def cuentas_comandero(self):
         out = []; ped = self.pedidos()
         for a in self.abiertas():
@@ -2245,6 +2289,8 @@ class Monitor:
         out['mensual'] = [{'mes': k, 'total': round(v[0], 2), 'tickets': v[1], 'personas': v[2]} for k, v in sorted(mon.items())]
         try: out['mensual_prod'] = self.productos_mes(idx, days)
         except Exception as e: log('No pude resumir productos por mes: ' + str(e)); out['mensual_prod'] = {}
+        try: out['tardadas'] = self.tiempos_lista()
+        except Exception as e: log('No pude leer los tiempos de comanda: ' + str(e)); out['tardadas'] = []
         out['quitadas'] = self.quitadas(); out['motivos'] = MOTIVOS; out['familia'] = self.familia()
         out['empleados'] = self.empleados()
         out['gastos'] = self.gastos(); out['categorias_gasto'] = CATEGORIAS_GASTO
@@ -2398,17 +2444,13 @@ def make_handler(mon, cfg):
                     if not isinstance(e, (ValueError, PermissionError, RuntimeError)): log('Rol de descansos: ' + traceback.format_exc())
                     body = json.dumps({'ok': False, 'error': str(e), 'sesion': not isinstance(e, PermissionError)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(409); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
-            if self.path == '/api/comandero/tarde':   # comandas que llegaron a CRÍTICO (20 min), para el reporte por turno
+            if self.path in ('/api/comandero/tiempo', '/api/comandero/tarde'):   # alarma de 14/20 min y "Ya salió" → reporte de comandas tardadas
                 m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'), self.client_address[0])
                 try:
-                    if not m_: raise PermissionError('sin sesion')
+                    if not m_ or m_.get('bloqueo'): raise PermissionError('sin sesion')
                     d = json.loads(self.rfile.read(min(int(self.headers.get('Content-Length', '0') or 0), 4096)).decode('utf-8'))
-                    f_ = os.path.join(AQUI, 'comandas_tarde.json')
-                    try: L = json.load(open(f_, encoding='utf-8'))
-                    except (OSError, ValueError): L = []
-                    L.append({'fecha': datetime.datetime.now().isoformat(timespec='minutes'), 'mesero': (m_ or {}).get('nombre', ''), 'cuenta': str(d.get('ref', ''))[:20], 'enviada': str(d.get('h', ''))[:5], 'min': int(d.get('min') or 0)})
-                    json.dump(L[-2000:], open(f_, 'w', encoding='utf-8'), ensure_ascii=False)
-                except Exception as e: log('Comandas tarde: ' + str(e))
+                    d.setdefault('ev', 'alarma'); mon.comanda_tiempo(d, m_)
+                except Exception as e: log('Tiempos de comanda: ' + str(e))
                 return self._send(b'{"ok":true}', 'application/json')
             if self.path == '/api/comandero/enviar':
                 m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'), self.client_address[0])

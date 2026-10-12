@@ -316,7 +316,9 @@ const segBtns=(attr,opts,val)=>`<div class="seg">${opts.map(([k,l])=>`<button da
 const esHoy=()=>cur===days[days.length-1];
 const ultimoDia=()=>{const h=iso(new Date()),u=days[days.length-1];return u>h?u:h};
 function rangoRapido(k){const u=pd(ultimoDia());const w=(u.getDay()+6)%7;let a,b;
-  if(k==='semana'){a=new Date(u);a.setDate(u.getDate()-w);b=u}
+  if(k==='hoy'){a=u;b=u}
+  else if(k==='ayer'){a=new Date(u);a.setDate(u.getDate()-1);b=a}
+  else if(k==='semana'){a=new Date(u);a.setDate(u.getDate()-w);b=u}
   else if(k==='semana_ant'){a=new Date(u);a.setDate(u.getDate()-w-7);b=new Date(a);b.setDate(a.getDate()+6)}
   else if(k==='mes'){a=new Date(u.getFullYear(),u.getMonth(),1);b=u}
   else if(k==='mes_ant'){a=new Date(u.getFullYear(),u.getMonth()-1,1);b=new Date(u.getFullYear(),u.getMonth(),0)}
@@ -526,7 +528,7 @@ function vControl(D){
 }
 
 // ---------- REPORTES
-const REPS=[['historial','Historial'],['quitadas','Cuentas quitadas'],['cajeras','Cajeras'],['meseros','Meseros'],['mes','Por mes'],['calor','Horas y días'],['compara','Comparativos'],['compras','Compras'],['resultados','Resultados'],['gastos','Gastos']];
+const REPS=[['historial','Historial'],['quitadas','Cuentas quitadas'],['cajeras','Cajeras'],['meseros','Meseros'],['mes','Por mes'],['calor','Horas y días'],['compara','Comparativos'],['compras','Compras'],['resultados','Resultados'],['gastos','Gastos'],['tardadas','Comandas tardadas']];
 // ---- Didi y Uber (cuentas quitadas) como opción en los reportes; la familia nunca cuenta como venta
 let incPlat=!!st.plat, RD=null;
 const esPlat=r=>/^(Didi|Uber)/.test(r.motivo||'');
@@ -547,7 +549,7 @@ function vReportes(){
   RD=datosRep();
   const usaPlat=['historial','mes','calor','compara','resultados'].includes(repModo);
   const head=segBtns('rp',REPS,repModo)+(usaPlat?`<div class="seg"><button data-plat="1" aria-pressed="${incPlat}">${incPlat?'✓ ':''}Incluir Didi y Uber</button></div>`:'');
-  const fn={historial:rHist,quitadas:rQuitadas,cajeras:rCajeras,meseros:rMeseros,calor:rCalor,compara:rCompara,mes:rMes,resultados:rResultados,gastos:rGastos,compras:rCompras}[repModo]||rHist;
+  const fn={historial:rHist,quitadas:rQuitadas,cajeras:rCajeras,meseros:rMeseros,calor:rCalor,compara:rCompara,mes:rMes,resultados:rResultados,gastos:rGastos,compras:rCompras,tardadas:rTardadas}[repModo]||rHist;
   return '<section>'+head+fn()+'</section>';
 }
 const conFechas=()=>`<div class="card">${selectorFechas('r',rDesde,rHasta)}</div>`;
@@ -589,6 +591,27 @@ function rQuitadas(){
     <p class="empty" style="margin-top:10px">El Excel trae fecha, hora, cuenta, si fue efectivo o tarjeta, la nota y los platillos, para compararlo contra el reporte de la plataforma.</p></div>
   <div class="card"><h2>Detalle <small>${q.length}</small></h2>${itemList(q,r=>quitadaItem(r,true),'Sin registros.')}
     <p class="empty" style="margin-top:10px">Solo aparecen las cuentas quitadas desde esta versión del panel.</p></div>`;
+}
+// ---- comandas tardadas (versión 30.6.23): las que pasaron de 14 o de 20 minutos, por turno y por mesero
+const CANAL_TXT={comedor:'Comedor',recoger:'Para llevar',domicilio:'Domicilio',didi:'Didi',uber:'Uber'};
+function rTardadas(){
+  const mins=r=>Math.max(r.min??0,r.visto||0);
+  const L=(DATA.tardadas||[]).filter(r=>r.fecha>=rDesde&&r.fecha<=rHasta&&mins(r)>=14).sort((a,b)=>(b.fecha+b.enviada).localeCompare(a.fecha+a.enviada));
+  const c20=L.filter(r=>mins(r)>=20),c14=L.filter(r=>mins(r)<20),sc=L.filter(r=>r.min==null);
+  const pill=r=>mins(r)>=20?'<span class="pill bad">+20 min</span>':'<span class="pill warn">+14 min</span>';
+  const tiempo=r=>r.min!=null?r.min+' min':'+'+r.visto+' min';
+  const quien=r=>{const n=String(r.ref||'').trim().match(/^(?:M|MESA)\s*-?\s*(\d{1,2})$/i);return n?'Mesa '+(+n[1]):(CANAL_TXT[r.canal]||r.ref||'Cuenta')+(r.nombre?' · '+r.nombre:'')};
+  const det=r=>`${(r.platillos||[]).map(p=>esc(p.q+' '+p.n)+(p.det?' ('+esc(p.det)+')':'')).join('<br>')}<br>Turno ${r.turno} · enviada ${esc(r.enviada)}${r.salio?' · salió '+esc(r.salio):''}${r.min==null?' · <b>sin confirmar</b>: nadie tocó "Ya salió"':''}`;
+  const item=r=>`<details class="drow"><summary><span>${corto(r.fecha)} ${esc(r.enviada)} · ${esc(quien(r))} ${pill(r)}<small>${esc(r.mesero||'')} · Turno ${r.turno}</small></span><span class="num">${tiempo(r)}</span></summary><div class="dlist"><p style="margin:6px 0;line-height:1.5">${det(r)}</p></div></details>`;
+  const grupo=(tit,fn)=>{const g={};L.forEach(r=>{const k=fn(r);(g[k]=g[k]||[]).push(r)});const E=Object.entries(g).sort((a,b)=>b[1].length-a[1].length);
+    return E.length?`<div class="card"><h2>${tit}</h2><div class="dtab">${E.map(([k,R])=>fila(esc(k),`${R.filter(r=>mins(r)>=20).length} de +20`,R.map(item).join(''),R.length)).join('')}</div></div>`:''};
+  const dias=['hoy','ayer'].map(k=>{const [a,b]=rangoRapido(k);return `<button data-rq="${k}" aria-pressed="${a===rDesde&&b===rHasta}">${k==='hoy'?'Hoy':'Ayer'}</button>`}).join('');
+  return `<div class="card"><div class="seg">${dias}</div>${selectorFechas('r',rDesde,rHasta)}</div>
+  <div class="kpis"><div class="kpi"><b class="num" style="color:var(--gold)">${c14.length}</b><span>De 14 a 20 min</span></div><div class="kpi"><b class="num" style="color:var(--bad)">${c20.length}</b><span>Más de 20 min (crítico)</span></div><div class="kpi"><b class="num">${sc.length}</b><span>Sin confirmar "Ya salió"</span></div></div>
+  ${grupo('Por turno',r=>r.fecha===rDesde&&rDesde===rHasta?'Turno '+r.turno:corto(r.fecha)+' · Turno '+r.turno)}
+  ${grupo('Por mesero',r=>r.mesero||'Sin mesero')}
+  <div class="card"><h2>Todas <small>${L.length}</small></h2>${L.length?`<div class="dtab">${L.map(item).join('')}</div>`:'<p class="empty">No hubo comandas tardadas en estas fechas.</p>'}
+    <p class="empty" style="margin-top:10px">Toca una comanda para ver sus platillos. El tiempo cuenta desde que se envió a cocina hasta que el mesero tocó "Ya salió". "Sin confirmar" quiere decir que la alarma sonó pero nadie tocó "Ya salió" (el número es lo mínimo que tardó). Solo cuenta lo que se mandó desde el comandero con el teléfono del mesero abierto.</p></div>`;
 }
 function tarjetaFamilia(){
   const F=DATA.familia||[];

@@ -163,3 +163,7 @@ Versión 30.6.19 — botón "Personal ›" arriba en el panel de ventas para abr
 Versión 30.6.20 — horas con lista para elegir (7:30 am, 7:45 am…, cada 15 min) en lugar del reloj del teléfono, que en algunos Android no dejaba escribir: expediente, rol de Jorge y página de la encargada.
 
 Versión 30.6.21 — nómina con séptimo día: lo ganado en la semana ÷ 6 (si falta un día o trabaja menos horas, baja en proporción). Sale en el expediente, la nómina, el resumen y el recibo.
+
+Versión 30.6.22 — comandero: clave en cuadro chico centrado; alarma a los 10 min (amarilla), 14 min (roja clara con sirena) y 20 min ("CRÍTICO: ya tardó la comanda"); botón "No ha salido" (la esconde 5 min); basura con confirmación para quitar platillos no enviados.
+
+Versión 30.6.23 — Reportes → Comandas tardadas: las que pasaron de 14 y de 20 min, por turno y por mesero, con los platillos de cada una. Se guardan en la caja en comandas_tiempos.json (no se sube a GitHub).
