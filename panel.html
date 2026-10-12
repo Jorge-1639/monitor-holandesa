@@ -1540,8 +1540,9 @@ async function accionAdmin(t,d){
       await api('/api/meseros',{accion:'candado',activo:on});toast(on?'Candado del rol encendido':'Candado del rol apagado')}
     else if(d.msenvio){const on=!DATA.comandero_escribe;if(on&&!confirm('¿Encender el envío a MrTienda? Desde ahora los pedidos del comandero abren cuentas reales en la caja.')){t.disabled=false;return}
       await api('/api/comandero-envio',{activo:on});toast(on?'Envío a MrTienda encendido':'Envío a MrTienda apagado')}
-    else if(d.msremoto){const m=(DATA.meseros||[]).find(x=>x.id===d.msremoto);const on=!(m&&m.remoto);if(on&&!confirm('¿Permitir que '+(m?m.nombre:'este mesero')+' use el comandero fuera del restaurante con Tailscale? Déjalo solo para ti.')){t.disabled=false;return}
-      await api('/api/meseros',{accion:'remoto',id:d.msremoto,activo:on});toast(on?'Puede usarlo por Tailscale':'Solo con el WiFi del restaurante')}
+    else if(d.msremoto){const m=(DATA.meseros||[]).find(x=>x.id===d.msremoto);const on=!(m&&m.remoto);   // sin ventana de confirmar: algunos teléfonos la bloquean
+      await api('/api/meseros',{accion:'remoto',id:d.msremoto,activo:on});if(m)m.remoto=on;const sh=$('#sheet');if(sh&&!sh.innerHTML.trim())sh.remove();render();
+      toast(on?(m?m.nombre:'Listo')+': ya puede usarlo fuera del restaurante (Tailscale)':(m?m.nombre:'Listo')+': solo con el WiFi del restaurante')}
     else if(d.msclave){const m=(DATA.meseros||[]).find(x=>x.id===d.msclave);const pin=prompt('Nueva clave para '+(m?m.nombre:'el mesero')+' (4 números):');if(!pin){t.disabled=false;return}
       await api('/api/meseros',{accion:'clave',id:d.msclave,pin:pin.trim()});NUEVO_MS=m?m.nombre:null;NUEVO_MS_COD=m?m.cod:null;
       try{ACCESO=await (await fetch('/api/acceso',{credentials:'same-origin'})).json();ACCESO.cmd=true}catch(e){}toast('Clave cambiada. La anterior ya no sirve.')}
