@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 85            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.6.11'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 86            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.6.12'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -2502,7 +2502,8 @@ def make_handler(mon, cfg):
                 return self._send(manifest_rh, 'application/manifest+json; charset=utf-8')
             if p0 == '/icon_personal.png' and icon_rh:
                 return self._send(icon_rh, 'image/png')
-            if p0 == '/favicon.ico': p0 = '/icono_panel_192.png'
+            if p0 == '/favicon.ico':   # el navegador lo pide sin decir de qué app: si viene del comandero, el logo negro
+                p0 = '/icono_comandero_192.png' if '/comandero' in (self.headers.get('Referer') or '') else '/icono_panel_192.png'
             if p0.lstrip('/') in iconos_cmd and iconos_cmd[p0.lstrip('/')]:
                 b_ = iconos_cmd[p0.lstrip('/')]   # íconos: sin contraseña y con caché, como los piden los navegadores para la pantalla de inicio
                 self.send_response(200); self.send_header('Content-Type', 'image/png'); self.send_header('Cache-Control', 'public, max-age=86400')
