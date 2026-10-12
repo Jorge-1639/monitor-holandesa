@@ -101,3 +101,5 @@ en el panel (Tickets → Mesas abiertas y el aviso de Hoy) y en los mosaicos del
 Versión 30.1 — comandero: alarma roja arriba (con vibración y pitido) cuando una comanda de las cuentas del mesero lleva 15 minutos o más
 desde que se envió; una vez por envío, se apaga con "Ya salió" (se recuerda en ese teléfono). Solo suena con el comandero abierto.
 Al elegir "Comida del día" o "Especial del día" sale el recordatorio "Lleva la sopa y el agua" (en la ficha y al agregarlo).
+
+Versión 30.2 — "Comida del día completa": "Lleva la sopa y el agua". "Comida del día sin agua": "Lleva la sopa (sin agua)".
