@@ -271,7 +271,7 @@ setInterval(revisarDemoras,30000);
 // comida del día: por nombre (aunque esté abreviado) o porque está en la sección "Especial del día" del menú de MrTienda
 const sinAcento=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/\s+/g,' ').trim();
 const nombresEspecial=()=>{const c=(M.cats||[]).find(c=>/especial/i.test(sinAcento(c.n))&&/dia/i.test(sinAcento(c.n)));return new Set(c?(c.i||[]).map(x=>sinAcento(x.n)):[])};
-const esComidaDia=n=>{const t=sinAcento(n);return /COM(IDA)?\.?\s*(DEL?\s*)?DIA|ESPECIAL\s*(DEL?\s*)?DIA/.test(t)||nombresEspecial().has(t)};
+const esComidaDia=n=>{const t=sinAcento(n);return /COM(IDA)?\.?\s*(DEL?\s*)?DIA|ESPECIAL\s*(DEL?\s*)?DIA|MEDIO\s*DIA|^COMIDA\s+(COMPLETA|SIN\s*AGUA|S\/\s*AGUA)/.test(t)||nombresEspecial().has(t)};
 const CATS_DESAYUNO=['Desayunos Tradicionales','Omellettes','Hot Cakes','Chilaquiles','Burritos En Desayuno','Lo Nuevo En Desayunos','Desayunos Especialidades'];
 const CATS_CARTA=['Ordenes A La Carta','Antojitos Mexicanos','Ensaladas','Burritos Solos','Burritos 1/2 Orden','Burritos Orden','Tortas','Sandwiches','Hamburguesas'];
 const catDe=id=>{const c=(M.cats||[]).find(c=>(c.i||[]).some(x=>x.id===id));return c?c.n.toLowerCase():''};
