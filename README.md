@@ -138,3 +138,5 @@ Versión 30.6.6 — el ícono del panel de ventas también es el logo sobre fond
 Versión 30.6.7 — cada app tiene su propio alcance (scope) para que no se "traguen" entre sí en el teléfono: panel en /panel (también sigue en /),
 comandero /comandero, personal /personal, descansos /descansos, compras /captura. Antes el panel instalado (alcance "/") abarcaba al comandero
 y Chrome no dejaba instalarlo aparte (salía "Crear acceso directo" con una letra).
+
+Versión 30.6.8 — íconos: Control Holandesa con el logo a todo color sobre blanco; Holandesa Comandero con el logo todo en negro sobre blanco.
