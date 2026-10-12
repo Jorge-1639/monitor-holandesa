@@ -6,25 +6,25 @@
 <meta name="apple-mobile-web-app-title" content="Holandesa Comandero">
 <meta name="application-name" content="Holandesa Comandero">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#1d5c3b">
+<meta name="theme-color" content="#2f6db3">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=Public+Sans:wght@400;500;600;700&display=swap">
 <style>
 /* Layout: one-hand phone app; sticky top bar, scrolling content, sticky bottom action bar */
 :root{
-  --bg:#f3f6f2; --surface:#ffffff; --ink:#15231a; --muted:#5d6e62; --line:#dbe4dc;
-  --green:#1d5c3b; --green-2:#2f7d52; --green-soft:#e2efe5; --orange:#e2711d; --orange-soft:#fdebdc;
+  --bg:#f2f6fb; --surface:#ffffff; --ink:#13202e; --muted:#5b6b7c; --line:#d9e3ee;
+  --green:#2f6db3; --green-2:#3f82c9; --green-soft:#e3eefa; --orange:#e2711d; --orange-soft:#fdebdc;
   --bad:#b3322a; --bad-bg:#fbe5e2; --on-green:#ffffff;
   --display:"Archivo","Arial Narrow",system-ui,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#0e1611; --surface:#16211a; --ink:#e6efe8; --muted:#97a99c; --line:#26352b;
-  --green:#7cc79a; --green-2:#5fb283; --green-soft:#1d3226; --orange:#f39a52; --orange-soft:#3a2614;
+  --bg:#0e141b; --surface:#16202b; --ink:#e6eef7; --muted:#97a6b6; --line:#263446;
+  --green:#86b6ea; --green-2:#6aa2df; --green-soft:#1b2c40; --orange:#f39a52; --orange-soft:#3a2614;
   --bad:#f08b80; --bad-bg:#3a1a17; --on-green:#0e1611; color-scheme:dark}}
 :root[data-theme="dark"]{
-  --bg:#0e1611; --surface:#16211a; --ink:#e6efe8; --muted:#97a99c; --line:#26352b;
-  --green:#7cc79a; --green-2:#5fb283; --green-soft:#1d3226; --orange:#f39a52; --orange-soft:#3a2614;
+  --bg:#0e141b; --surface:#16202b; --ink:#e6eef7; --muted:#97a6b6; --line:#263446;
+  --green:#86b6ea; --green-2:#6aa2df; --green-soft:#1b2c40; --orange:#f39a52; --orange-soft:#3a2614;
   --bad:#f08b80; --bad-bg:#3a1a17; --on-green:#0e1611; color-scheme:dark}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -69,6 +69,12 @@ button:focus-visible{outline:2px solid var(--green-2);outline-offset:2px}
 .mesa b{font:800 22px/1 var(--display);font-stretch:85%}
 .mesa span{font-size:12px;color:var(--muted)}
 .mesa.mine{border-color:var(--green);background:var(--green-soft)}
+.mesa.k,.opciones button.k{background:var(--surface);border-width:2.5px;border-style:solid}
+.k-comedor{border-color:#f4b67a!important}.k-comedor b,.opciones .k-comedor span{color:#d9822b!important}
+.k-llevar{border-color:#1a1a1a!important}.k-llevar b,.opciones .k-llevar span{color:#1a1a1a!important}
+.k-dom{border-color:#5fb880!important}.k-dom b,.opciones .k-dom span{color:#1a1a1a!important}
+.k-didi{border-color:#f26a1b!important}.k-didi b,.k-didi span,.opciones .k-didi span{color:#f26a1b!important}
+.k-uber{border-color:#06934a!important}.k-uber b,.k-uber span,.opciones .k-uber span{color:#06934a!important}
 .mesa.c1{border:2px solid #e0a800!important;background:#fff7d6!important}
 .mesa.c2{border:2px solid #c62828!important;background:#fde4e2!important}
 .mesa .ctag{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
@@ -383,7 +389,7 @@ function grupos(){
 const CANAL_TXT={recoger:'Para llevar',domicilio:'Domicilio',didi:'Didi',uber:'Uber'};
 function hojaNueva(){
   const ops=[['comedor','Comedor','Elige la mesa'],['recoger','Para llevar','Recoge aquí'],['domicilio','Servicio a domicilio','Busca al cliente'],['didi','Didi','Clave y forma de pago'],['uber','Uber','Clave del pedido']];
-  $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Nueva cuenta</h2><div class="opciones">${ops.map(([c,t,d])=>`<button data-nueva="${c}"><span>${t}</span><small>${d}</small></button>`).join('')}</div></div></div>`;
+  $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Nueva cuenta</h2><div class="opciones">${ops.map(([c,t,d])=>`<button class="k ${({comedor:'k-comedor',recoger:'k-llevar',domicilio:'k-dom',didi:'k-didi',uber:'k-uber'})[c]}" data-nueva="${c}"><span>${t}</span><small>${d}</small></button>`).join('')}</div></div></div>`;
 }
 function hojaPersonas(m){
   $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Mesa ${esc(m)} · ¿cuántas personas?</h2><div class="mesas">${[1,2,3,4,5,6,7,8,9,10,12,15].map(n=>`<button class="mesa" data-mesa="${esc(m)}" data-pers="${n}"><b>${n}</b><span>${n===1?'persona':'personas'}</span></button>`).join('')}</div></div></div>`;
@@ -425,7 +431,7 @@ async function buscarCte(){
   }catch(e){out.innerHTML=`<p class="err2" style="margin:0">${esc(e.message)}</p>`}
 }
 function tile(c){
-  const n=numMesa(c.ref), m=mia(c), cls=(m?'mine':(S.filtro==='todas'?'other':''))+(n?'':(c.llevar?' llevar':' otra'));
+  const n=numMesa(c.ref), m=mia(c), kc=canalDe(c), cls=(S.filtro==='todas'&&!m?'other':'')+' k '+(n?'k-comedor':kc?{recoger:'k-llevar',domicilio:'k-dom',didi:'k-didi',uber:'k-uber'}[kc.canal]:c.llevar?'k-llevar':'k-comedor');
   const ct=c.cortes||0;
   return `<button class="mesa ${cls} ${ct>=2?'c2':ct===1?'c1':''}" data-k="${esc(c.archivo)}">${ct>=2?`<span class="ctag">Hace ${ct} cortes</span>`:ct===1?'<span class="ctag">Corte anterior</span>':''}<b>${esc(n||(canalDe(c)&&canalDe(c).nombre?canalDe(c).nombre:(c.ref||'Sin nombre')))}</b>${n?'':`<span>${canalDe(c)?esc(canalDe(c).canal==='didi'?'Didi · '+(canalDe(c).pago==='efectivo'?'Efectivo':'Tarjeta'):CANAL_TXT[canalDe(c).canal]):(c.llevar?'Para llevar':'Cuenta')}</span>`}<span>${esc(c.mesero)} · ${esc(c.abrio)}</span><span class="t num">${money(c.total)}</span></button>`;
 }

@@ -118,3 +118,6 @@ El "> PARA LLEVAR / COMER AQUI" por platillo solo sale si ese platillo va distin
 y se ven en el comandero con su Ñ y acentos (antes la Ñ salía como ¥). Las referencias que escribe el comandero se guardan en cp850.
 
 Versión 30.5 — "comida del día" se reconoce aunque el nombre esté abreviado (COM. DEL DIA, S/AGUA…) o por estar en la sección "Especial del día" del menú.
+
+Versión 30.6.1 — comandero en azul suave (como MrTienda) y cada tipo de cuenta con fondo blanco y contorno de color: Comedor naranja pastel,
+Para llevar negro, Domicilio letras negras con contorno verde, Didi naranja fuerte, Uber verde fuerte (en los mosaicos y en "Nueva cuenta").
