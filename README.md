@@ -144,3 +144,5 @@ Versión 30.6.8 — íconos: Control Holandesa con el logo a todo color sobre bl
 Versión 30.6.9 — ícono del comandero: solo el contorno del molino y las letras "La Holandesa" en negro, sin la mancha verde ni la franja de Restaurante, fondo blanco.
 
 Versión 30.6.10 — ícono del comandero con trazo más delgado: solo el negro del logo, sin mezclar el naranja.
+
+Versión 30.6.11 — íconos para la pantalla de inicio: el comandero usa archivos normales (no data URI), /favicon.ico sin contraseña y los íconos con caché de un día.
