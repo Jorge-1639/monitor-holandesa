@@ -6,6 +6,9 @@ Programa que lee las ventas de MrTienda en la computadora de la caja de Restaura
 Aquí solo está el código del programa. Las ventas, contraseñas y la configuración se quedan en la caja
 (`C:\MonitorHolandesa\config.json`) y nunca se suben a este repositorio.
 
+Numeración (pedida por Jorge el 11-oct-2026): los cambios pequeños usan un tercer número sobre la versión actual (30.6.1, 30.6.2…);
+VERSION (entero) sigue subiendo de 1 en 1 para la actualización automática.
+
 La caja revisa cada 5 minutos si `version.txt` es mayor que su versión; si lo es, descarga los archivos
 de `archivos.txt`, los revisa y se reinicia sola. La versión anterior queda en `_respaldo\programa`.
 
