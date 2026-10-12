@@ -8,3 +8,4 @@ comandero.html
 logo_comandero.png
 icon_personal.png
 descansos.html
+abrir_wifi_comandero.bat

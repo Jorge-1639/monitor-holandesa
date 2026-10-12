@@ -81,3 +81,7 @@ Versión 29.2 — Personal (/personal) en blancos y grises (encabezado blanco, b
 Versión 29.3 — rol de descansos (panel y página de la encargada): Trabaja en gris clarito con letras negras para que se lean las horas; Descansa en verde.
 
 Versión 29.4 — horas en formato de 12 horas: en el rol 7:30a / 3:30p y en los textos 7:30 am–3:30 pm (panel y página de la encargada).
+
+Versión 29.6 — `abrir_wifi_comandero.bat`: el firewall de la caja solo dejaba entrar a Tailscale (regla de instalar.bat con remoteip=100.64.0.0/10),
+por eso el comandero no abría desde el WiFi del restaurante. Este archivo, ejecutado una vez como administrador en la caja, agrega la regla
+"Comandero La Holandesa (WiFi)" para el puerto 8765 desde la red local (LocalSubnet). El programa sigue revisando por su cuenta quién es WiFi y quién no.
