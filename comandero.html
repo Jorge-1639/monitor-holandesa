@@ -166,7 +166,18 @@ textarea{width:100%;border:1px solid var(--line);background:var(--bg);color:var(
 .alarma b{font:800 17px var(--display)}.alarma p{margin:2px 0 0;font-size:14px}
 .alarma button{margin-left:auto;flex:none;border:0;border-radius:10px;background:#fff;color:#c62828;font:800 14px var(--display);padding:10px 12px;text-transform:uppercase}
 @keyframes late{from{box-shadow:0 10px 30px rgba(198,40,40,.35)}to{box-shadow:0 10px 36px rgba(198,40,40,.9)}}
-.recuerda{background:#fff3c4;color:#5c4300;border:2px solid #e0a800;border-radius:12px;padding:12px;font:800 17px var(--display);text-align:center}
+.recuerda{background:#fff3c4;color:#5c4300;border:2px solid #e0a800;border-radius:12px;padding:12px;font:800 17px var(--display);text-align:center;animation:parpadeo 1s ease-in-out infinite}
+.recuerda.sug{background:#e3f4e8;border-color:#2f9e5b;color:#123d22;animation-name:parpadeoVerde}
+@keyframes parpadeo{0%,100%{background:#fff3c4;border-color:#e0a800}50%{background:#ffd84d;border-color:#b88600}}
+@keyframes parpadeoVerde{0%,100%{background:#e3f4e8;border-color:#2f9e5b}50%{background:#b6e6c6;border-color:#1c7a42}}
+.alarma.amarilla{background:#f5c400!important;color:#3d2e00;animation:alAm 1s ease-in-out infinite}
+.alarma.amarilla button{color:#7a5600}
+.alarma.roja{background:#c62828!important;animation:alRo .7s ease-in-out infinite}
+.alarma.cafe{background:#7a5600!important;animation:alCa 1s ease-in-out infinite}
+@keyframes alAm{0%,100%{background:#f5c400}50%{background:#ffe680}}
+@keyframes alRo{0%,100%{background:#c62828}50%{background:#ff5a4f}}
+@keyframes alCa{0%,100%{background:#7a5600}50%{background:#b8860b}}
+@media (prefers-reduced-motion:reduce){.recuerda,.alarma{animation:none!important}}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:90px;z-index:20;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px}
 @media (max-width:360px){.mesas{grid-template-columns:repeat(2,1fr)}.pad{grid-template-columns:repeat(3,64px)}.pad button{height:58px}}
 </style>
@@ -245,7 +256,7 @@ async function refrescar(){
   if(!$('#sheet').innerHTML&&S.view!=='menu')render();
 }
 // ---- alarma: comanda enviada hace 15 minutos o más (una vez por envío; el mesero la apaga con "Ya salió")
-const DEMORA_MIN=15;
+const DEMORA_MIN=15, DEMORA_ROJA=25;
 function vistos(){try{return JSON.parse(localStorage.getItem('cmd_demoras')||'{}')}catch(e){return {}}}
 function guardaVistos(v){try{const k=Object.keys(v);if(k.length>300)k.slice(0,k.length-300).forEach(x=>delete v[x]);localStorage.setItem('cmd_demoras',JSON.stringify(v))}catch(e){}}
 let alarmaK=null;
@@ -257,19 +268,20 @@ function revisarDemoras(){
     const hs=[...new Set((c.items||[]).map(i=>i.h).filter(h=>/^\d{1,2}:\d{2}$/.test(h||'')))];
     hs.forEach(h=>{const [hh,mm]=h.split(':').map(Number);const t=new Date(ahora);t.setHours(hh,mm,0,0);if(t>ahora)t.setDate(t.getDate()-1);
       const min=(ahora-t)/6e4,k=c.archivo+'|'+(c.fecha||'')+'|'+h;
-      if(min>=DEMORA_MIN&&min<180&&!v[k])pend.push({k,c,h,min,tipo:'demora'});
+      if(min>=DEMORA_MIN&&min<180&&!v[k])pend.push({k:min>=DEMORA_ROJA?k:k,c,h,min,tipo:min>=DEMORA_ROJA?'roja':'demora',kv:k+(min>=DEMORA_ROJA?'|r':'|a')});
       const kp='postre|'+k;
       if(min>=20&&min<240&&!v[kp]&&(c.items||[]).some(i=>i.h===h&&esComidaDia(i.n)))pend.push({k:kp,c,h,min,tipo:'postre'})});
   });
   if(!pend.length){el.hidden=true;alarmaK=null;return}
-  pend.sort((a,b)=>b.min-a.min);const a=pend[0],n=numMesa(a.c.ref),k=canalDe(a.c);
+  pend.sort((a,b)=>(b.tipo==='roja')-(a.tipo==='roja')||b.min-a.min);const a=pend[0],n=numMesa(a.c.ref),k=canalDe(a.c);
   const quien=n?'Mesa '+n:(k?canalTxt(k):a.c.ref);
   el.innerHTML=a.tipo==='postre'
     ?`<div><b>🍮 ${esc(quien)}: ¿ya llevaste el postre?</b><p>Comida del día de las ${esc(a.h)}.${pend.length>1?` (+${pend.length-1} avisos más)`:''}</p></div><button data-act="yasalio" data-dk="${esc(a.k)}">Ya lo llevé</button>`
     :`<div><b>⏰ ${esc(quien)}</b><p>La comanda de las ${esc(a.h)} lleva ${Math.floor(a.min)} min. Revisa con cocina.${pend.length>1?` (+${pend.length-1} avisos más)`:''}</p></div><button data-act="yasalio" data-dk="${esc(a.k)}">Ya salió</button>`;
-  el.style.background=a.tipo==='postre'?'#7a5600':'';
+  el.className='alarma '+(a.tipo==='postre'?'cafe':a.tipo==='roja'?'roja':'amarilla');
   el.hidden=false;
-  if(alarmaK!==a.k){alarmaK=a.k;try{navigator.vibrate&&navigator.vibrate([400,200,400])}catch(e){}pitido()}
+  const ka=a.kv||a.k;   // suena otra vez cuando pasa de amarilla a roja
+  if(alarmaK!==ka){alarmaK=ka;try{navigator.vibrate&&navigator.vibrate([400,200,400])}catch(e){}pitido()}
 }
 function pitido(){try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return;const ac=pitido.ac||(pitido.ac=new C());const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=880;g.gain.value=.25;o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+.35)}catch(e){}}
 setInterval(revisarDemoras,30000);
@@ -286,7 +298,9 @@ function ofertaDe(p){
   if(!enPersona())return null;
   const c=catDe(p.id);
   if(CATS_DESAYUNO.some(x=>x.toLowerCase()===c))return {k:'jugo',t:'🍊 Ofrece jugo',d:'Hoy tenemos <b>jugo del día</b> y <b>jugo verde</b>.'};
-  if(CATS_CARTA.some(x=>x.toLowerCase()===c))return {k:'soda',t:'🥤 Ofrece la soda italiana',d:'Agua mineral con extracto de fresa.'};
+  const nom=sinAcento(p.n);
+  if(CATS_CARTA.some(x=>x.toLowerCase()===c)||/BURRITO|HAMBURGUESA|TORTA|BISTEC|EMPANIZAD|MILANESA|SANDWICH|SANDWICH/.test(nom))
+    return {k:'soda',t:'🥤 Ofrece la soda italiana, la especial de la casa',d:'Agua mineral con extracto de fresa.'};
   return null;
 }
 const recuerdaComida=n=>/S\/?\s*AGUA|SIN\s*AGUA/.test(sinAcento(n))?'🍲 Lleva la sopa (sin agua)':'🍲 Lleva la sopa y el agua';
@@ -452,7 +466,7 @@ function drawSheet(){
   const faltan=p.g.some((g,gi)=>g.ob&&cur.g[gi]==null);
   $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet" role="dialog" aria-label="${esc(p.n)}">
     <h2>${esc(p.n)}</h2>
-    ${esComidaDia(p.n)?`<div class="recuerda">${recuerdaComida(p.n)}</div>`:''}${(o=>o?`<div class="recuerda" style="background:#e2efe5;border-color:#2f7d52;color:#15231a">${o.t}<div style="font:500 14px var(--body);margin-top:4px">${o.d}</div></div>`:'')(ofertaDe(p))}
+    ${esComidaDia(p.n)?`<div class="recuerda">${recuerdaComida(p.n)}</div>`:''}${(o=>o?`<div class="recuerda sug">${o.t}<div style="font:500 14px var(--body);margin-top:4px">${o.d}</div></div>`:'')(ofertaDe(p))}
     <div class="modo small" role="group" aria-label="Este platillo es"><button data-im="aqui" aria-pressed="${cur.modo==='aqui'}">${ICON.aqui}Aquí ${money(p.p)}</button><button data-im="llevar" aria-pressed="${cur.modo==='llevar'}">${ICON.llevar}Llevar ${money(p.p2)}</button></div>
     ${p.g.map((g,gi)=>`<h3>${esc(g.n)} ${g.ob?'<em>· elige uno</em>':''}</h3><div class="choices">${g.o.map((o,oi)=>`<button data-g="${gi}" data-o="${oi}" aria-pressed="${cur.g[gi]===oi}">${esc(o.n)}${o.p?' +'+money(o.p):''}</button>`).join('')}</div>`).join('')}
     ${p.o.length?`<h3>Opciones</h3><div class="choices">${p.o.map((o,oi)=>`<button data-ox="${oi}" aria-pressed="${cur.o.has(oi)}">${esc(o.n)}${o.p?' +'+money(o.p):''}</button>`).join('')}</div>`:''}
@@ -472,7 +486,7 @@ function agregar(){
   const of=ofertaDe(p),llave=(S.sel&&(S.sel.k||S.sel.mesa||S.sel.nombre))+'|'+(of&&of.k);
   S.ofrecido=S.ofrecido||{};const ofrecer=of&&!S.ofrecido[llave];if(ofrecer)S.ofrecido[llave]=1;   // una vez por cuenta
   const avisos=[esComidaDia(p.n)?`<div class="recuerda" style="font-size:22px;padding:18px">${recuerdaComida(p.n)}</div>`:'',
-    ofrecer?`<div class="recuerda" style="font-size:20px;padding:16px;background:#e2efe5;border-color:#2f7d52;color:#15231a">${of.t}<div style="font:500 16px var(--body);margin-top:6px">${of.d}</div></div>`:''].join('');
+    ofrecer?`<div class="recuerda sug" style="font-size:20px;padding:16px">${of.t}<div style="font:500 16px var(--body);margin-top:6px">${of.d}</div></div>`:''].join('');
   if(avisos){$('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet">${avisos}<button class="big" data-act="cerrar">Entendido</button></div></div>`}
   else toast('Agregado');
 }

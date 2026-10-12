@@ -121,3 +121,7 @@ Versión 30.5 — "comida del día" se reconoce aunque el nombre esté abreviado
 
 Versión 30.6.1 — comandero en azul suave (como MrTienda) y cada tipo de cuenta con fondo blanco y contorno de color: Comedor naranja pastel,
 Para llevar negro, Domicilio letras negras con contorno verde, Didi naranja fuerte, Uber verde fuerte (en los mosaicos y en "Nueva cuenta").
+
+Versión 30.6.2 — comandero: los avisos parpadean. Comanda sin "Ya salió": amarilla a los 15 min y roja a los 25 min (vuelve a sonar al pasar a rojo).
+Sugerencias (sopa y agua, jugo, soda italiana) parpadean en su color. Soda italiana "la especial de la casa" también por nombre: burritos,
+hamburguesas, tortas, bistec, empanizados, milanesa, sándwich.
