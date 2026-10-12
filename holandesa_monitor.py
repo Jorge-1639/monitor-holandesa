@@ -14,8 +14,8 @@ import os, re, sys, json, gzip, glob, time, base64, struct, hashlib, secrets, th
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-VERSION = 67            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '29.9'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 68            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.0'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -1011,6 +1011,22 @@ class Monitor:
                   'abierto': any(os.path.dirname(f) == os.path.join(self.base, 'REGISTRO') for tn, f in idx.get(('P', d), []))})
         return s
 
+    def horas_de_corte(self):
+        """Hora en que se cerró cada corte (turno) de MrTienda: la fecha más reciente de los archivos del turno ya archivado en CORTESZ."""
+        c = getattr(self, '_horas_corte', None)
+        if c and time.time() - c[0] < 60: return c[1]
+        hechos = {}
+        for pat in (os.path.join(self.base, 'CORTESZ', '*', '*.001'), os.path.join(self.base, 'REGISTRO', '*', '*.001')):   # V, P, D y A del turno: la más reciente es el cierre
+            for f in glob.glob(pat):
+                m = FNAME.match(os.path.basename(f))
+                if not m: continue
+                try: t = os.path.getmtime(f)
+                except OSError: continue
+                k = m.group(2, 3, 4, 5); hechos[k] = max(hechos.get(k, 0), t)
+        lst = sorted(hechos.values())[-40:]
+        self._horas_corte = (time.time(), lst)
+        return lst
+
     def abiertas(self):
         # cuentas abiertas (sin cobrar): COMUNES\PENDIENT.DBF, renglones vigentes con PAGADO = falso. Solo lectura.
         com = os.path.join(self.base, 'COMUNES')
@@ -1043,6 +1059,14 @@ class Monitor:
                         'pers': int(x.get('COMENSALES') or 1), 'arts': int(x.get('ARTS') or 0), 'total': round(x.get('IMPORTE_MN') or 0, 2),
                         'llevar': x.get('COD_ESCALA') == '02', 'archivo': arch, 'items': items, 'turno': turno_raw,
                         'cod': (x.get('COD_VENDED') or '').strip()})
+        # cuántos cortes de caja han pasado desde que se abrió cada cuenta (1 = amarillo, 2 o más = rojo)
+        try:
+            cortes = self.horas_de_corte()
+            for a in out:
+                try: ab = datetime.datetime.strptime(a['fecha'] + ' ' + (a['abrio'] or '00:00'), '%Y-%m-%d %H:%M').timestamp()
+                except ValueError: a['cortes'] = 0; continue
+                a['cortes'] = sum(1 for t in cortes if t > ab + 60)
+        except Exception as e: log('No pude contar los cortes de las cuentas abiertas: ' + str(e))
         try:
             ped = self.pedidos()
             for a in out:
@@ -1515,7 +1539,7 @@ class Monitor:
         for a in self.abiertas():
             out.append({'archivo': a['archivo'], 'ref': a['ref'], 'abrio': a['abrio'], 'fecha': a['fecha'], 'mesero': a['mesero'], 'cod': a['cod'],
                         'llevar': a['llevar'], 'pers': a['pers'], 'total': a['total'],
-                        'canal': {k: v for k, v in (ped.get(a['archivo']) or {}).items() if k in ('canal', 'pedido', 'pago', 'nombre')},
+                        'canal': {k: v for k, v in (ped.get(a['archivo']) or {}).items() if k in ('canal', 'pedido', 'pago', 'nombre')}, 'cortes': a.get('cortes', 0),
                         'items': [{'n': i['n'], 'q': i['q'], 'imp': i['imp'], 'det': i.get('det', ''), 'h': i['h'], 'llevar': i['llevar']} for i in a['items']]})
         return out
 

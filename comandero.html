@@ -69,6 +69,10 @@ button:focus-visible{outline:2px solid var(--green-2);outline-offset:2px}
 .mesa b{font:800 22px/1 var(--display);font-stretch:85%}
 .mesa span{font-size:12px;color:var(--muted)}
 .mesa.mine{border-color:var(--green);background:var(--green-soft)}
+.mesa.c1{border:2px solid #e0a800!important;background:#fff7d6!important}
+.mesa.c2{border:2px solid #c62828!important;background:#fde4e2!important}
+.mesa .ctag{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+.mesa.c1 .ctag{color:#7a5600}.mesa.c2 .ctag{color:#c62828}
 .mesa.other{opacity:.55}
 .mesa .quien{font-weight:700;font-size:14px;color:var(--orange);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mesa.llevar{border-style:dashed;border-color:var(--orange)}
@@ -366,7 +370,8 @@ async function buscarCte(){
 }
 function tile(c){
   const n=numMesa(c.ref), m=mia(c), cls=(m?'mine':(S.filtro==='todas'?'other':''))+(n?'':(c.llevar?' llevar':' otra'));
-  return `<button class="mesa ${cls}" data-k="${esc(c.archivo)}"><b>${esc(n||(canalDe(c)&&canalDe(c).nombre?canalDe(c).nombre:(c.ref||'Sin nombre')))}</b>${n?'':`<span>${canalDe(c)?esc(canalDe(c).canal==='didi'?'Didi · '+(canalDe(c).pago==='efectivo'?'Efectivo':'Tarjeta'):CANAL_TXT[canalDe(c).canal]):(c.llevar?'Para llevar':'Cuenta')}</span>`}<span>${esc(c.mesero)} · ${esc(c.abrio)}</span><span class="t num">${money(c.total)}</span></button>`;
+  const ct=c.cortes||0;
+  return `<button class="mesa ${cls} ${ct>=2?'c2':ct===1?'c1':''}" data-k="${esc(c.archivo)}">${ct>=2?`<span class="ctag">Hace ${ct} cortes</span>`:ct===1?'<span class="ctag">Corte anterior</span>':''}<b>${esc(n||(canalDe(c)&&canalDe(c).nombre?canalDe(c).nombre:(c.ref||'Sin nombre')))}</b>${n?'':`<span>${canalDe(c)?esc(canalDe(c).canal==='didi'?'Didi · '+(canalDe(c).pago==='efectivo'?'Efectivo':'Tarjeta'):CANAL_TXT[canalDe(c).canal]):(c.llevar?'Para llevar':'Cuenta')}</span>`}<span>${esc(c.mesero)} · ${esc(c.abrio)}</span><span class="t num">${money(c.total)}</span></button>`;
 }
 function modoHTML(){return `<div class="modo" role="group" aria-label="Tipo de pedido"><button data-modo="aqui" aria-pressed="${S.modo==='aqui'}">${ICON.aqui}Comer aquí</button><button data-modo="llevar" aria-pressed="${S.modo==='llevar'}">${ICON.llevar}Para llevar</button></div>`}
 function lineHTML(it,di){

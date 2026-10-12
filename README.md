@@ -93,3 +93,7 @@ Versión 29.8 — ícono del panel de ventas: logo de La Holandesa sobre naranja
 
 Versión 29.9 — comandero: la pantalla principal solo tiene "+ Nueva cuenta" y las cuentas abiertas. "+ Nueva cuenta" abre las opciones en este orden:
 Comedor (elige mesa libre), Para llevar, Servicio a domicilio, Didi, Uber. En MrTienda, la cuenta de Didi queda como D + clave + E (efectivo) o T (tarjeta), ej. D4821E.
+
+Versión 30.0 — cuentas abiertas por corte: cada cuenta abierta cuenta cuántos cortes (turnos cerrados en CORTESZ) han pasado desde que se abrió,
+usando la fecha más reciente de los archivos del turno. 1 corte = amarillo ("Del corte anterior"), 2 o más = rojo ("De hace N cortes"),
+en el panel (Tickets → Mesas abiertas y el aviso de Hoy) y en los mosaicos del comandero. MrTienda no se puede pintar desde aquí.
