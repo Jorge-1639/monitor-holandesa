@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 102            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.0'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 103            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.1'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -130,7 +130,7 @@ NEGOCIOS = ['Restaurante', 'Cafetería']
 PAGOS = ['Efectivo de la caja', 'Tarjeta o transferencia', 'A crédito', 'Otro']
 CATEGORIAS_GASTO = ['Insumos y compras', 'Sueldos', 'Seguro social', 'Luz', 'Agua', 'Gas', 'Renta', 'Mantenimiento', 'Comisiones', 'Otros gastos']
 RESPALDO_CUENTAS = os.path.join(AQUI, 'respaldos_cuentas')   # fuera de _respaldo: las actualizaciones no lo borran
-MOTIVOS = ['Familia', 'Empleado', 'Cortesía', 'Didi · efectivo', 'Didi · tarjeta', 'Uber · efectivo', 'Uber · tarjeta', 'Error de captura', 'Otro', 'Sin clasificar']
+MOTIVOS = ['Familia', 'Empleado', 'Cortesía', 'Didi · efectivo', 'Didi · tarjeta', 'Uber · tarjeta', 'Error de captura', 'Otro', 'Sin clasificar']   # Uber siempre se paga con tarjeta
 CON_PERSONA = {'Familia', 'Empleado'}   # estos motivos piden de quién fue la comida
 
 
