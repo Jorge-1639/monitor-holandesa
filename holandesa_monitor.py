@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 105            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.3'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 106            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.4'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -2853,6 +2853,11 @@ def make_handler(mon, cfg):
                 ref = self.headers.get('Referer') or ''
                 cmd_ = '/comandero' in ref or (not ref and ULTIMA_PAGINA.get('p') == 'cmd' and time.time() - ULTIMA_PAGINA.get('t', 0) < 300)
                 p0 = '/icono_comandero_192.png' if cmd_ else '/icono_panel_192.png'
+            if p0 in ('/apple-touch-icon.png', '/apple-touch-icon-precomposed.png', '/apple-touch-icon-180x180.png', '/apple-touch-icon-180x180-precomposed.png'):
+                # algunos iPhone piden el ícono en la raíz aunque la página diga cuál es: por Referer o por la última página abierta
+                ref = self.headers.get('Referer') or ''
+                cmd_ = '/comandero' in ref or (not ref and ULTIMA_PAGINA.get('p') == 'cmd' and time.time() - ULTIMA_PAGINA.get('t', 0) < 300)
+                p0 = '/icono_comandero_180.png' if cmd_ else '/icono_panel_180.png'
             if p0.lstrip('/') in iconos_cmd and iconos_cmd[p0.lstrip('/')]:
                 b_ = iconos_cmd[p0.lstrip('/')]   # íconos: sin contraseña y con caché, como los piden los navegadores para la pantalla de inicio
                 self.send_response(200); self.send_header('Content-Type', 'image/png'); self.send_header('Cache-Control', 'public, max-age=86400')

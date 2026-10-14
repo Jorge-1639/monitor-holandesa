@@ -179,3 +179,5 @@ Versión 30.6.27 — comanda de cocina por defecto con platillos y "para quién 
 Versión 30.7.2 — comanda de cocina: un solo renglón vacío entre la raya punteada y "para quién es" (antes 3).
 
 Versión 30.7.3 — comandero: "Servicio a domicilio" en letras verdes (en negro no se veía con el modo oscuro del iPhone).
+
+Versión 30.7.4 — iPhone: ícono del comandero y del panel con dirección nueva (?v=31) para que el iPhone no use uno viejo guardado, tamaño 180x180 declarado y /apple-touch-icon.png en la raíz.
