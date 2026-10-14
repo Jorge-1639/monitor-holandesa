@@ -167,3 +167,5 @@ Versión 30.6.21 — nómina con séptimo día: lo ganado en la semana ÷ 6 (si 
 Versión 30.6.22 — comandero: clave en cuadro chico centrado; alarma a los 10 min (amarilla), 14 min (roja clara con sirena) y 20 min ("CRÍTICO: ya tardó la comanda"); botón "No ha salido" (la esconde 5 min); basura con confirmación para quitar platillos no enviados.
 
 Versión 30.6.23 — Reportes → Comandas tardadas: las que pasaron de 14 y de 20 min, por turno y por mesero, con los platillos de cada una. Se guardan en la caja en comandas_tiempos.json (no se sube a GitHub).
+
+Versión 30.6.24 — PDF del comandero: si el teléfono no deja compartirlo ("Permission denied"), botones "Mandar dirección por WhatsApp" y "Descargar PDF".

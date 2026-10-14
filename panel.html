@@ -958,18 +958,21 @@ function prepararPdf(cod,nombre){if(!cod||PDF_MS[cod]||!puedeCompartir())return;
 async function enviarPdf(cod,nombre){
   let f=PDF_MS[cod];
   if(!(f instanceof File)){prepararPdf(cod,nombre);try{await PDF_MS[cod]}catch(e){return toast(e.message)}toast('PDF listo. Toca "Enviar PDF" otra vez.');return}
-  try{await navigator.share({files:[f],title:f.name.replace(/\.pdf$/,'')})}catch(e){if(e.name!=='AbortError')toast('No se pudo compartir: '+e.message)}}
+  try{await navigator.share({files:[f]})}catch(e){if(e.name==='AbortError')return;
+    toast('Este teléfono no dejó compartir el PDF. Usa "Descargar PDF" o "Mandar dirección por WhatsApp".');const b=document.getElementById('cmdPlanB');if(b)b.hidden=false}}
 function bloqueComandero(){
   const wifi=ACCESO.ips.filter(ip=>!ip.startsWith('100.')), ts=ACCESO.ips.filter(ip=>ip.startsWith('100.'));
   const url=wifi.length?`http://${wifi[0]}:${ACCESO.puerto}/comandero`:'';
   if(!url) return `<p class="note" style="margin-top:12px">No pude saber la dirección de la computadora de la caja en el WiFi del restaurante. Avísale a Claude.</p>`;
   const quien=NUEVO_MS||'';
+  const msgW=`Hola${quien?' '+quien.split(/\s+/)[0]:''}. Este es el comandero de La Holandesa:\n1. Conecta tu teléfono al WiFi del restaurante.\n2. Abre esta dirección en Chrome: ${url}\n3. Entra con la clave que te di.\n4. Toca "Instalar" o "Agregar a pantalla de inicio" para que te quede como app.`;
+  const planB=`<div class="btns" id="cmdPlanB" style="margin-top:8px"><a class="btn" href="https://wa.me/?text=${encodeURIComponent(msgW)}" target="_blank" rel="noopener">Mandar dirección por WhatsApp</a>${NUEVO_MS_COD?`<a class="btn" href="/api/comandero-pdf?cod=${encodeURIComponent(NUEVO_MS_COD)}" download="${esc(nombrePdf(quien))}">Descargar PDF</a>`:''}</div>`;
   const pdf=NUEVO_MS_COD?'/api/comandero-pdf?cod='+encodeURIComponent(NUEVO_MS_COD):'';
   if(pdf)setTimeout(()=>{try{prepararPdf(NUEVO_MS_COD,quien)}catch(e){}},0);
   return `<div class="card" id="cmdEnlace" style="margin-top:12px;padding:14px;background:var(--green-soft);box-shadow:none;border-color:var(--green-3)">
     <b>${quien?'Mándale esto a '+esc(quien):'Dirección del comandero'}</b>
     <p style="margin:8px 0;font-size:17px;font-weight:700;word-break:break-all;user-select:all" class="num">${esc(url)}</p>
-    ${pdf?(puedeCompartir()?`<div class="btns" style="margin-top:6px"><button class="btn pri" data-mspdf="${esc(NUEVO_MS_COD)}">Enviar PDF</button><button class="btn" data-cpurl="${esc(url)}">Copiar dirección</button></div>
+    ${pdf?(puedeCompartir()?`<div class="btns" style="margin-top:6px"><button class="btn pri" data-mspdf="${esc(NUEVO_MS_COD)}">Enviar PDF</button><button class="btn" data-cpurl="${esc(url)}">Copiar dirección</button></div>${planB}
     <p class="empty" style="margin-top:8px">Se abre el menú para compartir con el PDF "${esc(nombrePdf(quien))}" ya cargado: toca WhatsApp y elige a ${esc(quien||'la persona')}. `
       :`<div class="btns" style="margin-top:6px">${ACCESO.https?`<a class="btn pri" href="${esc(ACCESO.https)}/" target="_blank" rel="noopener">Abrir el panel seguro para enviar</a>`:''}<button class="btn" data-cpurl="${esc(url)}">Copiar dirección</button></div>
     <p class="note" style="margin-top:8px">${ACCESO.https?`Para mandar el PDF directo a WhatsApp, el teléfono pide la dirección segura del panel: <b>${esc(ACCESO.https)}</b>. Ábrela (entras con tu misma clave) y agrégala a tu pantalla de inicio en lugar de la actual.`:'Para mandar el PDF directo a WhatsApp falta encender la dirección segura de Tailscale en la caja (MagicDNS y HTTPS Certificates en el panel de Tailscale). Avísale a Claude.'}</p><p class="empty" style="margin-top:8px">`):'<p class="empty" style="margin-top:8px">'}La clave no va en el PDF; dásela tú en persona.${ts.length?` Tú, desde fuera, puedes probarlo con Tailscale: http://${esc(ts[0])}:${ACCESO.puerto}/comandero`:''}</p></div>`;
