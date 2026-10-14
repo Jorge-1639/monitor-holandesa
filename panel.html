@@ -985,6 +985,11 @@ async function cfMuestra(acc){
   catch(e){toast(e.message);const c=document.getElementById('cfCard');if(c&&!CF)c.innerHTML='<h2>Comanda de cocina</h2><p class="empty">'+esc(e.message)+'</p>'}
 }
 let NUEVO_MS=null,NUEVO_MS_COD=null;
+// Samsung Internet no deja compartir archivos (sale "Permission denied" o lo descarga): el botón abre esta misma pantalla en Chrome
+const ANDROID=/Android/i.test(navigator.userAgent), CHROME_OK=ANDROID&&/Chrome\//.test(navigator.userAgent)&&!/SamsungBrowser|EdgA|OPR|Firefox|wv\)/i.test(navigator.userAgent);
+const enChrome=cod=>`intent://${location.host}/panel?pdf=${encodeURIComponent(cod)}#Intent;scheme=https;package=com.android.chrome;end`;
+function abrirEnlaceMs(m){NUEVO_MS=m?m.nombre:null;NUEVO_MS_COD=m?m.cod:null;if(tab!=='cmd'){tab='cmd';st.tab='cmd';save()}
+  fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;ACCESO.cmd=true;render();const b=document.getElementById('cmdEnlace');if(b)b.scrollIntoView({behavior:'smooth',block:'center'})}).catch(err=>toast(err.message))}
 // PDF de bienvenida: se prepara al mostrar la tarjeta para compartirlo al primer toque (iPhone pide que sea inmediato)
 const PDF_MS={};
 const nombrePdf=n=>{const p=String(n||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z]/g,' ').trim().split(/\s+/)[0]||'';return 'Comandero_'+(p?p.charAt(0).toUpperCase()+p.slice(1).toLowerCase():'LaHolandesa')+'.pdf'};   // sin acentos ni espacios: algunos Android rechazan el nombre
@@ -1000,7 +1005,7 @@ async function enviarPdf(cod,nombre){
     try{const u=URL.createObjectURL(f),a=document.createElement('a');a.href=u;a.download=f.name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),60000)}catch(_){}
     toast('Tu teléfono no dejó compartirlo directo, así que se descargó "'+f.name+'". En WhatsApp abre el chat, toca el clip → Documento y elígelo.');
     api('/api/log-cliente',{que:'compartir PDF',error:e.name+': '+e.message,ua:navigator.userAgent.slice(0,160)}).catch(()=>{});
-    const b=document.getElementById('cmdPlanB');if(b)b.hidden=false}}
+    const b=document.getElementById('cmdPlanB');if(b){b.hidden=false;if(ANDROID&&!CHROME_OK&&ACCESO&&ACCESO.https&&!b.querySelector('[data-chrome]'))b.insertAdjacentHTML('afterbegin',`<a class="btn pri" data-chrome="1" href="${esc(enChrome(cod))}">Abrir en Chrome para enviar</a>`)}}}
 function bloqueComandero(){
   const wifi=ACCESO.ips.filter(ip=>!ip.startsWith('100.')), ts=ACCESO.ips.filter(ip=>ip.startsWith('100.'));
   const url=wifi.length?`http://${wifi[0]}:${ACCESO.puerto}/comandero`:'';
@@ -1013,8 +1018,10 @@ function bloqueComandero(){
   return `<div class="card" id="cmdEnlace" style="margin-top:12px;padding:14px;background:var(--green-soft);box-shadow:none;border-color:var(--green-3)">
     <b>${quien?'Mándale esto a '+esc(quien):'Dirección del comandero'}</b>
     <p style="margin:8px 0;font-size:17px;font-weight:700;word-break:break-all;user-select:all" class="num">${esc(url)}</p>
-    ${pdf?(puedeCompartir()?`<div class="btns" style="margin-top:6px"><button class="btn pri" data-mspdf="${esc(NUEVO_MS_COD)}">Enviar PDF</button><button class="btn" data-cpurl="${esc(url)}">Copiar dirección</button></div>${planB}
-    <p class="empty" style="margin-top:8px">Se abre el menú para compartir con el PDF "${esc(nombrePdf(quien))}" ya cargado: toca WhatsApp y elige a ${esc(quien||'la persona')}. `
+    ${pdf&&ANDROID&&!CHROME_OK&&ACCESO.https?`<div class="btns" style="margin-top:6px"><a class="btn pri" href="${esc(enChrome(NUEVO_MS_COD))}">Enviar PDF por WhatsApp</a><button class="btn" data-cpurl="${esc(url)}">Copiar dirección</button></div>${planB}
+    <p class="empty" style="margin-top:8px">Este navegador (Samsung Internet) no deja mandar archivos. Al tocar el botón se abre esta misma pantalla en <b>Chrome</b>; ahí vuelve a tocar <b>"Enviar PDF por WhatsApp"</b>, elige WhatsApp y a ${esc(quien||'la persona')}. La primera vez Chrome te pide entrar con tu huella o contraseña. `
+    :pdf?(puedeCompartir()?`<div class="btns" style="margin-top:6px"><button class="btn pri" data-mspdf="${esc(NUEVO_MS_COD)}">Enviar PDF por WhatsApp</button><button class="btn" data-cpurl="${esc(url)}">Copiar dirección</button></div>${planB}
+    <p class="empty" style="margin-top:8px">Se abre el menú para compartir con el PDF "${esc(nombrePdf(quien))}" ya cargado: toca <b>WhatsApp</b> y elige a ${esc(quien||'la persona')}. `
       :`<div class="btns" style="margin-top:6px">${ACCESO.https?`<a class="btn pri" href="${esc(ACCESO.https)}/" target="_blank" rel="noopener">Abrir el panel seguro para enviar</a>`:''}<button class="btn" data-cpurl="${esc(url)}">Copiar dirección</button></div>
     <p class="note" style="margin-top:8px">${ACCESO.https?`Para mandar el PDF directo a WhatsApp, el teléfono pide la dirección segura del panel: <b>${esc(ACCESO.https)}</b>. Ábrela (entras con tu misma clave) y agrégala a tu pantalla de inicio en lugar de la actual.`:'Para mandar el PDF directo a WhatsApp falta encender la dirección segura de Tailscale en la caja (MagicDNS y HTTPS Certificates en el panel de Tailscale). Avísale a Claude.'}</p><p class="empty" style="margin-top:8px">`):'<p class="empty" style="margin-top:8px">'}La clave no va en el PDF; dásela tú en persona.${ts.length?` Tú, desde fuera, puedes probarlo con Tailscale: http://${esc(ts[0])}:${ACCESO.puerto}/comandero`:''}</p></div>`;
 }
@@ -1803,7 +1810,7 @@ $('#view').addEventListener('click',e=>{
   if(d.cfguardar){t.disabled=true;return cfMuestra('guardar')}
   if(d.cfprueba){t.disabled=true;cfMuestra('prueba').finally(()=>{t.disabled=false});return}
   if(d.mspdf){e.preventDefault();enviarPdf(d.mspdf,NUEVO_MS);return}
-  if(d.msenlace){e.preventDefault();const m=(DATA.meseros||[]).find(x=>x.id===d.msenlace);NUEVO_MS=m?m.nombre:null;NUEVO_MS_COD=m?m.cod:null;fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;ACCESO.cmd=true;render();const b=document.getElementById('cmdEnlace');if(b)b.scrollIntoView({behavior:'smooth',block:'center'})}).catch(err=>toast(err.message));return}
+  if(d.msenlace){e.preventDefault();abrirEnlaceMs((DATA.meseros||[]).find(x=>x.id===d.msenlace));return}
   if(d.msacceso){e.preventDefault();NUEVO_MS=null;NUEVO_MS_COD=null;fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;ACCESO.cmd=true;render()}).catch(err=>toast(err.message));return}
   if(d.acceso){NUEVO_CJ=null;fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;render()}).catch(err=>toast(err.message));return}
   if(d.fcsave&&CAPMODE){e.preventDefault();guardarCompra(t,false).then(()=>{toast('Compra guardada ✓');window.scrollTo(0,0);return cargarCaptura()}).catch(err=>{toast(err.message);t.disabled=false;t.textContent='Guardar'});return}
@@ -1849,6 +1856,7 @@ async function cargar(force){
     if(COPIA){$('#live').classList.add('off');$('#note').hidden=false;$('#note').textContent='Estás viendo la copia guardada en tu Google Drive, con todo hasta la hora de arriba. Para ver en vivo y quitar cuentas, abre la app normal con la caja prendida.'}
     else{const mins=(Date.now()-new Date(DATA.generado))/60000;if(mins>15){$('#live').classList.add('off');$('#note').hidden=false;$('#note').textContent='La última actualización fue hace '+Math.round(mins)+' minutos. Revisa que la computadora de la caja esté encendida y con internet.'}}
     if(!$('#sheet')&&(force||primera||!((tab==='reportes'&&repModo==='gastos')||tab==='rh'||tab==='cmd'))) render();
+    if(primera&&!COPIA){const pc=new URLSearchParams(location.search).get('pdf');if(pc){const m=(DATA.meseros||[]).find(x=>x.cod===pc&&x.activo);if(m)abrirEnlaceMs(m);try{history.replaceState(null,'',location.pathname)}catch(_){}}}
   }catch(e){$('#live').classList.add('off');$('#gen').textContent='Sin conexión';$('#note').hidden=false;$('#note').textContent='No pude conectarme con la computadora de la caja. Revisa que esté encendida, con internet y con Tailscale activo. ('+e.message+')'}
 }
 const CAPMODE=!COPIA&&location.pathname.startsWith('/captura');

@@ -183,3 +183,5 @@ Versión 30.7.3 — comandero: "Servicio a domicilio" en letras verdes (en negro
 Versión 30.7.4 — iPhone: ícono del comandero y del panel con dirección nueva (?v=31) para que el iPhone no use uno viejo guardado, tamaño 180x180 declarado y /apple-touch-icon.png en la raíz.
 
 Versión 30.7.5 — PDF del comandero en 2 hojas: "¡Bienvenida/Bienvenido, nombre!", cómo entrar, cómo usar el comandero y la nota "No compartas tu clave, es confidencial". Nombre de archivo sin acentos ni espacios; si el teléfono no deja compartir, el PDF se descarga solo y el error queda en monitor.log.
+
+Versión 30.7.6 — botón "Enviar PDF por WhatsApp"; en Samsung Internet (no deja compartir archivos) abre la misma pantalla en Chrome (/panel?pdf=código) para mandarlo desde ahí.
