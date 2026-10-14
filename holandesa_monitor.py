@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 100            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.6.26'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 101            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.6.27'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -445,7 +445,7 @@ def _dbf_txt(x):
 # Formato de la comanda de cocina (versión 30.6.26): Jorge lo elige en el panel → COMANDERO → Comanda de cocina.
 # Tamaños de la Epson (ESC !): normal = negritas; alto = negritas y doble de alto; grande = doble de alto y de ancho.
 TAM_COMANDA = {'normal': b'\x08', 'alto': b'\x18', 'grande': b'\x38'}
-FMT_COMANDA = {'platillo': 'normal', 'abajo': 'alto', 'espacio': 1}
+FMT_COMANDA = {'platillo': 'grande', 'abajo': 'grande', 'espacio': 1}   # el que eligió Jorge el 13-oct-2026
 def fmt_comanda(f=None):
     f = dict(FMT_COMANDA, **{k: v for k, v in (f or {}).items() if k in FMT_COMANDA})
     for k in ('platillo', 'abajo'):
