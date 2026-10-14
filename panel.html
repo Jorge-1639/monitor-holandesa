@@ -263,6 +263,18 @@ footer{color:var(--muted);font-size:12px;margin-top:24px;line-height:1.5}
 </div></nav>
 
 <script>
+// Bloqueo con huella: en el teléfono que activó la huella, se pide al abrir la app y al regresar después de 1 minuto fuera
+(()=>{
+  if(window.__COPIA__||/^\/(captura|comandero|descansos)/.test(location.pathname)||!window.isSecureContext)return;
+  let conHuella=false;try{conHuella=localStorage.getItem('hol_huella')==='1'}catch(e){}
+  if(!conHuella)return;
+  const bloquear=()=>{document.documentElement.style.visibility='hidden';try{sessionStorage.removeItem('hol_ok')}catch(e){}
+    fetch('/api/salir',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',credentials:'same-origin'}).catch(()=>{}).finally(()=>location.reload())};
+  let ok=false;try{ok=sessionStorage.getItem('hol_ok')==='1'}catch(e){}
+  if(!ok){bloquear();return}   // la app se abrió de nuevo: pedir huella
+  let fuera=0;
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)fuera=Date.now();else if(fuera&&Date.now()-fuera>60000)bloquear()});
+})();
 // Si la sesión terminó, cualquier consulta regresa 401 con login:true: se recarga y aparece la pantalla de entrada (huella o contraseña)
 if(!window.__COPIA__&&!/^\/(captura|comandero|descansos)/.test(location.pathname)){const _f=window.fetch.bind(window);window.fetch=async(...a)=>{const r=await _f(...a);
   if(r.status===401){try{const j=await r.clone().json();if(j&&j.login){location.reload();return new Promise(()=>{})}}catch(e){}}return r}}

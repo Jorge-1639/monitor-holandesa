@@ -53,7 +53,7 @@ const unb=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')+'='.repe
 const post=async(u,b)=>{const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json','X-Holandesa-Action':'1'},body:JSON.stringify(b||{}),credentials:'same-origin'});const j=await r.json().catch(()=>({ok:false,error:'Sin respuesta ('+r.status+')'}));if(!j.ok)throw new Error(j.error||'No se pudo.');return j};
 const puedeHuella=!!(window.PublicKeyCredential&&window.isSecureContext&&navigator.credentials);
 const ls=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v)}catch(e){return null}};
-const seguir=()=>location.replace(location.pathname+location.search);
+const seguir=()=>{try{sessionStorage.setItem('hol_ok','1')}catch(e){}location.replace(location.pathname+location.search)};
 let INFO={ids:[]};
 function err(id,t){const e=$(id);e.textContent=t;e.hidden=!t}
 function msgHuella(e){
