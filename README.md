@@ -177,3 +177,5 @@ Versión 30.6.26 — COMANDERO → Comanda de cocina: vista en pantalla de cómo
 Versión 30.6.27 — comanda de cocina por defecto con platillos y "para quién es" en Grande (el formato que eligió Jorge).
 
 Versión 30.7.2 — comanda de cocina: un solo renglón vacío entre la raya punteada y "para quién es" (antes 3).
+
+Versión 30.7.3 — comandero: "Servicio a domicilio" en letras verdes (en negro no se veía con el modo oscuro del iPhone).
