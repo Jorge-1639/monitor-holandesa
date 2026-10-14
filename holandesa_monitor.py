@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 99            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.6.25'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 100            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.6.26'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -442,7 +442,19 @@ def _dbf_txt(x):
     try: return str(x or '').encode('latin-1').decode('cp850')
     except (UnicodeEncodeError, UnicodeDecodeError): return str(x or '')
 
-def comanda_bytes(ref, mesero, renglones, folio, nueva, ahora, canal=None):
+# Formato de la comanda de cocina (versión 30.6.26): Jorge lo elige en el panel → COMANDERO → Comanda de cocina.
+# Tamaños de la Epson (ESC !): normal = negritas; alto = negritas y doble de alto; grande = doble de alto y de ancho.
+TAM_COMANDA = {'normal': b'\x08', 'alto': b'\x18', 'grande': b'\x38'}
+FMT_COMANDA = {'platillo': 'normal', 'abajo': 'alto', 'espacio': 1}
+def fmt_comanda(f=None):
+    f = dict(FMT_COMANDA, **{k: v for k, v in (f or {}).items() if k in FMT_COMANDA})
+    for k in ('platillo', 'abajo'):
+        if f[k] not in TAM_COMANDA: f[k] = FMT_COMANDA[k]
+    try: f['espacio'] = max(0, min(3, int(f['espacio'])))
+    except (TypeError, ValueError): f['espacio'] = 1
+    return f
+
+def comanda_bytes(ref, mesero, renglones, folio, nueva, ahora, canal=None, fmt=None):
     """Comanda de cocina en ESC/POS (versión 30.4, como la pidió Jorge): arriba solo cuenta nueva, mesero y hora;
     los platillos; y abajo, en grande, una sola vez: COMER AQUI + mesa, RECOGER AQUI / SERVICIO A DOMICILIO + nombre,
     o DIDI / UBER + los últimos 3 números de la clave."""
@@ -461,6 +473,7 @@ def comanda_bytes(ref, mesero, renglones, folio, nueva, ahora, canal=None):
         abajo = ['COMER AQUI' if modos != {'02'} else 'PARA LLEVAR', 'MESA ' + n_.group(1)]
     else:
         abajo = ['PARA LLEVAR' if modos == {'02'} else 'COMER AQUI', _dbf_txt(ref).upper()[:21]]
+    F = fmt_comanda(fmt)
     principal = '02' if (c_ or abajo[0] == 'PARA LLEVAR') else '01'      # lo normal de esta cuenta; solo se marca el platillo que sea distinto
     t = ESC + b'@' + ESC + b't\x02' + ESC + b'a\x01'
     t += ESC + b'!\x08' + e('CUENTA NUEVA' if nueva else 'SE AGREGA A LA CUENTA') + ESC + b'!\x00' + b'\n' + ESC + b'a\x00'
@@ -469,15 +482,15 @@ def comanda_bytes(ref, mesero, renglones, folio, nueva, ahora, canal=None):
     t += b'-' * 42 + b'\n'
     for r in renglones:
         cant = int(r['CANTIDAD']) if float(r['CANTIDAD']).is_integer() else r['CANTIDAD']
-        t += ESC + b'!\x08' + e(f'{cant}  {_dbf_txt(r["DES_CANTAR"])}') + b'\n' + ESC + b'!\x00'  # platillo en negritas, tamaño normal (30.6.25)
+        t += ESC + b'!' + TAM_COMANDA[F['platillo']] + e(f'{cant}  {_dbf_txt(r["DES_CANTAR"])}') + b'\n' + ESC + b'!\x00'  # tamaño que eligió Jorge
         for v in [v for v in (r.get('_det') or '').split(' · ') if v]:
             t += e('     - ' + _dbf_txt(v).upper()) + b'\n'
         if r.get('VAR_LIBRE'): t += e('     * NOTA: ' + r['VAR_LIBRE']) + b'\n'
         if r['COD_ESCALA'] != principal:   # solo si este platillo va distinto al resto
             t += ESC + b'!\x08' + e('     > ' + ('PARA LLEVAR' if r['COD_ESCALA'] == '02' else 'COMER AQUI')) + ESC + b'!\x00' + b'\n'
-        t += b'\n'
+        t += b'\n' * F['espacio']
     t += b'-' * 42 + b'\n' + b'\n' * 3 + ESC + b'a\x01'      # espacio para que no se junte con los platillos
-    t += ESC + b'!\x18' + e(abajo[0]) + b'\n' + e(abajo[1]) + ESC + b'!\x00' + b'\n'      # abajo, en negritas y doble de alto (ya no doble de ancho, 30.6.25)
+    t += ESC + b'!' + TAM_COMANDA[F['abajo']] + e(abajo[0]) + b'\n' + e(abajo[1]) + ESC + b'!\x00' + b'\n'      # abajo: para quién es, del tamaño que eligió Jorge
     t += e('Enviado desde el COMANDERO') + b'\n' + b'\n' * 6 + GS + b'VB\x0a'
     return t
 
@@ -486,6 +499,37 @@ def comanda_texto(datos):
     out = re.sub(rb'\x1d.{3}$', b'', datos, flags=re.S)
     out = re.sub(rb'\x1b[@]|\x1b[ta!E].|\x1dB.', b'', out)
     return out.decode('cp850', 'replace')
+
+def comanda_en_pantalla(datos, ancho=42):
+    """Lee la comanda ESC/POS tal como va a la impresora y la regresa en renglones (texto, tamaño, alineación) para verla en el panel."""
+    out = []; flags = 0; al = 0; cur = []; i = 0; n = len(datos)
+    def corta():
+        nonlocal cur
+        out.append({'al': al, 'seg': cur}); cur = []
+    while i < n:
+        b = datos[i]
+        if b == 0x1b and i + 1 < n:
+            c = datos[i + 1]
+            if c == ord('!'): flags = datos[i + 2]; i += 3; continue
+            if c == ord('a'): al = datos[i + 2]; i += 3; continue
+            if c == ord('t'): i += 3; continue
+            if c == ord('@'): flags = 0; al = 0; i += 2; continue
+            i += 2; continue
+        if b == 0x1d:
+            if i + 1 < n and datos[i + 1] == ord('V'): break   # corte de papel
+            i += 2; continue
+        if b == 0x0a: corta(); i += 1; continue
+        j = i
+        while j < n and datos[j] not in (0x0a, 0x1b, 0x1d): j += 1
+        txt = datos[i:j].decode('cp850', 'replace'); i = j
+        w = ancho // (2 if flags & 0x20 else 1)
+        while txt:
+            usado = sum(len(s_['t']) * (2 if s_['f'] & 0x20 else 1) for s_ in cur) // (2 if flags & 0x20 else 1)
+            cabe = max(1, w - usado); cur.append({'t': txt[:cabe], 'f': flags}); txt = txt[cabe:]
+            if txt: corta()
+    if cur: corta()
+    while out and not out[-1]['seg']: out.pop()
+    return out
 
 def _imprimir_raw(impresora, datos):
     """Manda bytes ESC/POS tal cual a una impresora de Windows (como el 'driver Windows' de MrTienda)."""
@@ -1747,13 +1791,36 @@ class Monitor:
         cocina = [r for r in ren if r['PUERTO'][:1] == str(self.cfg.get('puerto_cocina', '1'))]
         if not cocina: return {'ok': True, 'nada': True}
         nombre = self.cfg.get('impresora_cocina') or 'EPSON TM-T88V ReceiptE4'
-        t = comanda_bytes(ref, mesero, cocina, folio, nueva, ahora, canal)
+        t = comanda_bytes(ref, mesero, cocina, folio, nueva, ahora, canal, self.cfg.get('comanda_fmt'))
         try:
             _imprimir_raw(nombre, t)
             return {'ok': True}
         except Exception as e:
             log('No pude imprimir la comanda en ' + nombre + ': ' + str(e))
             return {'ok': False, 'error': 'La cuenta sí quedó en MrTienda, pero no se imprimió la comanda. Avísale a la caja.'}
+
+    def comanda_formato(self, d):
+        """Panel → COMANDERO → Comanda de cocina: ver una comanda de ejemplo, guardar el formato o imprimir una prueba."""
+        acc = d.get('accion'); F = fmt_comanda(d.get('fmt') or self.cfg.get('comanda_fmt'))
+        ej = d.get('ejemplo') or 'comedor'
+        ren = [{'CANTIDAD': 2, 'DES_CANTAR': 'Chilaquiles verdes', '_det': 'Con huevo estrellado · Frijoles', 'VAR_LIBRE': '', 'COD_ESCALA': '01'},
+               {'CANTIDAD': 1, 'DES_CANTAR': 'Club sandwich', '_det': '', 'VAR_LIBRE': 'SIN CEBOLLA', 'COD_ESCALA': '01'},
+               {'CANTIDAD': 1, 'DES_CANTAR': 'Comida completa', '_det': '', 'VAR_LIBRE': '', 'COD_ESCALA': '01'}]
+        canal = None; ref = 'M 4'
+        if ej == 'llevar': canal = {'canal': 'recoger', 'nombre': 'Maria'}; ref = 'LLEVAR'
+        elif ej == 'didi': canal = {'canal': 'didi', 'pedido': '123456789012', 'pago': 'efectivo'}; ref = 'D89012E'
+        if canal:
+            for r in ren: r['COD_ESCALA'] = '02'
+        datos = comanda_bytes(ref, 'Angel', ren, '10021025', True, datetime.datetime.now(), canal, F)
+        if acc == 'guardar':
+            self.cfg['comanda_fmt'] = F
+            with open(CONFIG_FILE, 'w', encoding='utf-8') as f: json.dump(self.cfg, f, ensure_ascii=False, indent=2)
+            log('Formato de la comanda de cocina: ' + json.dumps(F))
+        elif acc == 'prueba':
+            nombre = self.cfg.get('impresora_cocina') or 'EPSON TM-T88V ReceiptE4'
+            try: _imprimir_raw(nombre, datos.replace('CUENTA NUEVA'.encode('cp850'), 'PRUEBA - NO PREPARAR'.encode('cp850'), 1))
+            except Exception as e: raise RuntimeError('No pude imprimir en ' + nombre + ': ' + str(e))
+        return {'ok': True, 'fmt': F, 'guardado': fmt_comanda(self.cfg.get('comanda_fmt')), 'lineas': comanda_en_pantalla(datos)}
 
     def comandero_interruptor(self, d):
         self.cfg['comandero_escribe'] = bool(d.get('activo'))
@@ -2476,7 +2543,7 @@ def make_handler(mon, cfg):
                     body = json.dumps({'ok': False, 'error': str(e), 'sesion': not isinstance(e, PermissionError)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(409); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
             if not self._auth(caja_ok=(self.path in ('/api/compra', '/api/leer-ticket'))): return
-            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia'): self.send_response(404); self.end_headers(); return
+            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return
             try:
@@ -2491,6 +2558,7 @@ def make_handler(mon, cfg):
                 elif self.path == '/api/rh': out=mon.rh_accion(d)
                 elif self.path == '/api/rh-archivo': out=mon.rh_archivo_subir(d)
                 elif self.path == '/api/comandero-envio': out=mon.comandero_interruptor(d)
+                elif self.path == '/api/comanda-formato': out=mon.comanda_formato(d)
                 elif self.path == '/api/leer-pendientes': out=mon.leer_pendientes()
                 elif self.path == '/api/drive':
                     acc = d.get('accion')

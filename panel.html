@@ -230,6 +230,13 @@ select.msel{height:40px;border:1px solid var(--line);border-radius:10px;backgrou
 footer{color:var(--muted);font-size:12px;margin-top:24px;line-height:1.5}
 @media (max-width:380px){.hero .big{font-size:40px}.hero .mini b{font-size:18px}}
 @media (prefers-reduced-motion:no-preference){.row .track i{transition:width .4s ease}}
+
+.ticketP{width:min(100%,calc(42ch + 28px));font:12.5px/1.25 ui-monospace,Menlo,Consolas,monospace;background:#fff;color:#111;padding:14px;border-radius:4px;box-shadow:0 1px 6px rgba(0,0,0,.18);overflow:hidden}
+@media (max-width:430px){.ticketP{font-size:calc((100vw - 92px)/25.5)}}
+.ticketP .tl{white-space:pre;min-height:1.25em}.ticketP .b{font-weight:800}
+.ticketP .ta{display:inline-block;transform:scaleY(2);transform-origin:top left;margin-bottom:1.25em;font-weight:800}
+.ticketP .tg{font-size:2em;line-height:1.25;font-weight:800}
+.ticketP .tcorte{margin-top:10px;text-align:center;color:#999;font-size:11px}
 </style>
 </head><body>
 <header class="top"><div class="hin">
@@ -946,7 +953,34 @@ function bloqueAcceso(){
     <p class="empty" style="margin-top:8px">Funciona solo con el teléfono conectado al WiFi del restaurante. La clave no va en el mensaje; dásela tú en persona o aparte.${ts.length?` Tú, desde fuera, puedes probarla con Tailscale: http://${esc(ts[0])}:${ACCESO.puerto}/captura`:''}</p></div>`;
 }
 // ---- comandero: meseros con clave de 4 números (pestaña COMANDERO)
-function vComandero(){return `<h2 class="corte-h" style="text-transform:uppercase;letter-spacing:.08em;margin:6px 0 12px">Comandero</h2>`+tarjetaComandero()}
+function vComandero(){return `<h2 class="corte-h" style="text-transform:uppercase;letter-spacing:.08em;margin:6px 0 12px">Comandero</h2>`+tarjetaComandero()+tarjetaComanda()}
+// ---- comanda de cocina: verla en pantalla y elegir el tamaño de las letras (versión 30.6.26)
+let CF=null,CF_EJ='comedor',CF_L=null,CF_G=null;
+function tarjetaComanda(){
+  if(COPIA)return '';
+  if(!CF){setTimeout(()=>cfMuestra(),0);return `<div class="card" id="cfCard"><h2>Comanda de cocina</h2><p class="empty">Cargando…</p></div>`}
+  return `<div class="card" id="cfCard">${cfHtml()}</div>`;
+}
+function cfHtml(){
+  const tam=[['normal','Normal'],['alto','Doble de alto'],['grande','Grande']];
+  const seg=(k,ops)=>`<div class="seg" style="margin-top:6px">${ops.map(([v,l])=>`<button data-cf="${k}" data-cfv="${v}" aria-pressed="${String(CF[k])===String(v)}">${l}</button>`).join('')}</div>`;
+  const cambio=CF_G&&JSON.stringify(CF)!==JSON.stringify(CF_G);
+  return `<h2>Comanda de cocina <small>así sale en la impresora</small></h2>
+    <h3 class="dh3" style="margin-top:10px">Platillos</h3>${seg('platillo',tam)}
+    <h3 class="dh3" style="margin-top:12px">Para quién es (abajo: mesa, llevar, Didi, Uber, domicilio)</h3>${seg('abajo',tam)}
+    <h3 class="dh3" style="margin-top:12px">Renglones vacíos entre platillos</h3>${seg('espacio',[[0,'0'],[1,'1'],[2,'2'],[3,'3']])}
+    <h3 class="dh3" style="margin-top:12px">Ejemplo</h3><div class="seg" style="margin-top:6px">${[['comedor','Comedor'],['llevar','Para llevar'],['didi','Didi']].map(([v,l])=>`<button data-cfej="${v}" aria-pressed="${CF_EJ===v}">${l}</button>`).join('')}</div>
+    <div style="display:flex;justify-content:center;margin-top:14px"><div class="ticketP">${(CF_L||[]).map(l=>`<div class="tl" style="text-align:${l.al===1?'center':l.al===2?'right':'left'}">${l.seg.length?l.seg.map(sg=>{const dh=sg.f&16,dw=sg.f&32,b=sg.f&8;
+      return dw?`<span class="tg${b?' b':''}">${esc(sg.t)}</span>`:dh?`<span class="ta${b?' b':''}">${esc(sg.t)}</span>`:`<span class="${b?'b':''}">${esc(sg.t)}</span>`}).join(''):'&nbsp;'}</div>`).join('')}
+      <div class="tcorte">✂ - - - - - corte - - - - -</div></div></div>
+    <div class="btns" style="margin-top:12px"><button class="btn pri" data-cfguardar="1" ${cambio?'':'disabled'}>${cambio?'Guardar este formato':'Guardado'}</button><button class="btn" data-cfprueba="1">Imprimir prueba en cocina</button></div>
+    <p class="empty" style="margin-top:8px">La vista es aproximada (papel de 80 mm, 42 letras por renglón). La prueba sale con el letrero "PRUEBA - NO PREPARAR" y no abre ninguna cuenta. El formato guardado se usa en todas las comandas que mande el comandero.</p>`;
+}
+async function cfMuestra(acc){
+  try{const j=await api('/api/comanda-formato',{accion:acc||'muestra',fmt:CF||undefined,ejemplo:CF_EJ});if(!CF)CF=j.fmt;CF_G=j.guardado;CF_L=j.lineas;
+    const c=document.getElementById('cfCard');if(c)c.innerHTML=cfHtml();if(acc==='guardar')toast('Formato guardado');if(acc==='prueba')toast('Prueba enviada a la impresora de cocina')}
+  catch(e){toast(e.message);const c=document.getElementById('cfCard');if(c&&!CF)c.innerHTML='<h2>Comanda de cocina</h2><p class="empty">'+esc(e.message)+'</p>'}
+}
 let NUEVO_MS=null,NUEVO_MS_COD=null;
 // PDF de bienvenida: se prepara al mostrar la tarjeta para compartirlo al primer toque (iPhone pide que sea inmediato)
 const PDF_MS={};
@@ -1694,7 +1728,7 @@ $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(b)irA(b.dataset.tab)};
 $('#view').addEventListener('click',e=>{
-  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes]');if(!t)return;
+  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-cf],[data-cfej],[data-cfguardar],[data-cfprueba],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes]');if(!t)return;
   const d=t.dataset;
   if(d.go) return irA(d.go);
   if(d.pm){prodModo=d.pm;return render()} if(d.pt){prodT=d.pt;return render()}
@@ -1724,6 +1758,10 @@ $('#view').addEventListener('click',e=>{
   if(d.msver){e.preventDefault();const el=document.getElementById('msk-'+d.msver);if(!el)return;
     if(el.dataset.v){el.textContent='••••';delete el.dataset.v;return}
     api('/api/meseros',{accion:'ver_clave',id:d.msver},true).then(j=>{if(j&&j.clave){el.textContent=j.clave;el.dataset.v='1';setTimeout(()=>{if(el.dataset.v){el.textContent='••••';delete el.dataset.v}},15000)}else toast('Esa clave todavía no se puede ver.')}).catch(err=>toast(err.message));return}
+  if(d.cf){CF[d.cf]=d.cf==='espacio'?+d.cfv:d.cfv;return cfMuestra()}
+  if(d.cfej){CF_EJ=d.cfej;return cfMuestra()}
+  if(d.cfguardar){t.disabled=true;return cfMuestra('guardar')}
+  if(d.cfprueba){t.disabled=true;cfMuestra('prueba').finally(()=>{t.disabled=false});return}
   if(d.mspdf){e.preventDefault();enviarPdf(d.mspdf,NUEVO_MS);return}
   if(d.msenlace){e.preventDefault();const m=(DATA.meseros||[]).find(x=>x.id===d.msenlace);NUEVO_MS=m?m.nombre:null;NUEVO_MS_COD=m?m.cod:null;fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;ACCESO.cmd=true;render();const b=document.getElementById('cmdEnlace');if(b)b.scrollIntoView({behavior:'smooth',block:'center'})}).catch(err=>toast(err.message));return}
   if(d.msacceso){e.preventDefault();NUEVO_MS=null;NUEVO_MS_COD=null;fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;ACCESO.cmd=true;render()}).catch(err=>toast(err.message));return}
