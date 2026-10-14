@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 106            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.4'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 107            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.5'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -689,19 +689,48 @@ def _png_rgb_alfa(png):
     if bpp == 3: return w, h, bytes(px), None
     return w, h, bytes(b for k in range(0, len(px), 4) for b in px[k:k + 3]), bytes(px[3::4])
 
+# Para el saludo del PDF: "Bienvenida" o "Bienvenido" según el primer nombre
+NOMBRES_MUJER = {'berenice', 'beatriz', 'raquel', 'isabel', 'carmen', 'mercedes', 'dolores', 'guadalupe', 'pilar', 'rocio', 'abigail', 'esther', 'ruth',
+                 'ingrid', 'miriam', 'noemi', 'ines', 'lucero', 'nayeli', 'itzel', 'yaretzi', 'abril', 'belen', 'sol', 'flor', 'luz', 'maribel', 'marisol',
+                 'araceli', 'lizbeth', 'elizabeth', 'ivonne', 'janet', 'jazmin', 'yazmin', 'karen', 'liz', 'monserrat', 'montserrat', 'citlali', 'leslie',
+                 'nicole', 'michelle', 'estefany', 'evelyn', 'jocelyn', 'kimberly', 'lourdes', 'consuelo', 'socorro', 'soledad', 'concepcion', 'asuncion',
+                 'irene', 'alexis', 'yuridia', 'nohemi', 'aylin', 'ailin', 'zoe', 'denisse', 'denise', 'yanet', 'yaneth', 'arely', 'nancy', 'cindy', 'betty',
+                 'mary', 'ruby', 'heidi', 'rubi', 'ivette', 'lisset', 'yesenia', 'genesis', 'nathaly', 'natali', 'yamileth', 'maite', 'anahi', 'noely', 'sarai'}
+NOMBRES_HOMBRE_A = {'luca', 'joshua', 'bautista', 'garcia', 'nikita', 'elia'}
+def _sin_acento(t):
+    import unicodedata
+    return ''.join(ch for ch in unicodedata.normalize('NFD', t) if unicodedata.category(ch) != 'Mn')
+
 def pdf_comandero(nombre, url, horario='', candado=False, logo=None):
-    """Hoja de bienvenida al comandero para mandarla por WhatsApp. La clave NUNCA va aquí."""
+    """Hoja de bienvenida al comandero para mandarla por WhatsApp (2 páginas: cómo entrar y cómo usarlo). La clave NUNCA va aquí."""
     import zlib
     W, H, M = 612, 792, 54
     VERDE, VERDE_S, NARANJA, TINTA, GRIS = (0.114, 0.361, 0.231), (0.886, 0.937, 0.898), (0.886, 0.443, 0.114), (0.082, 0.137, 0.102), (0.365, 0.431, 0.384)
-    c = []; ann = []
+    ROJO, ROJO_S = (0.70, 0.13, 0.11), (0.99, 0.91, 0.89)
+    paginas = [[]]; ann = [[]]
+    c = paginas[0]
     col = lambda rgb, op='rg': c.append('%.3f %.3f %.3f %s' % (rgb + (op,)))
     def texto(x, y, t, tam=12, negrita=False, rgb=TINTA):
         col(rgb); c.append(('BT /%s %g Tf %.1f %.1f Td (' % ('F2' if negrita else 'F1', tam, x, y)).encode() + _pdf_txt(t) + b') Tj ET')
     def parrafo(x, y, t, tam=12, ancho=W - 2 * M, negrita=False, rgb=TINTA, inter=1.38):
         for r in _renglones(t, tam, ancho, negrita): texto(x, y, r, tam, negrita, rgb); y -= tam * inter
         return y
-    # encabezado verde con el logo
+    def alto_parrafo(t, tam=12, ancho=W - 2 * M, inter=1.38): return len(_renglones(t, tam, ancho)) * tam * inter
+    def pie():
+        col(VERDE_S, 'RG'); c.append('0.8 w %d 58 m %d 58 l S' % (M, W - M))
+        texto(M, 40, 'La Holandesa · Av. Reforma 1366, Ensenada · ' + datetime.date.today().strftime('%d/%m/%Y'), 9, False, GRIS)
+        texto(W - M - 60, 40, 'Hoja %d de 2' % len(paginas), 9, False, GRIS)
+    def nota_clave(y):
+        """Recuadro rojo: no compartas tu clave."""
+        col(ROJO_S); c.append('%d %.1f %d 46 re f' % (M, y - 34, W - 2 * M))
+        col(ROJO, 'RG'); c.append('1.5 w %d %.1f %d 46 re S' % (M, y - 34, W - 2 * M))
+        texto(M + 16, y - 16, 'NOTA: No compartas tu clave, es confidencial.', 14, True, ROJO)
+        return y - 60
+    def punto(n, y, t, tam=12):
+        col(NARANJA); c.append('%.1f %.1f m %.1f %.1f %.1f %.1f %.1f %.1f c %.1f %.1f %.1f %.1f %.1f %.1f c %.1f %.1f %.1f %.1f %.1f %.1f c %.1f %.1f %.1f %.1f %.1f %.1f c f' % _circulo(M + 10, y + 4, 10))
+        texto(M + (6.5 if n < 10 else 3.5), y, str(n), 12 if n < 10 else 10, True, (1, 1, 1))
+        return parrafo(M + 30, y, t, tam, W - 2 * M - 30) - 8
+    # ---------------- hoja 1: bienvenida, dirección y cómo entrar
     col(VERDE); c.append('0 %d %d %d re f' % (H - 150, W, 150))
     hay_logo = False
     if logo:
@@ -714,36 +743,54 @@ def pdf_comandero(nombre, url, horario='', candado=False, logo=None):
     texto(tx, H - 72, 'Comandero', 30, True, (1, 1, 1))
     texto(tx, H - 98, 'Restaurante La Holandesa', 15, False, (1, 1, 1))
     y = H - 196
-    texto(M, y, 'Hola, ' + nombre.title(), 22, True); y -= 26
-    y = parrafo(M, y, 'Ya tienes acceso al comandero. Desde tu teléfono puedes ver el menú, abrir cuentas y mandar los pedidos a cocina. Las cuentas salen a tu nombre en la caja.', 12, rgb=GRIS) - 14
-    # caja con la dirección (se toca para abrir)
+    pila = (nombre.split() or [''])[0].strip().lower()
+    saludo = 'Bienvenida' if (pila.endswith('a') or _sin_acento(pila) in NOMBRES_MUJER) and _sin_acento(pila) not in NOMBRES_HOMBRE_A else 'Bienvenido'
+    texto(M, y, '¡' + saludo + ', ' + nombre.title() + '!', 22, True); y -= 26
+    y = parrafo(M, y, 'Ya tienes acceso al comandero. Desde tu teléfono puedes ver el menú, abrir cuentas y mandar los pedidos a cocina. Las cuentas salen a tu nombre en la caja. En la hoja 2 vienen las instrucciones para usarlo.', 12, rgb=GRIS) - 14
     col(VERDE_S); c.append('%d %.1f %d 74 re f' % (M, y - 62, W - 2 * M))
     col(VERDE, 'RG'); c.append('1.5 w %d %.1f %d 74 re S' % (M, y - 62, W - 2 * M))
     texto(M + 16, y - 10 - 8, 'TU DIRECCIÓN (tócala para abrir)', 10, True, VERDE)
     tam_u = 17 if _ancho(url, 17, True) < W - 2 * M - 32 else 13
     texto(M + 16, y - 46, url, tam_u, True, TINTA)
-    ann.append((M, y - 62, W - M, y + 12, url)); y -= 100
+    ann[0].append((M, y - 62, W - M, y + 12, url)); y -= 100
     texto(M, y, 'Cómo entrar', 16, True, VERDE); y -= 26
     pasos = ['Conéctate al WiFi del restaurante. Sin ese WiFi el comandero no abre.',
-             'Toca la dirección de arriba. Se abre en el navegador de tu teléfono.',
+             'Toca la dirección de arriba. En iPhone, si se abre dentro de WhatsApp, toca "Abrir en Safari".',
              'Escribe tu clave de 4 números. Te la da Jorge en persona; no viene en este documento.',
-             'Déjalo como app: en Android toca los tres puntitos y "Agregar a pantalla de inicio"; en iPhone toca Compartir y "Agregar a inicio".']
-    for k, p in enumerate(pasos, 1):
-        col(NARANJA); c.append('%.1f %.1f m %.1f %.1f %.1f %.1f %.1f %.1f c %.1f %.1f %.1f %.1f %.1f %.1f c %.1f %.1f %.1f %.1f %.1f %.1f c %.1f %.1f %.1f %.1f %.1f %.1f c f' % _circulo(M + 10, y + 4, 10))
-        texto(M + 6.5, y, str(k), 12, True, (1, 1, 1))
-        y = parrafo(M + 30, y, p, 12, W - 2 * M - 30) - 10
+             'Déjalo como app con el logotipo: en Android toca los tres puntitos y "Agregar a pantalla de inicio" (o "Instalar"); en iPhone toca Compartir (el cuadrito con flecha) y "Agregar a pantalla de inicio".']
+    for n, t in enumerate(pasos, 1): y = punto(n, y, t)
     y -= 8
     texto(M, y, 'Importante', 16, True, VERDE); y -= 26
-    reglas = ['Tu clave es personal. No la compartas: todo lo que se mande con ella sale a tu nombre.']
+    reglas = []
     if candado: reglas.append('Solo entras el día que te toca trabajar y en tu horario: abre 30 minutos antes de tu entrada y se cierra 1 hora después de tu salida. En tu día de descanso, falta o vacaciones no entra.')
-    if horario: reglas.append('Tu horario: ' + horario + '.')
-    reglas.append('Si algo no funciona, avísale a la encargada o a Jorge.')
+    if horario: reglas.append('Tu horario: ' + horario.rstrip('. ') + '.')
+    reglas.append('Todo lo que se mande con tu clave sale a tu nombre.')
     for r in reglas:
         col(VERDE); c.append('%.1f %.1f 5 5 re f' % (M + 2, y + 2))
         y = parrafo(M + 18, y, r, 12, W - 2 * M - 18) - 8
-    col(VERDE_S, 'RG'); c.append('0.8 w %d 58 m %d 58 l S' % (M, W - M))
-    texto(M, 40, 'La Holandesa · Av. Reforma 1366, Ensenada · ' + datetime.date.today().strftime('%d/%m/%Y'), 9, False, GRIS)
-    cont = b'\n'.join(x if isinstance(x, bytes) else x.encode('latin-1') for x in c)
+    nota_clave(y - 4)
+    pie()
+    # ---------------- hoja 2: cómo usar el comandero
+    paginas.append([]); ann.append([]); c = paginas[-1]
+    col(VERDE); c.append('0 %d %d 70 re f' % (H - 70, W))
+    texto(M, H - 45, 'Cómo usar el comandero', 22, True, (1, 1, 1))
+    y = H - 104
+    uso = [
+        'Al abrir el comandero escribe tu clave. También te la pide al empezar cada cuenta nueva: la cuenta queda a nombre de quien escribe la clave.',
+        'Toca "+ NUEVA CUENTA" y elige: Comedor (la mesa y cuántas personas), Para llevar (nombre del cliente), Servicio a domicilio (busca al cliente por su teléfono), Didi (clave del pedido y si paga en efectivo o con tarjeta) o Uber (clave del pedido).',
+        'Busca el platillo o elígelo por sección. Escoge sus opciones, si es para comer aquí o para llevar, y si hace falta escribe una nota para cocina (ej. sin cebolla). Toca Agregar.',
+        'Revisa el pedido. Para quitar un platillo que todavía no mandas, toca el bote de basura "Quitar" y confirma. Lo que ya se mandó a cocina solo lo puede quitar la caja.',
+        'Toca "Enviar a cocina". La comanda se imprime en cocina y la cuenta queda abierta en la caja a tu nombre.',
+        'Para agregar algo a una cuenta que ya está abierta, tócala en "Mis cuentas", agrega los platillos y vuelve a tocar "Enviar a cocina". Solo se imprime lo nuevo.',
+        'Pon atención a los avisos: ofrece el jugo del día en los desayunos y la soda italiana con la carta; en la comida del día lleva la sopa y el agua; a los 20 minutos te recuerda el postre.',
+        'Si una comanda tarda, suena una alarma: a los 10 minutos en amarillo, a los 14 en rojo y a los 20 dice CRÍTICO. Revisa con cocina. Toca "Ya salió" cuando salga, o "No ha salido" para que te vuelva a avisar en 5 minutos. Las comandas que tardan quedan registradas.',
+        'El cobro lo hace la caja. Cuando termines tu turno toca "Salir".',
+        'Si algo no funciona, avísale a la encargada o a Jorge.',
+    ]
+    for n, t in enumerate(uso, 1): y = punto(n, y, t)
+    nota_clave(y - 10)
+    pie()
+    conts = [b'\n'.join(x if isinstance(x, bytes) else x.encode('latin-1') for x in pg_) for pg_ in paginas]
     # armar el PDF
     objs = []
     def obj(b): objs.append(b); return len(objs)
@@ -760,13 +807,15 @@ def pdf_comandero(nombre, url, horario='', candado=False, logo=None):
         z = zlib.compress(rgb_, 9)
         im = obj(b'<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode%s /Length %d >>\nstream\n' % (lw, lh, smask.encode(), len(z)) + z + b'\nendstream')
         xo = b' /XObject << /Im1 %d 0 R >>' % im
-    z = zlib.compress(cont, 9)
-    st = obj(b'<< /Filter /FlateDecode /Length %d >>\nstream\n' % len(z) + z + b'\nendstream')
-    an = [obj(b'<< /Type /Annot /Subtype /Link /Rect [%.1f %.1f %.1f %.1f] /Border [0 0 0] /A << /S /URI /URI (' % a[:4] + _pdf_txt(a[4]) + b') >> >>') for a in ann]
-    pg = obj(b'<< /Type /Page /Parent %d 0 R /MediaBox [0 0 %d %d] /Resources << /Font << /F1 %d 0 R /F2 %d 0 R >>%s >> /Contents %d 0 R /Annots [%s] >>' %
-             (pags, W, H, f1, f2, xo, st, b' '.join(b'%d 0 R' % a for a in an)))
+    kids = []
+    for cont, an_ in zip(conts, ann):
+        z = zlib.compress(cont, 9)
+        st = obj(b'<< /Filter /FlateDecode /Length %d >>\nstream\n' % len(z) + z + b'\nendstream')
+        an = [obj(b'<< /Type /Annot /Subtype /Link /Rect [%.1f %.1f %.1f %.1f] /Border [0 0 0] /A << /S /URI /URI (' % a[:4] + _pdf_txt(a[4]) + b') >> >>') for a in an_]
+        kids.append(obj(b'<< /Type /Page /Parent %d 0 R /MediaBox [0 0 %d %d] /Resources << /Font << /F1 %d 0 R /F2 %d 0 R >>%s >> /Contents %d 0 R /Annots [%s] >>' %
+                        (pags, W, H, f1, f2, xo, st, b' '.join(b'%d 0 R' % a for a in an))))
     objs[cat - 1] = b'<< /Type /Catalog /Pages %d 0 R >>' % pags
-    objs[pags - 1] = b'<< /Type /Pages /Kids [%d 0 R] /Count 1 >>' % pg
+    objs[pags - 1] = b'<< /Type /Pages /Kids [%s] /Count %d >>' % (b' '.join(b'%d 0 R' % k_ for k_ in kids), len(kids))
     out = bytearray(b'%PDF-1.4\n%\xe2\xe3\xcf\xd3\n'); pos = []
     for k, b in enumerate(objs, 1): pos.append(len(out)); out += b'%d 0 obj\n' % k + b + b'\nendobj\n'
     x = len(out)
@@ -2756,7 +2805,7 @@ def make_handler(mon, cfg):
                     body = json.dumps({'ok': False, 'error': str(e), 'sesion': not isinstance(e, PermissionError)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(409); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
             if not self._auth(caja_ok=(self.path in ('/api/compra', '/api/leer-ticket'))): return
-            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia'): self.send_response(404); self.end_headers(); return
+            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/log-cliente', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return
             try:
@@ -2772,6 +2821,7 @@ def make_handler(mon, cfg):
                 elif self.path == '/api/rh-archivo': out=mon.rh_archivo_subir(d)
                 elif self.path == '/api/comandero-envio': out=mon.comandero_interruptor(d)
                 elif self.path == '/api/comanda-formato': out=mon.comanda_formato(d)
+                elif self.path == '/api/log-cliente': log('Teléfono (' + str(d.get('que', ''))[:40] + '): ' + str(d.get('error', ''))[:200] + ' · ' + str(d.get('ua', ''))[:160]); out = {'ok': True}
                 elif self.path == '/api/leer-pendientes': out=mon.leer_pendientes()
                 elif self.path == '/api/drive':
                     acc = d.get('accion')
@@ -2925,7 +2975,7 @@ def make_handler(mon, cfg):
                 if not x or not wifi: self.send_response(404); self.end_headers(); return
                 nombre = mon.EMP.get(cod, x['nombre'])
                 pdf = pdf_comandero(nombre, 'http://%s:%s/comandero' % (wifi[0], cfg['puerto']), mon.horario_mesero(cod), bool(mon.cfg.get('candado_rol')), logo_cmd)
-                arch = 'Comandero ' + (nombre.split() or ['La Holandesa'])[0].title() + '.pdf'
+                arch = 'Comandero_' + re.sub(r'[^A-Za-z]', '', _sin_acento((nombre.split() or ['LaHolandesa'])[0])).title() + '.pdf'
                 self.send_response(200); self.send_header('Content-Type', 'application/pdf'); self.send_header('Cache-Control', 'no-store')
                 self.send_header('Content-Disposition', "attachment; filename=\"Comandero.pdf\"; filename*=UTF-8''" + urllib.parse.quote(arch))
                 self.send_header('Content-Length', str(len(pdf))); self.end_headers(); self.wfile.write(pdf); return

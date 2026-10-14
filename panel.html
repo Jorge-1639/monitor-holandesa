@@ -987,7 +987,7 @@ async function cfMuestra(acc){
 let NUEVO_MS=null,NUEVO_MS_COD=null;
 // PDF de bienvenida: se prepara al mostrar la tarjeta para compartirlo al primer toque (iPhone pide que sea inmediato)
 const PDF_MS={};
-const nombrePdf=n=>{const p=String(n||'').trim().split(/\s+/)[0]||'';return 'Comandero '+(p?p.charAt(0).toUpperCase()+p.slice(1).toLowerCase():'La Holandesa')+'.pdf'};
+const nombrePdf=n=>{const p=String(n||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z]/g,' ').trim().split(/\s+/)[0]||'';return 'Comandero_'+(p?p.charAt(0).toUpperCase()+p.slice(1).toLowerCase():'LaHolandesa')+'.pdf'};   // sin acentos ni espacios: algunos Android rechazan el nombre
 function puedeCompartir(){try{return window.isSecureContext&&!!navigator.canShare&&navigator.canShare({files:[new File(['x'],'x.pdf',{type:'application/pdf'})]})}catch(e){return false}}
 function prepararPdf(cod,nombre){if(!cod||PDF_MS[cod]||!puedeCompartir())return;
   PDF_MS[cod]=fetch('/api/comandero-pdf?cod='+encodeURIComponent(cod),{credentials:'same-origin'}).then(r=>{if(!r.ok)throw new Error('No pude generar el PDF');return r.blob()})
@@ -995,8 +995,12 @@ function prepararPdf(cod,nombre){if(!cod||PDF_MS[cod]||!puedeCompartir())return;
 async function enviarPdf(cod,nombre){
   let f=PDF_MS[cod];
   if(!(f instanceof File)){prepararPdf(cod,nombre);try{await PDF_MS[cod]}catch(e){return toast(e.message)}toast('PDF listo. Toca "Enviar PDF" otra vez.');return}
-  try{await navigator.share({files:[f]})}catch(e){if(e.name==='AbortError')return;
-    toast('Este teléfono no dejó compartir el PDF. Usa "Descargar PDF" o "Mandar dirección por WhatsApp".');const b=document.getElementById('cmdPlanB');if(b)b.hidden=false}}
+  try{await navigator.share({files:[new File([f],f.name,{type:'application/pdf'})]})}catch(e){if(e.name==='AbortError')return;
+    // el teléfono no dejó compartir: se descarga solo para adjuntarlo en WhatsApp con el clip → Documento
+    try{const u=URL.createObjectURL(f),a=document.createElement('a');a.href=u;a.download=f.name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),60000)}catch(_){}
+    toast('Tu teléfono no dejó compartirlo directo, así que se descargó "'+f.name+'". En WhatsApp abre el chat, toca el clip → Documento y elígelo.');
+    api('/api/log-cliente',{que:'compartir PDF',error:e.name+': '+e.message,ua:navigator.userAgent.slice(0,160)}).catch(()=>{});
+    const b=document.getElementById('cmdPlanB');if(b)b.hidden=false}}
 function bloqueComandero(){
   const wifi=ACCESO.ips.filter(ip=>!ip.startsWith('100.')), ts=ACCESO.ips.filter(ip=>ip.startsWith('100.'));
   const url=wifi.length?`http://${wifi[0]}:${ACCESO.puerto}/comandero`:'';
