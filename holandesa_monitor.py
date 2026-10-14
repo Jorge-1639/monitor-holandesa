@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 101            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.6.27'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 102            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.0'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -821,6 +821,152 @@ def aplica_lectura(m, r):
         m['items'] = r.get('items') or []
         if not m.get('proveedor') and r.get('proveedor'): m['proveedor'] = r['proveedor']
         if not m.get('ticket') and r.get('ticket'): m['ticket'] = r['ticket']
+
+
+# ---------------------------------------------------------------- entrada de Jorge: sesión con cookie, contraseña o huella (WebAuthn / passkey)
+HUELLAS_FILE = os.path.join(AQUI, 'huellas.json')   # llaves públicas de los teléfonos de Jorge (no son secretas)
+SES_ADMIN = {}     # token -> vence (segundos)
+RETOS = {}         # reto -> (tipo, vence)
+
+def b64u(b): return base64.urlsafe_b64encode(b).rstrip(b'=').decode()
+def unb64u(s):
+    s = str(s or ''); return base64.urlsafe_b64decode(s + '=' * (-len(s) % 4))
+
+def _cbor(b, i=0):
+    ib = b[i]; mt = ib >> 5; ai = ib & 31; i += 1
+    if ai < 24: v = ai
+    elif ai == 24: v = b[i]; i += 1
+    elif ai == 25: v = int.from_bytes(b[i:i + 2], 'big'); i += 2
+    elif ai == 26: v = int.from_bytes(b[i:i + 4], 'big'); i += 4
+    elif ai == 27: v = int.from_bytes(b[i:i + 8], 'big'); i += 8
+    else: raise ValueError('Formato no soportado')
+    if mt == 0: return v, i
+    if mt == 1: return -1 - v, i
+    if mt == 2: return bytes(b[i:i + v]), i + v
+    if mt == 3: return bytes(b[i:i + v]).decode('utf-8'), i + v
+    if mt == 4:
+        out = []
+        for _ in range(v): x, i = _cbor(b, i); out.append(x)
+        return out, i
+    if mt == 5:
+        out = {}
+        for _ in range(v): k, i = _cbor(b, i); x, i = _cbor(b, i); out[k] = x
+        return out, i
+    if mt == 6: return _cbor(b, i)
+    return {20: False, 21: True, 22: None}.get(ai), i
+
+P256_P = 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff
+P256_N = 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551
+P256_B = 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b
+P256_G = (0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296, 0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5)
+def _ec_add(P, Q):
+    if P is None: return Q
+    if Q is None: return P
+    p = P256_P
+    if P[0] == Q[0] and (P[1] + Q[1]) % p == 0: return None
+    if P == Q: l = (3 * P[0] * P[0] - 3) * pow(2 * P[1], -1, p) % p
+    else: l = (Q[1] - P[1]) * pow(Q[0] - P[0], -1, p) % p
+    x = (l * l - P[0] - Q[0]) % p
+    return (x, (l * (P[0] - x) - P[1]) % p)
+def _ec_mul(k, P):
+    R = None
+    while k:
+        if k & 1: R = _ec_add(R, P)
+        P = _ec_add(P, P); k >>= 1
+    return R
+def es256_ok(x, y, msg, der):
+    try:
+        if der[0] != 0x30: return False
+        i = 2 if der[1] < 0x80 else 2 + (der[1] & 0x7f)
+        def ent(i):
+            if der[i] != 0x02: raise ValueError
+            l = der[i + 1]; return int.from_bytes(der[i + 2:i + 2 + l], 'big'), i + 2 + l
+        r, i = ent(i); s, i = ent(i)
+    except (IndexError, ValueError): return False
+    n = P256_N
+    if not (1 <= r < n and 1 <= s < n): return False
+    if (y * y - (x ** 3 - 3 * x + P256_B)) % P256_P: return False
+    e = int.from_bytes(hashlib.sha256(msg).digest(), 'big')
+    w = pow(s, -1, n)
+    R = _ec_add(_ec_mul(e * w % n, P256_G), _ec_mul(r * w % n, (x, y)))
+    return R is not None and R[0] % n == r
+def rs256_ok(n, e, msg, sig):
+    k = (n.bit_length() + 7) // 8
+    if len(sig) != k: return False
+    m = pow(int.from_bytes(sig, 'big'), e, n).to_bytes(k, 'big')
+    di = bytes.fromhex('3031300d060960864801650304020105000420') + hashlib.sha256(msg).digest()
+    return m == b'\x00\x01' + b'\xff' * (k - len(di) - 3) + b'\x00' + di
+
+def nueva_sesion_admin(minutos):
+    t = secrets.token_urlsafe(32); SES_ADMIN[t] = time.time() + minutos * 60
+    for k in [k for k, v in SES_ADMIN.items() if v < time.time()]: SES_ADMIN.pop(k, None)
+    return t
+def sesion_admin(tok, minutos):
+    v = SES_ADMIN.get(tok or '')
+    if not v or v < time.time(): SES_ADMIN.pop(tok or '', None); return False
+    SES_ADMIN[tok] = time.time() + minutos * 60   # se renueva mientras se usa
+    return True
+def nuevo_reto(tipo):
+    r = b64u(secrets.token_bytes(32)); RETOS[r] = (tipo, time.time() + 180)
+    for k in [k for k, v in RETOS.items() if v[1] < time.time()]: RETOS.pop(k, None)
+    return r
+def usar_reto(r, tipo):
+    v = RETOS.pop(r or '', None)
+    return bool(v and v[0] == tipo and v[1] >= time.time())
+
+def huellas():
+    try:
+        with open(HUELLAS_FILE, encoding='utf-8') as f: h = json.load(f)
+        return h if isinstance(h, list) else []
+    except (OSError, ValueError): return []
+def guardar_huellas(h):
+    tmp = HUELLAS_FILE + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f: json.dump(h, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, HUELLAS_FILE)
+
+def _datos_cliente(cd_b64, tipo, host):
+    cd_raw = unb64u(cd_b64); cd = json.loads(cd_raw.decode('utf-8'))
+    if cd.get('type') != tipo: raise RuntimeError('Respuesta de huella no válida.')
+    if not usar_reto(cd.get('challenge'), tipo): raise RuntimeError('La solicitud venció. Intenta otra vez.')
+    o = cd.get('origin', ''); oh = o.split('://', 1)[-1].split(':')[0].lower()
+    if oh != host or not (o.startswith('https://') or oh in ('localhost', '127.0.0.1')): raise RuntimeError('La huella se pidió desde otra dirección.')
+    return cd_raw
+
+def registrar_huella(d, host):
+    cd_raw = _datos_cliente(d.get('cd'), 'webauthn.create', host)
+    ao, _ = _cbor(unb64u(d.get('ao')))
+    ad = ao.get('authData') or b''
+    if ad[:32] != hashlib.sha256(host.encode()).digest(): raise RuntimeError('La huella no corresponde a esta dirección.')
+    fl = ad[32]
+    if not (fl & 0x01 and fl & 0x04): raise RuntimeError('El teléfono no confirmó la huella.')
+    if not fl & 0x40: raise RuntimeError('El teléfono no entregó la llave.')
+    ln = int.from_bytes(ad[53:55], 'big'); cid = ad[55:55 + ln]
+    cose, _ = _cbor(ad, 55 + ln)
+    if cose.get(3) == -7 and cose.get(1) == 2: llave = {'alg': -7, 'x': cose[-2].hex(), 'y': cose[-3].hex()}
+    elif cose.get(3) == -257 and cose.get(1) == 3: llave = {'alg': -257, 'n': cose[-1].hex(), 'e': cose[-2].hex()}
+    else: raise RuntimeError('Este teléfono usa un tipo de llave que todavía no se acepta.')
+    h = [x for x in huellas() if x.get('id') != b64u(cid)]
+    nombre = re.sub(r'\s+', ' ', str(d.get('nombre') or '')).strip()[:40] or 'Mi teléfono'
+    h.append(dict(llave, id=b64u(cid), rp=host, nombre=nombre, cuenta=int.from_bytes(ad[33:37], 'big'),
+                  alta=datetime.datetime.now().isoformat(timespec='seconds'), ultimo=''))
+    guardar_huellas(h)
+    log(f'Huella registrada: {nombre} ({host})')
+    return {'ok': True}
+
+def entrar_huella(d, host):
+    h = huellas(); x = next((x for x in h if x.get('id') == d.get('id') and x.get('rp') == host), None)
+    if not x: raise RuntimeError('Esta huella no está registrada en esta dirección.')
+    cd_raw = _datos_cliente(d.get('cd'), 'webauthn.get', host)
+    ad = unb64u(d.get('ad')); sig = unb64u(d.get('sig'))
+    if ad[:32] != hashlib.sha256(host.encode()).digest(): raise RuntimeError('La huella no corresponde a esta dirección.')
+    if not (ad[32] & 0x01 and ad[32] & 0x04): raise RuntimeError('El teléfono no confirmó la huella.')
+    msg = ad + hashlib.sha256(cd_raw).digest()
+    ok = es256_ok(int(x['x'], 16), int(x['y'], 16), msg, sig) if x['alg'] == -7 else rs256_ok(int(x['n'], 16), int(x['e'], 16), msg, sig)
+    if not ok: raise RuntimeError('La huella no se pudo comprobar.')
+    cta = int.from_bytes(ad[33:37], 'big')
+    if cta and x.get('cuenta') and cta <= x['cuenta']: log('Aviso: contador de la huella no avanzó (' + x.get('nombre', '') + ').')
+    x['cuenta'] = cta; x['ultimo'] = datetime.datetime.now().isoformat(timespec='seconds'); guardar_huellas(h)
+    return {'ok': True}
 
 # ---------------------------------------------------------------- Excel (.xlsx) sin paquetes extra
 def xlsx(rows, sheet='Hoja1', widths=None, money_cols=()):
@@ -2358,6 +2504,7 @@ class Monitor:
         except Exception as e: log('No pude resumir productos por mes: ' + str(e)); out['mensual_prod'] = {}
         try: out['tardadas'] = self.tiempos_lista()
         except Exception as e: log('No pude leer los tiempos de comanda: ' + str(e)); out['tardadas'] = []
+        out['huellas'] = [{k: x.get(k, '') for k in ('id', 'nombre', 'rp', 'alta', 'ultimo')} for x in huellas()]; out['minutos_sesion'] = self.cfg.get('minutos_sesion', 30)
         out['quitadas'] = self.quitadas(); out['motivos'] = MOTIVOS; out['familia'] = self.familia()
         out['empleados'] = self.empleados()
         out['gastos'] = self.gastos(); out['categorias_gasto'] = CATEGORIAS_GASTO
@@ -2456,22 +2603,48 @@ def make_handler(mon, cfg):
     iconos_cmd = {n: _leer(n) for n in ('icono_comandero_180.png', 'icono_comandero_192.png', 'icono_comandero_512.png', 'icono_panel_180.png', 'icono_panel_192.png', 'icono_panel_512.png')}
     icon_rh = _leer('icon_personal.png')
     page_rol = _leer('descansos.html')
+    page_entrar = _leer('entrar.html')
     manifest_rol = json.dumps({'id':'/descansos','name':'Descansos La Holandesa','short_name':'Descansos','start_url':'/descansos','scope':'/descansos','display':'standalone','background_color':'#f3f6f2','theme_color':'#1d5c3b','icons':[{'src':'/icon_personal.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
     manifest_rh = json.dumps({'id':'/personal','name':'Personal Holandesa','short_name':'Personal','start_url':'/personal','scope':'/personal','display':'standalone','background_color':'#f3f6f2','theme_color':'#1d5c3b','icons':[{'src':'/icon_personal.png','sizes':'512x512','type':'image/png'}]}, ensure_ascii=False).encode('utf-8')
     manifest_cmd = json.dumps({'id':'/comandero','name':'La Holandesa Comandero','short_name':'Holandesa Comandero','start_url':'/comandero','scope':'/comandero','display':'standalone','background_color':'#ffffff','theme_color':'#2f6db3','icons':[{'src':'/icono_comandero_192.png','sizes':'192x192','type':'image/png','purpose':'any'},{'src':'/icono_comandero_512.png','sizes':'512x512','type':'image/png','purpose':'any'}]}, ensure_ascii=False).encode('utf-8')
     manifest = json.dumps({'id':'/panel','name':'Control Holandesa','short_name':'Control Holandesa','start_url':'/panel','scope':'/panel','display':'standalone','background_color':'#fbf6f1','theme_color':'#ea580c','icons':[{'src':'/icono_panel_192.png','sizes':'192x192','type':'image/png','purpose':'any'},{'src':'/icono_panel_512.png','sizes':'512x512','type':'image/png','purpose':'any'}]}, ensure_ascii=False).encode('utf-8')
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a): pass
+        def _host(self):
+            h = (self.headers.get('X-Forwarded-Host') or self.headers.get('Host') or '').split(',')[0].strip()
+            h = h.rsplit(':', 1)[0].lower().rstrip('.') if not h.startswith('[') else h
+            # si Tailscale entrega la petición como 127.0.0.1, el nombre real es el de la dirección segura
+            if h in ('127.0.0.1', 'localhost') and HTTPS_TS.get('url') and (self.headers.get('Tailscale-User-Login') or self.headers.get('X-Forwarded-Proto') == 'https'):
+                h = HTTPS_TS['url'].split('://', 1)[-1].rstrip('/').lower()
+            return h
+        def _cookie(self, nombre):
+            for parte in (self.headers.get('Cookie') or '').split(';'):
+                k, _, v = parte.strip().partition('=')
+                if k == nombre: return v
+            return ''
+        def _min_sesion(self):
+            try: return max(5, int(cfg.get('minutos_sesion', 30)))
+            except (TypeError, ValueError): return 30
+        def _es_admin(self):
+            if sesion_admin(self._cookie('hol_s'), self._min_sesion()): return True
+            a = self.headers.get('Authorization', '')   # la ventanita del navegador ya no se pide; solo si se activa en config.json
+            return bool(cfg.get('acepta_basic')) and secrets.compare_digest(a, 'Basic ' + token)
+        def _json(self, obj, status=200, cookie=None):
+            body = json.dumps(obj, ensure_ascii=False).encode('utf-8')
+            self.send_response(status); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Cache-Control', 'no-store')
+            if cookie is not None:
+                seguro = '; Secure' if self._host().endswith('.ts.net') else ''
+                self.send_header('Set-Cookie', f'hol_s={cookie}; Path=/; HttpOnly; SameSite=Lax{seguro}' + ('; Max-Age=0' if not cookie else ''))
+            self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
         def _auth(self, caja_ok=False):
-            a = self.headers.get('Authorization', '')
-            if secrets.compare_digest(a, 'Basic ' + token): self.rol = 'admin'; self.quien = 'Jorge'; return True
+            if self._es_admin(): self.rol = 'admin'; self.quien = 'Jorge'; return True
             if caja_ok:
                 n_ = sesion(self.headers.get('X-Caja-Token'))
                 if n_: self.rol = 'caja'; self.quien = n_; return True
                 body = b'{"ok":false,"error":"Tu sesion termino. Vuelve a entrar con tu clave.","sesion":false}'
                 self.send_response(401); self.send_header('Content-Type', 'application/json'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
                 return False
-            self.send_response(401); self.send_header('WWW-Authenticate', 'Basic realm="' + ('Caja La Holandesa' if caja_ok else 'La Holandesa') + '", charset="UTF-8"'); self.end_headers()
+            self._json({'ok': False, 'error': 'Tu sesión terminó. Vuelve a entrar.', 'login': True}, 401)
             return False
         def _send(self, body, ctype, gz=False):
             self.send_response(200); self.send_header('Content-Type', ctype); self.send_header('Cache-Control', 'no-store')
@@ -2479,6 +2652,46 @@ def make_handler(mon, cfg):
             self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
         def do_POST(self):
             self._por_tailscale_serve()
+            if self.path in ('/api/entrar', '/api/huella/reto', '/api/huella/entrar', '/api/huella/registrar', '/api/huella/quitar', '/api/salir'):
+                try:
+                    n = min(int(self.headers.get('Content-Length', '0') or 0), 16384)
+                    d = json.loads(self.rfile.read(n).decode('utf-8') or '{}')
+                    ip = 'adm:' + self.client_address[0]; ahora = time.time(); f = FALLOS.get(ip, [0, 0])
+                    if self.path in ('/api/entrar', '/api/huella/entrar') and f[1] > ahora: raise RuntimeError('Demasiados intentos. Espera unos minutos.')
+                    if self.path == '/api/entrar':
+                        ok = secrets.compare_digest(str(d.get('usuario') or '').strip().lower(), str(cfg['usuario']).lower()) & secrets.compare_digest(str(d.get('contrasena') or ''), str(cfg['contrasena']))
+                        if not ok:
+                            f[0] += 1
+                            if f[0] >= 5: f = [0, ahora + 300]
+                            FALLOS[ip] = f; raise RuntimeError('Usuario o contraseña incorrectos.')
+                        FALLOS.pop(ip, None); return self._json({'ok': True}, cookie=nueva_sesion_admin(self._min_sesion()))
+                    if self.path == '/api/huella/reto':
+                        host = self._host(); ids = [x['id'] for x in huellas() if x.get('rp') == host]
+                        if d.get('modo') == 'registrar':
+                            if not self._es_admin(): return self._json({'ok': False, 'error': 'Entra primero con tu contraseña.', 'login': True}, 401)
+                            if not cfg.get('huella_uid'):
+                                cfg['huella_uid'] = b64u(secrets.token_bytes(16))
+                                with open(CONFIG_FILE, 'w', encoding='utf-8') as fh: json.dump(cfg, fh, ensure_ascii=False, indent=2)
+                            return self._json({'ok': True, 'reto': nuevo_reto('webauthn.create'), 'uid': cfg['huella_uid'], 'usuario': cfg['usuario'], 'ids': ids})
+                        if not ids: raise RuntimeError('Todavía no hay huella activada en esta dirección.')
+                        return self._json({'ok': True, 'reto': nuevo_reto('webauthn.get'), 'ids': ids})
+                    if self.path == '/api/huella/entrar':
+                        try: entrar_huella(d, self._host())
+                        except Exception:
+                            f[0] += 1
+                            if f[0] >= 5: f = [0, ahora + 300]
+                            FALLOS[ip] = f; raise
+                        FALLOS.pop(ip, None); return self._json({'ok': True}, cookie=nueva_sesion_admin(self._min_sesion()))
+                    if self.path == '/api/salir':
+                        SES_ADMIN.pop(self._cookie('hol_s'), None); return self._json({'ok': True}, cookie='')
+                    if not self._es_admin(): return self._json({'ok': False, 'error': 'Tu sesión terminó. Vuelve a entrar.', 'login': True}, 401)
+                    if self.path == '/api/huella/registrar': out = registrar_huella(d, self._host())
+                    else:
+                        guardar_huellas([x for x in huellas() if x.get('id') != d.get('id')]); log('Huella quitada: ' + str(d.get('id'))[:12]); out = {'ok': True}
+                    mon.refresh(); return self._json(out)
+                except Exception as e:
+                    log('No se pudo completar ' + self.path + ': ' + str(e))
+                    return self._json({'ok': False, 'error': str(e)}, 403)
             if self.path == '/api/caja-login':
                 try:
                     n = min(int(self.headers.get('Content-Length', '0') or 0), 2048)
@@ -2677,8 +2890,13 @@ def make_handler(mon, cfg):
                 return self._send(manifest_caja, 'application/manifest+json; charset=utf-8')
             if p0 == '/manifest.webmanifest':
                 return self._send(manifest, 'application/manifest+json; charset=utf-8')
-            if p0 == '/icon.png' and icon_png and self.headers.get('Authorization'):
+            if p0 == '/icon.png' and icon_png and self._es_admin():
                 return self._send(icon_png, 'image/png')
+            if p0 == '/api/entrar-info':
+                host = self._host()
+                return self._json({'ok': True, 'ids': [x['id'] for x in huellas() if x.get('rp') == host], 'https': HTTPS_TS.get('url', '')})
+            if (self.path in ('/', '/index.html') or p0 in ('/personal', '/personal/', '/panel', '/panel/')) and not self._es_admin() and page_entrar:
+                return self._send(page_entrar, 'text/html; charset=utf-8')
             if not self._auth(): return
             if p0 == '/api/drive-script':
                 body = SCRIPT_DRIVE.replace('{SECRETO}', cfg['drive_secreto']).encode('utf-8')

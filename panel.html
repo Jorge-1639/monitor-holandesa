@@ -263,6 +263,9 @@ footer{color:var(--muted);font-size:12px;margin-top:24px;line-height:1.5}
 </div></nav>
 
 <script>
+// Si la sesión terminó, cualquier consulta regresa 401 con login:true: se recarga y aparece la pantalla de entrada (huella o contraseña)
+if(!window.__COPIA__&&!/^\/(captura|comandero|descansos)/.test(location.pathname)){const _f=window.fetch.bind(window);window.fetch=async(...a)=>{const r=await _f(...a);
+  if(r.status===401){try{const j=await r.clone().json();if(j&&j.login){location.reload();return new Promise(()=>{})}}catch(e){}}return r}}
 let DATA=null, byDate={}, days=[];
 const $=s=>document.querySelector(s);
 const COPIA=!!window.__COPIA__;
@@ -1048,7 +1051,35 @@ function tarjetasCajeros(){
     <p class="empty">Cuando el cajero toma la foto, Claude lee el ticket: proveedor, número, IVA y cada producto, y lo compara con el importe capturado. La foto se usa solo para leerla y se descarta: no queda guardada en la computadora, solo los datos. Necesita tu llave de la API de Claude (console.anthropic.com), que se guarda solo en la computadora de la caja.</p>
     <div class="field"><input id="iaK" type="password" autocomplete="off" placeholder="${ia.activa?'Llave guardada · pega otra para cambiarla':'Pega aquí tu llave (sk-ant-…)'}"></div>
     <div class="btns"><button class="btn pri" data-iasave="1">Guardar llave</button>${ia.activa?'<button class="btn" data-iaquitar="1">Quitar llave</button>':''}${ia.activa&&pend?`<button class="btn" data-leerpend="1">Leer ${pend} fotos pendientes</button>`:''}</div></div>
-  ${tarjetaDrive()}`;
+  ${tarjetaDrive()}
+  ${tarjetaHuella()}`;
+}
+// ---- entrada con huella (WebAuthn): solo en la dirección segura https
+const b64uH=b=>btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const unbH=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-s.length%4)%4)),c=>c.charCodeAt(0));
+function tarjetaHuella(){
+  const H=(DATA.huellas||[]), aqui=H.filter(h=>h.rp===location.hostname), puede=!!(window.PublicKeyCredential&&window.isSecureContext);
+  let esta=false;try{esta=localStorage.getItem('hol_huella')==='1'}catch(e){}
+  return `<div class="card"><h2>Entrada con huella <small>${aqui.length?'<span class="pill good">Activa</span>':'<span class="pill mut">Sin activar</span>'}</small></h2>
+    ${H.length?`<div class="list">${H.map(h=>`<div class="item"><span>${esc(h.nombre)}</span><span><a href="#" data-hquitar="${esc(h.id)}" style="color:var(--bad);font-size:13px">Quitar</a></span><span class="meta">Alta ${h.alta?corto(h.alta.slice(0,10)):''}${h.ultimo?' · último uso '+corto(h.ultimo.slice(0,10))+' '+h.ultimo.slice(11,16):''}${h.rp!==location.hostname?' · en otra dirección':''}</span></div>`).join('')}</div>`:'<p class="empty">Todavía no hay ningún teléfono con huella.</p>'}
+    ${puede?(esta?'<p class="empty" style="margin-top:10px">Este teléfono ya entra con huella.</p>':'<div class="btns"><button class="btn pri" data-hactivar="1">Activar huella en este teléfono</button></div>')
+      :`<p class="note" style="margin-top:12px">La huella solo funciona en la dirección segura del panel${ACCESO&&ACCESO.https?`: <b>${esc(ACCESO.https)}</b>`:''}. Ábrela desde tu teléfono, entra con tu contraseña y ahí te ofrecerá activarla.</p>`}
+    <p class="empty" style="margin-top:10px">Por seguridad, después de ${esc(String(DATA.minutos_sesion||30))} minutos sin usar el panel te vuelve a pedir la huella. La huella no sale de tu teléfono: la caja solo guarda una llave para reconocerlo.</p>
+    <div class="btns"><button class="btn" data-hsalir="1">Salir del panel</button></div></div>`;
+}
+async function activarHuella(t){
+  t.disabled=true;
+  try{
+    const r=await api('/api/huella/reto',{modo:'registrar'});
+    const cr=await navigator.credentials.create({publicKey:{challenge:unbH(r.reto),rp:{name:'La Holandesa',id:location.hostname},
+      user:{id:unbH(r.uid),name:r.usuario,displayName:'Jorge · La Holandesa'},pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],
+      authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'preferred'},attestation:'none',timeout:60000,
+      excludeCredentials:r.ids.map(id=>({type:'public-key',id:unbH(id)}))}});
+    const ua=navigator.userAgent, nom=/SM-|Samsung/i.test(ua)?'Samsung':/iPhone/.test(ua)?'iPhone':/Android/.test(ua)?'Teléfono Android':/Windows/.test(ua)?'Computadora Windows':'Este dispositivo';
+    await api('/api/huella/registrar',{cd:b64uH(cr.response.clientDataJSON),ao:b64uH(cr.response.attestationObject),nombre:nom});
+    try{localStorage.setItem('hol_huella','1')}catch(e){}
+    toast('Huella activada. La próxima vez entras con tu huella.');await cargar(true);
+  }catch(e){toast(e&&e.name==='NotAllowedError'?'Se canceló la huella.':e&&e.name==='InvalidStateError'?'Este teléfono ya tiene la huella activada.':(e.message||'No se pudo activar.'));t.disabled=false}
 }
 function tarjetaDrive(){
   const dv=DATA.drive||{}, nf=GA().movs.filter(m=>m.foto_drive).length;
@@ -1728,7 +1759,7 @@ $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(b)irA(b.dataset.tab)};
 $('#view').addEventListener('click',e=>{
-  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-cf],[data-cfej],[data-cfguardar],[data-cfprueba],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes]');if(!t)return;
+  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-cf],[data-cfej],[data-cfguardar],[data-cfprueba],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes],[data-hactivar],[data-hquitar],[data-hsalir]');if(!t)return;
   const d=t.dataset;
   if(d.go) return irA(d.go);
   if(d.pm){prodModo=d.pm;return render()} if(d.pt){prodT=d.pt;return render()}
@@ -1750,6 +1781,11 @@ $('#view').addEventListener('click',e=>{
   if(d.login){entrar();return}
   if(d.madd){FC.manual.push({unidad:'pz'});$('#fcMan').innerHTML=bloqueManual();const r=document.querySelectorAll('#fcMan .mrow');r[r.length-1].querySelector('input').focus();return}
   if(d.mdel!=null){FC.manual.splice(+d.mdel,1);$('#fcMan').innerHTML=bloqueManual();return}
+  if(d.hactivar){activarHuella(t);return}
+  if(d.hsalir){e.preventDefault();api('/api/salir',{}).catch(()=>{}).finally(()=>location.reload());return}
+  if(d.hquitar){e.preventDefault();if(!confirm('¿Quitar esta huella? Ese teléfono tendrá que entrar con contraseña.'))return;
+    const h=(DATA.huellas||[]).find(x=>x.id===d.hquitar);
+    api('/api/huella/quitar',{id:d.hquitar}).then(()=>{if(h&&h.rp===location.hostname){try{localStorage.removeItem('hol_huella')}catch(e){}}toast('Huella quitada');return cargar(true)}).catch(err=>toast(err.message));return}
   if(d.drver){fetch('/api/drive-script',{credentials:'same-origin'}).then(r=>r.text()).then(t=>{DSCRIPT=t;render()}).catch(err=>toast(err.message));return}
   if(d.drcopiar){const ta=$('#drS');ta.select();(navigator.clipboard?navigator.clipboard.writeText(ta.value):Promise.reject()).then(()=>toast('Programa copiado')).catch(()=>{document.execCommand('copy');toast('Programa copiado')});return}
   if(d.famalta||d.fambaja){e.preventDefault();(async()=>{try{t.disabled=true;await api('/api/familia',{accion:d.famalta?'alta':'baja',nombre:d.famalta?$('#famN').value:d.fambaja});toast(d.famalta?'Agregado':'Quitado');await cargar(true)}catch(err){toast(err.message);t.disabled=false}})();return}
