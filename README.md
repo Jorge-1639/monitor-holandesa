@@ -175,3 +175,5 @@ Versión 30.6.25 — Didi/Uber: clave de hasta 12 caracteres ("Clave del pedido"
 Versión 30.6.26 — COMANDERO → Comanda de cocina: vista en pantalla de cómo sale la comanda, elegir tamaño de platillos y de "para quién es", espacio entre platillos, guardar e imprimir una prueba.
 
 Versión 30.6.27 — comanda de cocina por defecto con platillos y "para quién es" en Grande (el formato que eligió Jorge).
+
+Versión 30.7.2 — comanda de cocina: un solo renglón vacío entre la raya punteada y "para quién es" (antes 3).

@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 103            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.1'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 104            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.2'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -489,7 +489,7 @@ def comanda_bytes(ref, mesero, renglones, folio, nueva, ahora, canal=None, fmt=N
         if r['COD_ESCALA'] != principal:   # solo si este platillo va distinto al resto
             t += ESC + b'!\x08' + e('     > ' + ('PARA LLEVAR' if r['COD_ESCALA'] == '02' else 'COMER AQUI')) + ESC + b'!\x00' + b'\n'
         t += b'\n' * F['espacio']
-    t += b'-' * 42 + b'\n' + b'\n' * 3 + ESC + b'a\x01'      # espacio para que no se junte con los platillos
+    t += b'-' * 42 + b'\n' + b'\n' + ESC + b'a\x01'      # un solo renglón entre la raya y "para quién es" (30.7.2: antes eran 3 y ocupaba mucho papel)
     t += ESC + b'!' + TAM_COMANDA[F['abajo']] + e(abajo[0]) + b'\n' + e(abajo[1]) + ESC + b'!\x00' + b'\n'      # abajo: para quién es, del tamaño que eligió Jorge
     t += e('Enviado desde el COMANDERO') + b'\n' + b'\n' * 6 + GS + b'VB\x0a'
     return t
