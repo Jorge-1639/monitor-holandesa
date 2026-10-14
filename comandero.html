@@ -72,7 +72,7 @@ button:focus-visible{outline:2px solid var(--green-2);outline-offset:2px}
 .mesa.mine{border-color:var(--green);background:var(--green-soft)}
 .mesa.k,.opciones button.k{background:var(--surface);border-width:2.5px;border-style:solid}
 .k-comedor{border-color:#f4b67a!important}.k-comedor b,.opciones .k-comedor span{color:#d9822b!important}
-.k-llevar{border-color:#1a1a1a!important}.k-llevar b,.opciones .k-llevar span{color:#1a1a1a!important}
+.k-llevar{border-color:#5aa9e6!important}.k-llevar b,.opciones .k-llevar span{color:#2f8fd8!important}
 .k-dom{border-color:#5fb880!important}.k-dom b,.opciones .k-dom span{color:#1a1a1a!important}
 .k-didi{border-color:#f26a1b!important}.k-didi b,.k-didi span,.opciones .k-didi span{color:#f26a1b!important}
 .k-uber{border-color:#06934a!important}.k-uber b,.k-uber span,.opciones .k-uber span{color:#06934a!important}
@@ -84,6 +84,7 @@ button:focus-visible{outline:2px solid var(--green-2);outline-offset:2px}
 .mesa .quien{font-weight:700;font-size:14px;color:var(--orange);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mesa.llevar{border-style:dashed;border-color:var(--orange)}
 .mesa.llevar b{color:var(--orange)}
+.modo button[data-pago]{border:2px solid #9aa7b6;background:#fff}
 .modo button[aria-pressed="true"][data-pago],.modo button[aria-pressed="true"][data-cte]{background:var(--green);color:var(--on-green)}
 .big.nueva{display:block;width:100%;margin:14px 0 4px;font-size:18px;padding:16px}
 .opciones{display:flex;flex-direction:column;gap:8px}
@@ -448,7 +449,7 @@ function hojaCanal(c){
   const campo=(id,lbl,ph,extra)=>`<label for="${id}" style="font-weight:600">${lbl}</label><input id="${id}" class="search" style="margin-top:0" autocomplete="off" placeholder="${ph}" ${extra||''}>`;
   let body='';
   if(c==='recoger')body=campo('cnN','¿Para quién es?','Nombre del cliente','maxlength="40"');
-  else if(c==='didi'||c==='uber')body=campo('cnP','Clave del pedido','Ej. 4821','maxlength="5" autocapitalize="characters"')+(c==='didi'?`<label style="font-weight:600">¿Cómo paga?</label><div class="modo small" role="group" style="margin-top:0"><button type="button" data-pago="efectivo" aria-pressed="false">Efectivo</button><button type="button" data-pago="tarjeta" aria-pressed="false">Tarjeta</button></div>`:'<p class="empty" style="margin:0">Uber siempre es con tarjeta.</p>');
+  else if(c==='didi'||c==='uber')body=campo('cnP','<span style="font-size:20px">Clave del pedido</span> <small style="font-weight:500;color:var(--muted)">(hasta 12)</small>','Ej. 123456789012','maxlength="12" autocapitalize="characters"')+(c==='didi'?`<label style="font-weight:600">¿Cómo paga?</label><div class="modo small" role="group" style="margin-top:0"><button type="button" data-pago="efectivo" aria-pressed="false">Efectivo</button><button type="button" data-pago="tarjeta" aria-pressed="false">Tarjeta</button></div>`:'<p class="empty" style="margin:0">Uber siempre es con tarjeta.</p>');
   else body=`<label for="cnT" style="font-weight:600">Teléfono del cliente</label><div style="display:flex;gap:8px"><input id="cnT" class="search" style="margin-top:0;flex:1" inputmode="tel" maxlength="14" autocomplete="off" placeholder="10 números"><button type="button" class="chipbtn" data-act="buscarcte">Buscar</button></div><div id="cnRes"></div>`+campo('cnN','Nombre del cliente','Si no aparece, escríbelo','maxlength="40"');
   $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><form class="sheet" id="fl"><h2>${c==='recoger'?'Para llevar':c==='domicilio'?'Servicio a domicilio':'Pedido de '+CANAL_TXT[c]}</h2>${body}<p id="cnErr" class="err2" hidden></p><button class="big" type="submit">Continuar</button></form></div>`;
   const f=$('#fl'),pri=f.querySelector('input');setTimeout(()=>pri&&pri.focus(),50);let pago='';

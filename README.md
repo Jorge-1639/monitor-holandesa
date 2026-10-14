@@ -169,3 +169,5 @@ Versión 30.6.22 — comandero: clave en cuadro chico centrado; alarma a los 10 
 Versión 30.6.23 — Reportes → Comandas tardadas: las que pasaron de 14 y de 20 min, por turno y por mesero, con los platillos de cada una. Se guardan en la caja en comandas_tiempos.json (no se sube a GitHub).
 
 Versión 30.6.24 — PDF del comandero: si el teléfono no deja compartirlo ("Permission denied"), botones "Mandar dirección por WhatsApp" y "Descargar PDF".
+
+Versión 30.6.25 — Didi/Uber: clave de hasta 12 caracteres ("Clave del pedido" más grande); Efectivo/Tarjeta con contorno; "Para llevar" en azul claro; comanda de cocina con platillos y canal en letra más chica.

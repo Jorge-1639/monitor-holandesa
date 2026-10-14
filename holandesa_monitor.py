@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 98            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.6.24'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 99            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.6.25'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -469,7 +469,7 @@ def comanda_bytes(ref, mesero, renglones, folio, nueva, ahora, canal=None):
     t += b'-' * 42 + b'\n'
     for r in renglones:
         cant = int(r['CANTIDAD']) if float(r['CANTIDAD']).is_integer() else r['CANTIDAD']
-        t += ESC + b'!\x18' + e(f'{cant}  {_dbf_txt(r["DES_CANTAR"])}') + b'\n' + ESC + b'!\x00'  # platillo en negritas y doble de alto
+        t += ESC + b'!\x08' + e(f'{cant}  {_dbf_txt(r["DES_CANTAR"])}') + b'\n' + ESC + b'!\x00'  # platillo en negritas, tamaño normal (30.6.25)
         for v in [v for v in (r.get('_det') or '').split(' · ') if v]:
             t += e('     - ' + _dbf_txt(v).upper()) + b'\n'
         if r.get('VAR_LIBRE'): t += e('     * NOTA: ' + r['VAR_LIBRE']) + b'\n'
@@ -477,7 +477,7 @@ def comanda_bytes(ref, mesero, renglones, folio, nueva, ahora, canal=None):
             t += ESC + b'!\x08' + e('     > ' + ('PARA LLEVAR' if r['COD_ESCALA'] == '02' else 'COMER AQUI')) + ESC + b'!\x00' + b'\n'
         t += b'\n'
     t += b'-' * 42 + b'\n' + b'\n' * 3 + ESC + b'a\x01'      # espacio para que no se junte con los platillos
-    t += ESC + b'!\x38' + e(abajo[0]) + b'\n' + e(abajo[1]) + ESC + b'!\x00' + b'\n'      # abajo, grande y en negritas
+    t += ESC + b'!\x18' + e(abajo[0]) + b'\n' + e(abajo[1]) + ESC + b'!\x00' + b'\n'      # abajo, en negritas y doble de alto (ya no doble de ancho, 30.6.25)
     t += e('Enviado desde el COMANDERO') + b'\n' + b'\n' * 6 + GS + b'VB\x0a'
     return t
 
@@ -1688,9 +1688,9 @@ class Monitor:
             if c_ not in CANALES: raise ValueError('Tipo de pedido no válido.')
             canal = {'canal': c_, 'fecha': ahora.isoformat(timespec='seconds'), 'mesero': mesero['cod']}
             if c_ in ('didi', 'uber'):
-                ped = re.sub(r'[^0-9A-Za-z]', '', str(d.get('pedido') or ''))[:5].upper()
+                ped = re.sub(r'[^0-9A-Za-z]', '', str(d.get('pedido') or ''))[:12].upper()   # clave completa (hasta 12); en MrTienda va solo el final
                 if not ped: raise ValueError('Escribe la clave del pedido de ' + c_.title() + '.')
-                canal.update({'pedido': ped, 'pago': ('efectivo' if d.get('pago') == 'efectivo' else 'tarjeta') if c_ == 'didi' else 'tarjeta', 'ref': ('D' + ped + ('E' if d.get('pago') == 'efectivo' else 'T')) if c_ == 'didi' else 'UBER ' + ped})   # Didi: D + clave + E (efectivo) o T (tarjeta)
+                canal.update({'pedido': ped, 'pago': ('efectivo' if d.get('pago') == 'efectivo' else 'tarjeta') if c_ == 'didi' else 'tarjeta', 'ref': ('D' + ped[-5:] + ('E' if d.get('pago') == 'efectivo' else 'T')) if c_ == 'didi' else 'UBER ' + ped[-5:]})   # Didi: D + clave + E (efectivo) o T (tarjeta)
                 if c_ == 'didi' and d.get('pago') not in ('efectivo', 'tarjeta'): raise ValueError('Marca si el pedido de Didi es en efectivo o con tarjeta.')
             else:
                 nom = limpio(d.get('nombre'), 40)
