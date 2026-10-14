@@ -29,7 +29,7 @@ input:focus-visible,.btn:focus-visible,a:focus-visible{outline:2px solid var(--o
   <div id="zHuella" hidden>
     <button class="btn pri" id="bHuella"><svg viewBox="0 0 24 24"><path d="M12 11v3a7 7 0 0 1-1 3.5M8.5 9.5A4 4 0 0 1 16 11v1.5M5.5 8A7.5 7.5 0 0 1 19 9.5M6 12v1a10 10 0 0 0 1.2 4.7M12 6.5a5 5 0 0 1 4.8 3.7M18.4 14a14 14 0 0 1-.8 4M9 21a11 11 0 0 1-1.5-3.2M14.5 20.5A10 10 0 0 0 16 15"/></svg>Entrar con huella</button>
     <p class="msg" id="mHuella" hidden></p>
-    <button class="link" id="bVerClave">Entrar con contraseña</button>
+    <button class="link" id="bVerClave" hidden>Entrar con contraseña</button>
   </div>
   <form id="fClave">
     <label for="u">Usuario</label><input id="u" autocomplete="username" autocapitalize="none" spellcheck="false" required>
@@ -57,7 +57,7 @@ const seguir=()=>location.replace(location.pathname+location.search);
 let INFO={ids:[]};
 function err(id,t){const e=$(id);e.textContent=t;e.hidden=!t}
 function msgHuella(e){
-  if(e&&e.name==='NotAllowedError')return 'Se canceló o no se reconoció la huella. Intenta otra vez o entra con tu contraseña.';
+  if(e&&e.name==='NotAllowedError')return 'No se reconoció. Toca el botón para intentar otra vez.';
   if(e&&e.name==='InvalidStateError')return 'Este teléfono ya tiene la huella activada.';
   return (e&&e.message)||'No se pudo usar la huella.';
 }
@@ -65,11 +65,11 @@ async function conHuella(){
   const b=$('#bHuella');b.disabled=true;err('#mHuella','');
   try{
     const r=await post('/api/huella/reto',{modo:'entrar'});
-    const cr=await navigator.credentials.get({publicKey:{challenge:unb(r.reto),rpId:location.hostname,timeout:60000,userVerification:'required',
-      allowCredentials:r.ids.map(id=>({type:'public-key',id:unb(id),transports:['internal','hybrid']}))}});
+    const cr=await navigator.credentials.get({publicKey:{challenge:unb(r.reto),rpId:location.hostname,timeout:60000,userVerification:'required',hints:['client-device'],
+      allowCredentials:r.ids.map(id=>({type:'public-key',id:unb(id),transports:['internal']}))}});
     await post('/api/huella/entrar',{id:b64u(cr.rawId),cd:b64u(cr.response.clientDataJSON),ad:b64u(cr.response.authenticatorData),sig:b64u(cr.response.signature)});
     seguir();
-  }catch(e){err('#mHuella',msgHuella(e));b.disabled=false}
+  }catch(e){err('#mHuella',msgHuella(e));b.disabled=false;$('#bVerClave').hidden=false}
 }
 async function activar(){
   const b=$('#bActivar');b.disabled=true;err('#mActivar','');
@@ -77,10 +77,10 @@ async function activar(){
     const r=await post('/api/huella/reto',{modo:'registrar'});
     const cr=await navigator.credentials.create({publicKey:{challenge:unb(r.reto),rp:{name:'La Holandesa',id:location.hostname},
       user:{id:unb(r.uid),name:r.usuario,displayName:'Jorge · La Holandesa'},pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],
-      authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'preferred'},attestation:'none',timeout:60000,
+      authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'discouraged',requireResidentKey:false},hints:['client-device'],attestation:'none',timeout:60000,
       excludeCredentials:r.ids.map(id=>({type:'public-key',id:unb(id)}))}});
     const ua=navigator.userAgent, nom=/SM-|Samsung/i.test(ua)?'Samsung':/iPhone/.test(ua)?'iPhone':/Android/.test(ua)?'Teléfono Android':/Windows/.test(ua)?'Computadora Windows':'Este dispositivo';
-    await post('/api/huella/registrar',{cd:b64u(cr.response.clientDataJSON),ao:b64u(cr.response.attestationObject),nombre:nom});
+    await post('/api/huella/registrar',{cd:b64u(cr.response.clientDataJSON),ao:b64u(cr.response.attestationObject),nombre:nom,reemplazar:true});
     ls('hol_huella','1');seguir();
   }catch(e){err('#mActivar',msgHuella(e));b.disabled=false}
 }
@@ -97,8 +97,8 @@ $('#bVerClave').onclick=()=>{$('#fClave').hidden=false;$('#bVerClave').hidden=tr
 fetch('/api/entrar-info',{cache:'no-store',credentials:'same-origin'}).then(r=>r.json()).then(j=>{
   INFO=j;
   if(puedeHuella&&j.ids&&j.ids.length){$('#zHuella').hidden=false;
-    if(ls('hol_huella')==='1'){$('#fClave').hidden=true;conHuella();return}   // este teléfono activó la huella: la pide de una vez
-    $('#bVerClave').hidden=true;return}
+    if(ls('hol_huella')==='1'){$('#fClave').hidden=true;return}   // este teléfono activó la huella: solo el botón; la contraseña aparece si la huella falla
+    return}
   if(!window.isSecureContext&&j.https){const z=$('#zSeguro');z.hidden=false;
     z.innerHTML=`<div class="nota"><b>¿Quieres entrar con tu huella?</b><br>La huella solo funciona en la dirección segura. Ábrela, entra una vez con tu contraseña y activa la huella.</div><a class="btn" style="margin-top:12px" href="${j.https}${location.pathname==='/'?'/panel':location.pathname}">Abrir dirección segura</a>`}
 }).catch(()=>{});

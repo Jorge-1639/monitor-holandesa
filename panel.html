@@ -1073,7 +1073,9 @@ function tarjetaHuella(){
   let esta=false;try{esta=localStorage.getItem('hol_huella')==='1'}catch(e){}
   return `<div class="card"><h2>Entrada con huella <small>${aqui.length?'<span class="pill good">Activa</span>':'<span class="pill mut">Sin activar</span>'}</small></h2>
     ${H.length?`<div class="list">${H.map(h=>`<div class="item"><span>${esc(h.nombre)}</span><span><a href="#" data-hquitar="${esc(h.id)}" style="color:var(--bad);font-size:13px">Quitar</a></span><span class="meta">Alta ${h.alta?corto(h.alta.slice(0,10)):''}${h.ultimo?' · último uso '+corto(h.ultimo.slice(0,10))+' '+h.ultimo.slice(11,16):''}${h.rp!==location.hostname?' · en otra dirección':''}</span></div>`).join('')}</div>`:'<p class="empty">Todavía no hay ningún teléfono con huella.</p>'}
-    ${puede?(esta?'<p class="empty" style="margin-top:10px">Este teléfono ya entra con huella.</p>':'<div class="btns"><button class="btn pri" data-hactivar="1">Activar huella en este teléfono</button></div>')
+    ${puede?(esta&&aqui.length&&aqui.every(h=>h.v>=2)?'<p class="empty" style="margin-top:10px">Este teléfono ya entra con huella.</p>'
+      :esta&&aqui.length?'<p class="note" style="margin-top:12px">Actualiza tu huella para que al entrar el teléfono vaya directo al lector, sin ventanas de contraseñas guardadas.</p><div class="btns"><button class="btn pri" data-hactivar="1">Actualizar huella de este teléfono</button></div>'
+      :'<div class="btns"><button class="btn pri" data-hactivar="1">Activar huella en este teléfono</button></div>')
       :`<p class="note" style="margin-top:12px">La huella solo funciona en la dirección segura del panel${ACCESO&&ACCESO.https?`: <b>${esc(ACCESO.https)}</b>`:''}. Ábrela desde tu teléfono, entra con tu contraseña y ahí te ofrecerá activarla.</p>`}
     <p class="empty" style="margin-top:10px">Por seguridad, después de ${esc(String(DATA.minutos_sesion||30))} minutos sin usar el panel te vuelve a pedir la huella. La huella no sale de tu teléfono: la caja solo guarda una llave para reconocerlo.</p>
     <div class="btns"><button class="btn" data-hsalir="1">Salir del panel</button></div></div>`;
@@ -1084,10 +1086,10 @@ async function activarHuella(t){
     const r=await api('/api/huella/reto',{modo:'registrar'});
     const cr=await navigator.credentials.create({publicKey:{challenge:unbH(r.reto),rp:{name:'La Holandesa',id:location.hostname},
       user:{id:unbH(r.uid),name:r.usuario,displayName:'Jorge · La Holandesa'},pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],
-      authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'preferred'},attestation:'none',timeout:60000,
-      excludeCredentials:r.ids.map(id=>({type:'public-key',id:unbH(id)}))}});
+      authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'discouraged',requireResidentKey:false},hints:['client-device'],attestation:'none',timeout:60000,
+      excludeCredentials:[]}});
     const ua=navigator.userAgent, nom=/SM-|Samsung/i.test(ua)?'Samsung':/iPhone/.test(ua)?'iPhone':/Android/.test(ua)?'Teléfono Android':/Windows/.test(ua)?'Computadora Windows':'Este dispositivo';
-    await api('/api/huella/registrar',{cd:b64uH(cr.response.clientDataJSON),ao:b64uH(cr.response.attestationObject),nombre:nom});
+    await api('/api/huella/registrar',{cd:b64uH(cr.response.clientDataJSON),ao:b64uH(cr.response.attestationObject),nombre:nom,reemplazar:true});
     try{localStorage.setItem('hol_huella','1')}catch(e){}
     toast('Huella activada. La próxima vez entras con tu huella.');await cargar(true);
   }catch(e){toast(e&&e.name==='NotAllowedError'?'Se canceló la huella.':e&&e.name==='InvalidStateError'?'Este teléfono ya tiene la huella activada.':(e.message||'No se pudo activar.'));t.disabled=false}

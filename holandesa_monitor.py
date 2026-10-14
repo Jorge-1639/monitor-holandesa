@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 108            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.6'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 109            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.7'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -994,9 +994,10 @@ def registrar_huella(d, host):
     if cose.get(3) == -7 and cose.get(1) == 2: llave = {'alg': -7, 'x': cose[-2].hex(), 'y': cose[-3].hex()}
     elif cose.get(3) == -257 and cose.get(1) == 3: llave = {'alg': -257, 'n': cose[-1].hex(), 'e': cose[-2].hex()}
     else: raise RuntimeError('Este teléfono usa un tipo de llave que todavía no se acepta.')
-    h = [x for x in huellas() if x.get('id') != b64u(cid)]
+    # reemplazar: el teléfono vuelve a registrar su huella y la llave anterior de esta dirección se quita
+    h = [x for x in huellas() if x.get('id') != b64u(cid) and not (d.get('reemplazar') and x.get('rp') == host and x.get('nombre') == (re.sub(r'\s+', ' ', str(d.get('nombre') or '')).strip()[:40] or 'Mi teléfono'))]
     nombre = re.sub(r'\s+', ' ', str(d.get('nombre') or '')).strip()[:40] or 'Mi teléfono'
-    h.append(dict(llave, id=b64u(cid), rp=host, nombre=nombre, cuenta=int.from_bytes(ad[33:37], 'big'),
+    h.append(dict(llave, id=b64u(cid), rp=host, nombre=nombre, v=2, cuenta=int.from_bytes(ad[33:37], 'big'),
                   alta=datetime.datetime.now().isoformat(timespec='seconds'), ultimo=''))
     guardar_huellas(h)
     log(f'Huella registrada: {nombre} ({host})')
@@ -2553,7 +2554,7 @@ class Monitor:
         except Exception as e: log('No pude resumir productos por mes: ' + str(e)); out['mensual_prod'] = {}
         try: out['tardadas'] = self.tiempos_lista()
         except Exception as e: log('No pude leer los tiempos de comanda: ' + str(e)); out['tardadas'] = []
-        out['huellas'] = [{k: x.get(k, '') for k in ('id', 'nombre', 'rp', 'alta', 'ultimo')} for x in huellas()]; out['minutos_sesion'] = self.cfg.get('minutos_sesion', 30)
+        out['huellas'] = [{k: x.get(k, '') for k in ('id', 'nombre', 'rp', 'alta', 'ultimo', 'v')} for x in huellas()]; out['minutos_sesion'] = self.cfg.get('minutos_sesion', 30)
         out['quitadas'] = self.quitadas(); out['motivos'] = MOTIVOS; out['familia'] = self.familia()
         out['empleados'] = self.empleados()
         out['gastos'] = self.gastos(); out['categorias_gasto'] = CATEGORIAS_GASTO
