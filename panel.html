@@ -968,7 +968,20 @@ function bloqueAcceso(){
     <p class="empty" style="margin-top:8px">Funciona solo con el teléfono conectado al WiFi del restaurante. La clave no va en el mensaje; dásela tú en persona o aparte.${ts.length?` Tú, desde fuera, puedes probarla con Tailscale: http://${esc(ts[0])}:${ACCESO.puerto}/captura`:''}</p></div>`;
 }
 // ---- comandero: meseros con clave de 4 números (pestaña COMANDERO)
-function vComandero(){return `<h2 class="corte-h" style="text-transform:uppercase;letter-spacing:.08em;margin:6px 0 12px">Comandero</h2>`+tarjetaComandero()+tarjetaComanda()}
+function vComandero(){return `<h2 class="corte-h" style="text-transform:uppercase;letter-spacing:.08em;margin:6px 0 12px">Comandero</h2>`+tarjetaClientesNuevos()+tarjetaComandero()+tarjetaComanda()}
+// ---- clientes para factura que capturó un mesero y falta dar de alta en Mr. Tienda (versión 30.7.12)
+const REG_TXT={'601':'General de Ley Personas Morales','603':'Personas Morales con Fines no Lucrativos','605':'Sueldos y Salarios','606':'Arrendamiento','608':'Demás ingresos','612':'Personas Físicas con Actividades Empresariales y Profesionales','616':'Sin obligaciones fiscales','621':'Incorporación Fiscal','622':'Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras','625':'Plataformas Tecnológicas','626':'Régimen Simplificado de Confianza'};
+function tarjetaClientesNuevos(){
+  const L=(DATA.clientes_nuevos||[]).slice().reverse();if(COPIA||!L.length)return '';
+  const f=(l,v)=>v?`<div class="ditem"><span>${l}</span><span style="text-align:right;user-select:all">${esc(v)}</span></div>`:'';
+  return `<div class="card" style="border:2px solid #2f8fd8"><h2>🧾 Clientes para dar de alta en Mr. Tienda <small>${L.length}</small></h2>
+    <p class="empty">Un mesero capturó estos datos para factura. Dalos de alta en Mr. Tienda (Clientes → Nuevo) y luego toca "Ya lo di de alta". El mesero lo busca en el comandero y pone la cuenta a su nombre.</p>
+    ${L.map(x=>{const d=x.datos||{};return `<details class="drow" style="margin-top:8px"><summary><span>${esc(d.razon_social||'')}<small>${esc(d.rfc||'')} · ${esc(x.cuenta||'')} · ${esc(x.mesero||'')} · ${esc((x.fecha||'').replace('T',' '))}</small></span></summary><div class="dlist">
+      ${f('Razón social',d.razon_social)}${f('Nombre comercial',d.nombre)}${f('Contacto',d.contacto)}${f('RFC',d.rfc)}${f('Correo',d.correo)}${f('Teléfono',d.telefono)}
+      ${f('Calle',d.calle)}${f('No. exterior',d.no_ext)}${f('No. interior',d.no_int)}${f('Colonia',d.colonia)}${f('Municipio',d.municipio)}${f('Estado',d.estado)}${f('C.P.',d.cp)}${f('Localidad',d.localidad)}${f('Referencia',d.referencia)}
+      ${f('Régimen fiscal',d.regimen?d.regimen+' '+(REG_TXT[d.regimen]||''):'')}${f('Uso CFDI',d.uso)}
+      <div class="btns" style="margin-top:8px"><button class="btn pri" data-cnquitar="${esc(x.id)}">Ya lo di de alta</button></div></div></details>`}).join('')}</div>`;
+}
 // ---- comanda de cocina: verla en pantalla y elegir el tamaño de las letras (versión 30.6.26)
 let CF=null,CF_EJ='comedor',CF_L=null,CF_G=null;
 function tarjetaComanda(){
@@ -1784,7 +1797,7 @@ $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(b)irA(b.dataset.tab)};
 $('#view').addEventListener('click',e=>{
-  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-cf],[data-cfej],[data-cfguardar],[data-cfprueba],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes],[data-hactivar],[data-hquitar],[data-hsalir]');if(!t)return;
+  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-cnquitar],[data-cf],[data-cfej],[data-cfguardar],[data-cfprueba],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes],[data-hactivar],[data-hquitar],[data-hsalir]');if(!t)return;
   const d=t.dataset;
   if(d.go) return irA(d.go);
   if(d.pm){prodModo=d.pm;return render()} if(d.pt){prodT=d.pt;return render()}
@@ -1823,6 +1836,7 @@ $('#view').addEventListener('click',e=>{
   if(d.cfej){CF_EJ=d.cfej;return cfMuestra()}
   if(d.cfguardar){t.disabled=true;return cfMuestra('guardar')}
   if(d.cfprueba){t.disabled=true;cfMuestra('prueba').finally(()=>{t.disabled=false});return}
+  if(d.cnquitar){e.preventDefault();t.disabled=true;api('/api/clientes-nuevos',{accion:'quitar',id:d.cnquitar}).then(()=>{DATA.clientes_nuevos=(DATA.clientes_nuevos||[]).filter(x=>x.id!==d.cnquitar);render();toast('Quitado de la lista')}).catch(err=>{t.disabled=false;toast(err.message)});return}
   if(d.mspdf){e.preventDefault();enviarPdf(d.mspdf,NUEVO_MS);return}
   if(d.msenlace){e.preventDefault();abrirEnlaceMs((DATA.meseros||[]).find(x=>x.id===d.msenlace));return}
   if(d.msacceso){e.preventDefault();NUEVO_MS=null;NUEVO_MS_COD=null;fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;ACCESO.cmd=true;render()}).catch(err=>toast(err.message));return}

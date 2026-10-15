@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 113            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.11'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 114            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.12'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -119,6 +119,10 @@ def horario_texto(base):
 PUESTOS = ['Mesero', 'Cajero', 'Encargada', 'Cocinero', 'Ayudante de cocina', 'Ayudante general', 'Repartidor', 'Lavaloza', 'Otro']       # meseros del comandero: código de MrTienda + huella de su clave
 IA_URL = 'https://api.anthropic.com/v1/messages'
 IA_MODELO = 'claude-haiku-5-5'
+PROMPT_CONSTANCIA = '''Lee la foto de esta Constancia de Situación Fiscal del SAT (o del papel con datos de facturación que dio el cliente) y responde SOLO con un objeto JSON, sin texto antes ni después, con esta forma:
+{"rfc": "", "razon_social": "", "cp": "", "regimen": "", "calle": "", "no_ext": "", "no_int": "", "colonia": "", "localidad": "", "municipio": "", "estado": "", "correo": "", "telefono": ""}
+Reglas: rfc en mayúsculas sin espacios. razon_social: la denominación o razón social; si es persona física, nombre completo (nombre y apellidos) en mayúsculas, sin régimen de capital. cp: el código postal del domicilio fiscal (5 números). regimen: SOLO la clave de 3 números del catálogo del SAT (601 General de Ley Personas Morales, 603 Personas Morales con Fines no Lucrativos, 605 Sueldos y Salarios, 606 Arrendamiento, 608 Demás ingresos, 612 Personas Físicas con Actividades Empresariales y Profesionales, 616 Sin obligaciones fiscales, 621 Incorporación Fiscal, 622 Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras, 625 Plataformas Tecnológicas, 626 Régimen Simplificado de Confianza); si tiene varios, el primero de la lista. estado: nombre completo en mayúsculas (ej. BAJA CALIFORNIA). Lo que no se vea, déjalo vacío; no inventes.'''
+
 PROMPT_TICKET = '''Eres el capturista de compras de un restaurante en Ensenada, México. Lee la foto de este ticket o factura de compra y responde SOLO con un objeto JSON, sin texto antes ni después, con esta forma:
 {"legible": true, "proveedor": "nombre corto del negocio que vendió", "fecha": "AAAA-MM-DD o vacío", "ticket": "número de ticket o factura o vacío",
  "subtotal": 0, "iva": 0, "total": 0,
@@ -1309,7 +1313,7 @@ class Monitor:
                         'abrio': (x.get('HORA_AP') or x.get('HORA') or '')[:5], 'mesero': (x.get('DES_VENDED') or '').strip().title() or self.name(x.get('COD_VENDED')),
                         'pers': int(x.get('COMENSALES') or 1), 'arts': int(x.get('ARTS') or 0), 'total': round(x.get('IMPORTE_MN') or 0, 2),
                         'llevar': x.get('COD_ESCALA') == '02', 'archivo': arch, 'items': items, 'turno': turno_raw,
-                        'cod': (x.get('COD_VENDED') or '').strip()})
+                        'cod': (x.get('COD_VENDED') or '').strip(), 'cte': (x.get('COD_CTE') or '').strip(), 'des_cte': _dbf_txt((x.get('DES_CTE') or '').strip())})
         # cuántos cortes de caja han pasado desde que se abrió cada cuenta (1 = amarillo, 2 o más = rojo)
         try:
             cortes = self.horas_de_corte()
@@ -1828,12 +1832,141 @@ class Monitor:
     def tiempos_lista(self):
         return sorted(({'k': k, **v} for k, v in self.tiempos().items()), key=lambda r: (r['fecha'], r['enviada']))
 
+    # ------------------------------------------------ clientes para factura (versión 30.7.12)
+    # Buscar en el catálogo de MrTienda (DATABASE\CLIENTES.DBF) y asignar el cliente a una cuenta abierta (COD_CTE, DES_CTE y SOLICITA,
+    # igual que lo hizo MrTienda en la prueba del 14-oct-2026). Completar datos fiscales que no son parte de ningún índice
+    # (CP, régimen, uso CFDI, correo) es seguro: no toca CLIENTES.CDX. El alta de clientes nuevos todavía la hace la caja.
+    CTE_FISCALES = ('CTE_CP', 'I_RGF', 'USOCFDI', 'CTE_MAIL')
+    @staticmethod
+    def _cte(x):
+        t = lambda k: _dbf_txt(str(x.get(k) or '').strip())
+        dom = ' '.join(v for v in (t('CTE_CALLE'), t('CTE_NOEXT'), ('int. ' + t('CTE_NOINT')) if t('CTE_NOINT') else '', t('CTE_COLON'), t('CTE_MUNIC')) if v) or ' '.join(v for v in (t('CTE_DIREC1'), t('CTE_DIREC2')) if v)
+        return {'cod': t('COD_CTE'), 'nombre': t('CTE_NOMBRE'), 'razon': t('RAZON_SOC'), 'rfc': t('CTE_RFC'), 'cp': t('CTE_CP'), 'regimen': t('I_RGF'),
+                'uso': t('USOCFDI'), 'correo': t('CTE_MAIL'), 'tel': t('CTE_TEL1') or t('CTE_TEL2'), 'contacto': t('CTE_CONTAC'), 'domicilio': dom, 'referencia': t('CTE_REFLOC')}
+    def clientes_buscar(self, q):
+        ruta = self._cat('CLIENTES.DBF')
+        if not os.path.isfile(ruta): raise RuntimeError('No encontré el catálogo de clientes de MrTienda.')
+        sa = lambda v: re.sub(r'\s+', ' ', _sin_acento(_dbf_txt(str(v or ''))).upper()).strip()
+        Q = sa(q); dig = re.sub(r'\D', '', Q); alnum = re.sub(r'[^A-Z0-9&Ñ]', '', Q)
+        if len(Q) < 3: raise ValueError('Escribe al menos 3 letras o números.')
+        out = []
+        for x in self.rows(ruta):
+            if x.get('INACTIVO') or not str(x.get('COD_CTE') or '').strip(): continue
+            rfc = sa(x.get('CTE_RFC')).replace(' ', '').replace('-', '')
+            nom, raz = sa(x.get('CTE_NOMBRE')), sa(x.get('RAZON_SOC'))
+            tels = [re.sub(r'\D', '', str(x.get(k) or '')) for k in ('CTE_TEL1', 'CTE_TEL2')]
+            pts = 0
+            if len(alnum) >= 4 and rfc and rfc.startswith(alnum): pts = 3 if rfc == alnum else 2
+            elif len(dig) >= 7 and len(dig) == len(Q.replace(' ', '')) and any(t and (t.endswith(dig) or dig in t) for t in tels): pts = 2
+            elif all(w in nom or w in raz for w in Q.split()): pts = 1 + (nom.startswith(Q) or raz.startswith(Q))
+            if pts: out.append((pts, x))
+        out.sort(key=lambda z: (-z[0], sa(z[1].get('CTE_NOMBRE'))))
+        return {'ok': True, 'clientes': [self._cte(x) for _, x in out[:15]], 'mas': len(out) > 15}
+    def cliente_aplicar(self, mesero, d):
+        archivo = re.sub(r'[^A-Za-z0-9]', '', str(d.get('k') or ''))[:11]; cod = re.sub(r'\D', '', str(d.get('cod') or ''))[:6]
+        if not archivo or len(cod) != 6: raise ValueError('Falta la cuenta o el cliente.')
+        com = os.path.join(self.base, 'COMUNES'); pend = os.path.join(com, 'PENDIENT.DBF'); ruta = self._cat('CLIENTES.DBF')
+        comp = {k: str(v).strip().upper() if k != 'CTE_MAIL' else str(v).strip() for k, v in (d.get('completar') or {}).items() if k in self.CTE_FISCALES and str(v or '').strip()}
+        if 'CTE_CP' in comp and not re.fullmatch(r'\d{5}', comp['CTE_CP']): raise ValueError('El código postal debe ser de 5 números.')
+        if 'I_RGF' in comp and not re.fullmatch(r'\d{3}', comp['I_RGF']): raise ValueError('Régimen fiscal no válido.')
+        if 'USOCFDI' in comp and not re.fullmatch(r'[A-Z]{1,2}\d{2}', comp['USOCFDI']): raise ValueError('Uso de CFDI no válido.')
+        with self.write_lock:
+            with open(ruta, 'rb') as f: cb = bytearray(f.read())
+            cn, chl, crl, cfl = _layout(cb)
+            slot = next((k for k in range(cn) if cb[chl + k*crl:chl + k*crl + 1] != b'*' and _campo(cb[chl + k*crl:chl + (k+1)*crl], cfl, 'COD_CTE').decode('latin-1').strip() == cod), None)
+            if slot is None: raise RuntimeError('Ese cliente ya no está en MrTienda.')
+            crec = bytearray(cb[chl + slot*crl:chl + (slot+1)*crl])
+            nombre = _campo(crec, cfl, 'CTE_NOMBRE').decode('latin-1').strip(); contacto = _campo(crec, cfl, 'CTE_CONTAC').decode('latin-1').strip()
+            # 1) completar datos fiscales del cliente (campos sin índice); respaldo del renglón original
+            if comp:
+                d_ = _respaldar([], 'CTE' + cod)
+                with open(os.path.join(d_, 'CLIENTE_%s_renglon_%d.bin' % (cod, slot)), 'wb') as f: f.write(bytes(crec))
+                for k, v in comp.items(): _pon(crec, cfl, k, v)
+                _escribe_en(ruta, chl + slot*crl, bytes(crec))
+                log(f'COMANDERO: {mesero["nombre"]} completó datos fiscales del cliente {cod} ({_dbf_txt(nombre)}): {", ".join(comp)}')
+            # 2) asignar el cliente a la cuenta abierta (PENDIENT y .ENC), como MrTienda
+            with open(pend, 'rb') as f: pb = bytearray(f.read())
+            pn, phl, prl, pfl = _layout(pb)
+            k_ = next((k for k in range(pn) if pb[phl + k*prl:phl + k*prl + 1] != b'*' and _campo(pb[phl + k*prl:phl + (k+1)*prl], pfl, 'FILE').decode('latin-1').strip().upper() == archivo.upper()), None)
+            if k_ is None: raise RuntimeError('Esa cuenta ya no está abierta (¿ya la cobraron?).')
+            rec = bytearray(pb[phl + k_*prl:phl + (k_+1)*prl])
+            if _campo(rec, pfl, 'PAGADO') in (b'T', b't'): raise RuntimeError('Esa cuenta ya está pagada.')
+            if _campo(rec, pfl, 'COD_VENDED').decode('latin-1').strip() != mesero['cod']: raise RuntimeError('Esa cuenta es de otro mesero.')
+            enc = os.path.join(com, archivo + '.ENC')
+            _respaldar([pend, enc], archivo + '_CTE')
+            vals = {'COD_CTE': cod, 'DES_CTE': nombre.encode('latin-1'), 'SOLICITA': contacto.encode('latin-1')}
+            for k, v in vals.items(): _pon(rec, pfl, k, v)
+            _escribe_en(pend, phl + k_*prl, bytes(rec))
+            if os.path.isfile(enc):
+                with open(enc, 'rb') as f: eb = bytearray(f.read())
+                en, ehl, erl, efl = _layout(eb)
+                if en >= 1:
+                    er = bytearray(eb[ehl:ehl + erl])
+                    for k, v in vals.items(): _pon(er, efl, k, v)
+                    _escribe_en(enc, ehl, bytes(er))
+            with self.rows_lock:
+                self.cache = {k: v for k, v in self.cache.items() if not k[0].upper().startswith(com.upper()) and k[0] != ruta}
+        log(f'COMANDERO: {mesero["nombre"]} puso la cuenta {archivo} a nombre del cliente {cod} ({_dbf_txt(nombre)}) para factura')
+        return {'ok': True, 'cod': cod, 'nombre': _dbf_txt(nombre)}
+    def leer_constancia(self, b64):
+        llave = self.cfg.get('ia_llave')
+        if not llave: raise RuntimeError('La lectura automática no está activada (Reportes → Gastos). Escribe los datos a mano.')
+        if ',' in b64[:80]: b64 = b64.split(',', 1)[1]
+        cuerpo = {'model': self.cfg.get('ia_modelo') or IA_MODELO, 'max_tokens': 1000,
+                  'messages': [{'role': 'user', 'content': [{'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg', 'data': b64}},
+                                                            {'type': 'text', 'text': PROMPT_CONSTANCIA}]}]}
+        req = urllib.request.Request(IA_URL, data=json.dumps(cuerpo).encode('utf-8'), method='POST',
+                                     headers={'x-api-key': llave, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'})
+        try:
+            with urllib.request.urlopen(req, timeout=90) as r: resp = json.loads(r.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            log('La lectura de la constancia falló: ' + str(e.code) + ' ' + e.read().decode('utf-8', 'ignore')[:300])
+            raise RuntimeError('No se pudo leer la foto (' + ('llave no válida' if e.code in (401, 403) else 'sin saldo o límite' if e.code in (402, 429) else 'error ' + str(e.code)) + '). Escribe los datos a mano.')
+        txt = ''.join(b.get('text', '') for b in resp.get('content', []) if b.get('type') == 'text')
+        a, z = txt.find('{'), txt.rfind('}')
+        if a < 0 or z < a: raise RuntimeError('No se entendió la foto. Intenta otra más clara o escribe los datos.')
+        j = json.loads(txt[a:z + 1])
+        out = {k: str(j.get(k) or '').strip()[:120] for k in ('rfc', 'razon_social', 'cp', 'regimen', 'calle', 'no_ext', 'no_int', 'colonia', 'localidad', 'municipio', 'estado', 'correo', 'telefono')}
+        out['rfc'] = re.sub(r'[^A-Z0-9&Ñ]', '', out['rfc'].upper())[:13]; out['cp'] = re.sub(r'\D', '', out['cp'])[:5]; out['regimen'] = re.sub(r'\D', '', out['regimen'])[:3]
+        try: out['existentes'] = self.clientes_buscar(out['rfc'])['clientes'] if len(out['rfc']) >= 12 else []
+        except Exception: out['existentes'] = []
+        return {'ok': True, 'datos': out}
+    CLIENTES_NUEVOS_F = os.path.join(AQUI, 'clientes_nuevos.json')
+    def clientes_nuevos(self):
+        try: return json.load(open(self.CLIENTES_NUEVOS_F, encoding='utf-8'))
+        except (OSError, ValueError): return []
+    def cliente_nuevo(self, mesero, d):
+        D = {k: re.sub(r'\s+', ' ', str(v or '')).strip()[:150] for k, v in (d.get('datos') or {}).items()
+             if k in ('rfc', 'nombre', 'razon_social', 'cp', 'regimen', 'uso', 'correo', 'telefono', 'calle', 'no_ext', 'no_int', 'colonia', 'localidad', 'municipio', 'estado', 'referencia', 'contacto')}
+        D['rfc'] = re.sub(r'[^A-Z0-9&Ñ]', '', D.get('rfc', '').upper())
+        if len(D['rfc']) not in (12, 13): raise ValueError('El RFC debe tener 12 o 13 letras y números.')
+        if not D.get('razon_social'): raise ValueError('Escribe la razón social o el nombre.')
+        if not re.fullmatch(r'\d{5}', D.get('cp', '')): raise ValueError('El código postal debe ser de 5 números.')
+        if not re.fullmatch(r'\d{3}', D.get('regimen', '')): raise ValueError('Elige el régimen fiscal.')
+        D['nombre'] = D.get('nombre') or D['razon_social']
+        cta = next((a for a in self.abiertas() if a['archivo'] == str(d.get('k') or '')), None)
+        r = {'id': secrets.token_hex(4), 'fecha': datetime.datetime.now().isoformat(timespec='minutes'), 'mesero': mesero['nombre'],
+             'cuenta': (cta or {}).get('ref', ''), 'archivo': (cta or {}).get('archivo', ''), 'datos': D}
+        with self.write_lock:
+            L = [x for x in self.clientes_nuevos() if x.get('datos', {}).get('rfc') != D['rfc']] + [r]
+            tmp = self.CLIENTES_NUEVOS_F + '.tmp'
+            with open(tmp, 'w', encoding='utf-8') as f: json.dump(L[-300:], f, ensure_ascii=False, indent=1)
+            os.replace(tmp, self.CLIENTES_NUEVOS_F)
+        log(f'COMANDERO: {mesero["nombre"]} capturó datos de factura de {D["rfc"]} para dar de alta en MrTienda')
+        return {'ok': True}
+    def clientes_nuevos_accion(self, d):
+        with self.write_lock:
+            L = [x for x in self.clientes_nuevos() if x.get('id') != d.get('id')]
+            with open(self.CLIENTES_NUEVOS_F, 'w', encoding='utf-8') as f: json.dump(L, f, ensure_ascii=False, indent=1)
+        self.refresh(); return {'ok': True}
+
     def cuentas_comandero(self):
         out = []; ped = self.pedidos()
         for a in self.abiertas():
             out.append({'archivo': a['archivo'], 'ref': a['ref'], 'abrio': a['abrio'], 'fecha': a['fecha'], 'mesero': a['mesero'], 'cod': a['cod'],
                         'llevar': a['llevar'], 'pers': a['pers'], 'total': a['total'],
                         'canal': {k: v for k, v in (ped.get(a['archivo']) or {}).items() if k in ('canal', 'pedido', 'pago', 'nombre')}, 'cortes': a.get('cortes', 0),
+                        'cte': a.get('cte', ''), 'des_cte': a.get('des_cte', ''),
                         'items': [{'n': _dbf_txt(i['n']), 'q': i['q'], 'imp': i['imp'], 'det': _dbf_txt(i.get('det', '')), 'h': i['h'], 'llevar': i['llevar']} for i in a['items']]})
         return out
 
@@ -2558,6 +2691,7 @@ class Monitor:
         out['mensual'] = [{'mes': k, 'total': round(v[0], 2), 'tickets': v[1], 'personas': v[2]} for k, v in sorted(mon.items())]
         try: out['mensual_prod'] = self.productos_mes(idx, days)
         except Exception as e: log('No pude resumir productos por mes: ' + str(e)); out['mensual_prod'] = {}
+        out['clientes_nuevos'] = self.clientes_nuevos()
         try: out['tardadas'] = self.tiempos_lista()
         except Exception as e: log('No pude leer los tiempos de comanda: ' + str(e)); out['tardadas'] = []
         out['huellas'] = [{k: x.get(k, '') for k in ('id', 'nombre', 'rp', 'alta', 'ultimo', 'v')} for x in huellas()]; out['minutos_sesion'] = self.cfg.get('minutos_sesion', 30)
@@ -2780,6 +2914,22 @@ def make_handler(mon, cfg):
                     if not isinstance(e, (ValueError, PermissionError, RuntimeError)): log('Rol de descansos: ' + traceback.format_exc())
                     body = json.dumps({'ok': False, 'error': str(e), 'sesion': not isinstance(e, PermissionError)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(409); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
+            if self.path in ('/api/comandero/cliente-aplicar', '/api/comandero/leer-constancia', '/api/comandero/cliente-nuevo'):   # factura (30.7.12)
+                m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'), self.client_address[0])
+                try:
+                    if m_ and m_.get('bloqueo'): raise PermissionError(m_['bloqueo'])
+                    if not m_: raise PermissionError('Tu sesion termino. Vuelve a entrar con tu clave.')
+                    n = int(self.headers.get('Content-Length', '0') or 0)
+                    if n > 8 * 1024 * 1024: raise ValueError('La foto es demasiado grande.')
+                    d = json.loads(self.rfile.read(n).decode('utf-8'))
+                    if self.path.endswith('aplicar'): out = mon.cliente_aplicar(m_, d)
+                    elif self.path.endswith('constancia'): out = mon.leer_constancia(str(d.get('foto') or ''))
+                    else: out = mon.cliente_nuevo(m_, d)
+                    return self._send(json.dumps(out, ensure_ascii=False).encode('utf-8'), 'application/json; charset=utf-8')
+                except Exception as e:
+                    if not isinstance(e, (ValueError, PermissionError, RuntimeError)): log('Comandero, factura: ' + traceback.format_exc())
+                    body = json.dumps({'ok': False, 'error': str(e), 'sesion': not isinstance(e, PermissionError)}, ensure_ascii=False).encode('utf-8')
+                    self.send_response(409); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
             if self.path in ('/api/comandero/tiempo', '/api/comandero/tarde'):   # alarma de 14/20 min y "Ya salió" → reporte de comandas tardadas
                 m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'), self.client_address[0])
                 try:
@@ -2812,7 +2962,7 @@ def make_handler(mon, cfg):
                     body = json.dumps({'ok': False, 'error': str(e), 'sesion': not isinstance(e, PermissionError)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(409); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
             if not self._auth(caja_ok=(self.path in ('/api/compra', '/api/leer-ticket'))): return
-            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/log-cliente', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia'): self.send_response(404); self.end_headers(); return
+            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/log-cliente', '/api/clientes-nuevos', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return
             try:
@@ -2828,6 +2978,7 @@ def make_handler(mon, cfg):
                 elif self.path == '/api/rh-archivo': out=mon.rh_archivo_subir(d)
                 elif self.path == '/api/comandero-envio': out=mon.comandero_interruptor(d)
                 elif self.path == '/api/comanda-formato': out=mon.comanda_formato(d)
+                elif self.path == '/api/clientes-nuevos': out = mon.clientes_nuevos_accion(d)
                 elif self.path == '/api/log-cliente': log('Teléfono (' + str(d.get('que', ''))[:40] + '): ' + str(d.get('error', ''))[:200] + ' · ' + str(d.get('ua', ''))[:160]); out = {'ok': True}
                 elif self.path == '/api/leer-pendientes': out=mon.leer_pendientes()
                 elif self.path == '/api/drive':
@@ -2921,6 +3072,18 @@ def make_handler(mon, cfg):
                 self.send_header('Content-Length', str(len(b_))); self.end_headers(); self.wfile.write(b_); return
             if p0 == '/logo_comandero.png' and logo_cmd:
                 return self._send(logo_cmd, 'image/png')
+            if p0 == '/api/comandero/clientes-buscar':
+                import urllib.parse
+                m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'), self.client_address[0])
+                try:
+                    if not m_ or m_.get('bloqueo'): raise PermissionError('Tu sesión terminó. Vuelve a entrar con tu clave.')
+                    q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                    body = json.dumps(mon.clientes_buscar((q.get('q') or [''])[0]), ensure_ascii=False).encode('utf-8')
+                    return self._send(body, 'application/json; charset=utf-8')
+                except Exception as e:
+                    if not isinstance(e, (ValueError, PermissionError, RuntimeError)): log('Comandero, buscar clientes: ' + traceback.format_exc())
+                    body = json.dumps({'ok': False, 'error': str(e)}, ensure_ascii=False).encode('utf-8')
+                    self.send_response(400); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
             if p0 == '/api/comandero/clientes':
                 import urllib.parse
                 m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'), self.client_address[0])
@@ -3047,7 +3210,9 @@ def buscar_actualizacion():
         archivos = [a for a in archivos if a in permitidos or re.fullmatch(r'[a-z0-9_]+\.(html|css|js|png|bat|vbs)', a)]
         if 'holandesa_monitor.py' not in archivos: raise RuntimeError('archivos.txt incompleto')
         for a in archivos:
-            with open(os.path.join(nuevo, a), 'wb') as f: f.write(_bajar(a))
+            datos_ = _bajar(a)
+            if a.endswith('.html') and (len(datos_) < 2000 or b'<script' not in datos_): raise RuntimeError(a + ' llegó vacío o incompleto')   # 30.7.12: nunca instalar una página vacía
+            with open(os.path.join(nuevo, a), 'wb') as f: f.write(datos_)
         py_compile.compile(os.path.join(nuevo, 'holandesa_monitor.py'), doraise=True)   # si no compila, no se instala
         shutil.rmtree(resp, ignore_errors=True); os.makedirs(resp, exist_ok=True)
         for a in archivos:

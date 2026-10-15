@@ -65,6 +65,14 @@ button:focus-visible{outline:2px solid var(--green-2);outline-offset:2px}
 .seg{display:flex;gap:6px;margin:14px 0}
 .seg button{flex:1;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px;font-weight:600;font-size:14px}
 .seg button[aria-pressed="true"]{background:var(--green);color:var(--on-green);border-color:var(--green)}
+.factbar{display:flex;align-items:center;gap:8px;width:100%;margin:10px 0 4px;padding:12px 14px;border:2px dashed #5aa9e6;border-radius:14px;background:var(--surface);color:var(--ink);font:700 16px var(--body);text-align:left}
+.factbar.si{border-style:solid;border-color:#2f8fd8;background:#eaf4fd;color:#123}.factbar small{margin-left:auto;font-weight:600;color:#2f8fd8}
+.fform{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px 10px;width:100%}.fform label{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:700;color:var(--muted)}
+.fform label.w{grid-column:1/-1}.fform input,.fform select{width:100%;box-sizing:border-box;height:42px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);padding:0 10px;font:15px var(--body);min-width:0}
+.fform .falta{border-color:#e0a800;background:#fff7d6;color:#1a1a1a}
+.fres{display:flex;flex-direction:column;gap:6px;margin-top:8px}.fres button{text-align:left;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);padding:10px 12px;font:14px var(--body)}
+.fres button b{display:block;font-size:15px}.fres small{color:var(--muted)}
+.frev{border:2px solid #2f8fd8;border-radius:14px;padding:12px;background:#f3f9ff;color:#123;font-size:15px;line-height:1.45}.frev b{display:inline-block;min-width:118px;color:#456;font-size:13px}
 .plano{position:relative;width:100%;aspect-ratio:100/80;background:var(--surface);border:1px solid var(--line);border-radius:16px;margin-top:6px;overflow:hidden}
 .pent{position:absolute;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border:1.5px dashed var(--line);border-radius:8px}
 .pent.v{writing-mode:vertical-rl}
@@ -429,7 +437,7 @@ function render(){
     const c=S.sel.k?cuentaDe(S.sel.k):null;
     const prev=itemsDe(c), all=[...prev,...S.draft];
     app.innerHTML=`<header class="top"><button class="back" data-act="mesas" aria-label="Regresar">‹</button><h1>${esc(titulo())}<small>${c?'Abierta '+esc(c.abrio)+' · '+esc(c.mesero):'Cuenta nueva · '+esc(S.user.nombre)}</small></h1></header>
-      ${falla}
+      ${falla}${c&&!(canalDe(c)&&['didi','uber'].includes(canalDe(c).canal))?(c.cte&&c.cte!=='007482'?`<button class="factbar si" data-act="factura">🧾 Factura a nombre de <b>${esc(c.des_cte||c.cte)}</b><small>Cambiar</small></button>`:`<button class="factbar" data-act="factura">🧾 ¿Va a querer factura?</button>`):''}
       <div class="section">Consumo</div>
       ${all.length?`<div class="lines">${all.map((it,i)=>lineHTML(it,i-prev.length)).join('')}</div><div class="total num"><span>Total</span><span>${money(c&&!S.draft.length?c.total:tot(all))}</span></div>`:'<p class="empty">Todavía no hay nada en esta cuenta.</p>'}
       <p class="empty">El cobro se hace en la caja.</p>${avisoV1}`;
@@ -508,6 +516,93 @@ function hojaCanal(c){
       if(c==='domicilio'){const t=v('cnT').replace(/\D/g,'');if(t.length<7)return err('Escribe el teléfono del cliente (10 números).');sel.canal.tel=t}}
     $('#sheet').innerHTML='';abrir(sel)};
 }
+// ---- factura: buscar al cliente en MrTienda o capturarlo (foto de la constancia o a mano), revisar y aplicar a la cuenta (30.7.12)
+const REGIMENES=[['601','General de Ley Personas Morales'],['603','Personas Morales con Fines no Lucrativos'],['605','Sueldos y Salarios'],['606','Arrendamiento'],['607','Enajenación o Adquisición de Bienes'],['608','Demás ingresos'],['610','Residentes en el Extranjero'],['611','Dividendos'],['612','Personas Físicas con Actividades Empresariales y Profesionales'],['614','Ingresos por intereses'],['615','Obtención de premios'],['616','Sin obligaciones fiscales'],['620','Sociedades Cooperativas de Producción'],['621','Incorporación Fiscal'],['622','Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras'],['623','Opcional para Grupos de Sociedades'],['624','Coordinados'],['625','Plataformas Tecnológicas'],['626','Régimen Simplificado de Confianza']];
+const USOS=[['G03','Gastos en general'],['G01','Adquisición de mercancías'],['G02','Devoluciones, descuentos o bonificaciones'],['I01','Construcciones'],['I02','Mobiliario y equipo de oficina'],['I03','Equipo de transporte'],['I04','Equipo de cómputo'],['I05','Dados, troqueles, moldes y herramental'],['I06','Comunicaciones telefónicas'],['I07','Comunicaciones satelitales'],['I08','Otra maquinaria y equipo'],['D01','Honorarios médicos, dentales y hospitalarios'],['D02','Gastos médicos por incapacidad'],['D03','Gastos funerales'],['D04','Donativos'],['D05','Intereses reales de créditos hipotecarios'],['D06','Aportaciones voluntarias al SAR'],['D07','Primas de seguros de gastos médicos'],['D08','Transportación escolar obligatoria'],['D09','Depósitos para el ahorro'],['D10','Servicios educativos (colegiaturas)'],['S01','Sin efectos fiscales'],['CP01','Pagos']];
+const txtReg=k=>{const r=REGIMENES.find(x=>x[0]===k);return r?k+' '+r[1]:(k||'—')}, txtUso=k=>{const r=USOS.find(x=>x[0]===k);return r?k+' '+r[1]:(k||'—')};
+const selOpts=(L,v,vacio)=>(vacio?`<option value="">${vacio}</option>`:'')+L.map(([k,t])=>`<option value="${k}" ${k===v?'selected':''}>${k} · ${esc(t)}</option>`).join('');
+let FACT=null;
+async function apiM(url,body){const r=await fetch(url,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-Mesero-Token':S.tok||''},body:body?JSON.stringify(body):undefined});
+  const j=await r.json().catch(()=>({ok:false,error:'Respuesta inválida ('+r.status+')'}));if(!j.ok){if(j.sesion===false)salir(j.error);throw new Error(j.error||'No se pudo')}return j}
+function hojaFactura(){const c=cuentaDe(S.sel&&S.sel.k);if(!c)return toast('Primero manda la cuenta a cocina; luego le pones la factura.');
+  FACT={k:c.archivo};
+  $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet" id="fsh"><h2>🧾 Factura · ${esc(titulo())}</h2>
+    <p class="empty" style="margin:0">Busca al cliente en Mr. Tienda por <b>RFC</b>, <b>nombre</b> o <b>teléfono</b>.</p>
+    <div style="display:flex;gap:8px"><input id="fq" class="search" style="margin-top:0;flex:1" autocomplete="off" placeholder="RFC, nombre o teléfono" autocapitalize="characters"><button class="chipbtn" data-fact="buscar">Buscar</button></div>
+    <div id="fout"></div>
+    <div class="section" style="margin-top:14px">¿No está? Cliente nuevo</div>
+    <div class="modo small" style="grid-template-columns:1fr 1fr;margin-top:0"><button type="button" data-fact="foto">📷 Foto de la constancia</button><button type="button" data-fact="mano">✍️ Escribir los datos</button></div>
+    <input type="file" id="ffoto" accept="image/*" capture="environment" hidden></div></div>`;
+  const q=$('#fq');q.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();facBuscar()}});setTimeout(()=>q.focus(),60);
+  $('#ffoto').onchange=e=>{const f=e.target.files&&e.target.files[0];if(f)facFoto(f)};
+}
+async function facBuscar(){const q=($('#fq').value||'').trim(),out=$('#fout');if(q.length<3){out.innerHTML='<p class="err2">Escribe al menos 3 letras o números.</p>';return}
+  out.innerHTML='<p class="empty">Buscando en Mr. Tienda…</p>';
+  try{const j=await apiM('/api/comandero/clientes-buscar?q='+encodeURIComponent(q));FACT.lista=j.clientes;
+    out.innerHTML=j.clientes.length?`<div class="fres">${j.clientes.map((x,i)=>`<button data-fsel="${i}"><b>${esc(x.nombre)}</b>${x.razon&&x.razon!==x.nombre?esc(x.razon)+'<br>':''}<small>RFC ${esc(x.rfc||'—')} · CP ${esc(x.cp||'—')} · ${esc(x.regimen?'Régimen '+x.regimen:'sin régimen')}</small></button>`).join('')}</div>${j.mas?'<p class="empty">Hay más; escribe más letras para afinar.</p>':''}`
+      :'<p class="empty">No está en Mr. Tienda. Captúralo abajo como cliente nuevo.</p>'}
+  catch(e){out.innerHTML=`<p class="err2">${esc(e.message)}</p>`}}
+// cliente que ya existe: revisar y completar lo que le falte para facturar
+function facExistente(x){FACT.cte=x;
+  const falta=k=>!x[k];
+  $('#fsh').innerHTML=`<h2>🧾 Revisa con el cliente</h2>
+    <div class="frev"><div><b>Razón social</b> ${esc(x.razon||'—')}</div><div><b>Nombre comercial</b> ${esc(x.nombre)}</div><div><b>RFC</b> ${esc(x.rfc||'—')}</div>${x.domicilio?`<div><b>Domicilio</b> ${esc(x.domicilio)}</div>`:''}</div>
+    <p class="empty" style="margin:6px 0 0">${['cp','regimen','correo'].some(falta)?'Lo marcado en amarillo le falta en Mr. Tienda; pídeselo al cliente.':'Confirma los datos con el cliente.'}</p>
+    <div class="fform"><label>Código postal<input id="fcp" inputmode="numeric" maxlength="5" value="${esc(x.cp)}" class="${falta('cp')?'falta':''}"></label>
+      <label>Correo<input id="fcorreo" type="email" value="${esc(x.correo)}" class="${falta('correo')?'falta':''}"></label>
+      <label class="w">Régimen fiscal<select id="freg" class="${falta('regimen')?'falta':''}">${selOpts(REGIMENES,x.regimen,'Elige…')}</select></label>
+      <label class="w">Uso de CFDI<select id="fuso">${selOpts(USOS,x.uso||'G03')}</select></label></div>
+    <p id="ferr" class="err2" hidden></p>
+    <button class="big" data-fact="aplicar">✅ Datos correctos: poner la cuenta a su nombre</button>
+    <button class="chipbtn" style="margin-top:8px" data-fact="volver">‹ Buscar otro</button>`}
+async function facAplicar(btn){const x=FACT.cte,v=id=>($('#'+id).value||'').trim(),err=m=>{const e=$('#ferr');e.textContent=m;e.hidden=false};
+  const cp=v('fcp'),reg=v('freg'),uso=v('fuso'),correo=v('fcorreo');
+  if(!/^\d{5}$/.test(cp))return err('El código postal debe ser de 5 números.');if(!reg)return err('Elige el régimen fiscal.');
+  const comp={};if(cp!==x.cp)comp.CTE_CP=cp;if(reg!==x.regimen)comp.I_RGF=reg;if(uso!==x.uso)comp.USOCFDI=uso;if(correo&&correo!==x.correo)comp.CTE_MAIL=correo;
+  btn.disabled=true;btn.textContent='Guardando…';
+  try{const j=await apiM('/api/comandero/cliente-aplicar',{k:FACT.k,cod:x.cod,completar:comp});$('#sheet').innerHTML='';toast('Listo: la cuenta quedó a nombre de '+j.nombre);await cargar(false);render()}
+  catch(e){btn.disabled=false;btn.textContent='✅ Datos correctos: poner la cuenta a su nombre';err(e.message)}}
+// cliente nuevo: foto de la constancia o a mano, y luego revisar
+const CAMPOS_N=[['razon_social','Razón social','w'],['nombre','Nombre comercial (si es diferente)','w'],['contacto','Contacto',''],['rfc','RFC',''],['correo','Correo','w'],['telefono','Teléfono',''],['cp','Código postal',''],
+  ['calle','Calle','w'],['no_ext','No. exterior',''],['no_int','No. interior',''],['colonia','Colonia','w'],['municipio','Municipio',''],['estado','Estado',''],['localidad','Localidad',''],['referencia','Referencia','w']];
+function facNuevo(d,aviso){d=d||{};FACT.nuevo=d;
+  $('#fsh').innerHTML=`<h2>🧾 Cliente nuevo</h2>${aviso||''}
+    <div class="fform">${CAMPOS_N.map(([k,l,w])=>`<label class="${w}">${l}<input id="fn_${k}" value="${esc(d[k]||'')}" ${k==='cp'?'inputmode="numeric" maxlength="5"':k==='rfc'?'maxlength="13" autocapitalize="characters"':k==='correo'?'type="email"':k==='telefono'?'inputmode="tel"':''} class="${['rfc','razon_social','cp'].includes(k)&&!d[k]&&d._foto?'falta':''}"></label>`).join('')}
+      <label class="w">Régimen fiscal<select id="fn_regimen">${selOpts(REGIMENES,d.regimen,'Elige…')}</select></label>
+      <label class="w">Uso de CFDI<select id="fn_uso">${selOpts(USOS,d.uso||'G03')}</select></label></div>
+    <p id="ferr" class="err2" hidden></p>
+    <button class="big" data-fact="revisar">Revisar con el cliente</button>
+    <div style="display:flex;gap:8px;margin-top:8px"><button class="chipbtn" data-fact="foto">📷 Otra foto</button><button class="chipbtn" data-fact="volver">‹ Buscar</button></div>`}
+function facLeeForm(){const d={};CAMPOS_N.forEach(([k])=>d[k]=($('#fn_'+k).value||'').trim());d.regimen=$('#fn_regimen').value;d.uso=$('#fn_uso').value;d.rfc=d.rfc.toUpperCase().replace(/[^A-Z0-9&Ñ]/g,'');return d}
+function facRevisar(){const d=facLeeForm(),err=m=>{const e=$('#ferr');e.textContent=m;e.hidden=false};
+  if(!d.razon_social)return err('Falta la razón social.');if(!/^[A-Z&Ñ]{3,4}\d{6}[A-Z0-9]{3}$/.test(d.rfc))return err('Revisa el RFC: deben ser 12 (empresa) o 13 (persona) letras y números.');
+  if(!/^\d{5}$/.test(d.cp))return err('El código postal debe ser de 5 números.');if(!d.regimen)return err('Elige el régimen fiscal.');
+  FACT.nuevo=d;const fila=(l,v)=>v?`<div><b>${l}</b> ${esc(v)}</div>`:'';
+  $('#fsh').innerHTML=`<h2>🧾 ¿Están bien sus datos?</h2><p class="empty" style="margin:0">Enséñale la pantalla al cliente para que lo revise.</p>
+    <div class="frev">${fila('Razón social',d.razon_social)}${fila('Nombre comercial',d.nombre&&d.nombre!==d.razon_social?d.nombre:'')}${fila('RFC',d.rfc)}${fila('Régimen',txtReg(d.regimen))}${fila('Uso de CFDI',txtUso(d.uso))}${fila('Código postal',d.cp)}${fila('Correo',d.correo)}${fila('Teléfono',d.telefono)}
+      ${fila('Domicilio',[d.calle,d.no_ext,d.no_int?'int. '+d.no_int:'',d.colonia,d.municipio,d.estado].filter(Boolean).join(' '))}${fila('Referencia',d.referencia)}</div>
+    <p id="ferr" class="err2" hidden></p>
+    <button class="big" data-fact="enviar">✅ Están bien: enviar a Mr. Tienda</button>
+    <button class="chipbtn" style="margin-top:8px" data-fact="corregir">‹ Corregir</button>
+    <p class="empty" style="margin-top:8px">Por ahora la caja termina de darlo de alta en Mr. Tienda (le aparece en el panel con todos los datos). Después lo buscas aquí y tocas "poner la cuenta a su nombre".</p>`}
+async function facEnviar(btn){btn.disabled=true;btn.textContent='Enviando…';
+  try{await apiM('/api/comandero/cliente-nuevo',{k:FACT.k,datos:FACT.nuevo});$('#sheet').innerHTML='';toast('Datos enviados a la caja para darlo de alta en Mr. Tienda')}
+  catch(e){btn.disabled=false;btn.textContent='✅ Están bien: enviar a Mr. Tienda';const x=$('#ferr');x.textContent=e.message;x.hidden=false}}
+async function facFoto(file){
+  $('#fsh').innerHTML='<h2>🧾 Leyendo la constancia…</h2><p class="empty">Esto tarda unos segundos.</p>';
+  try{const b64=await new Promise((ok,no)=>{const im=new Image(),u=URL.createObjectURL(file);im.onload=()=>{const m=1600,k=Math.min(1,m/Math.max(im.width,im.height)),cv=document.createElement('canvas');cv.width=Math.round(im.width*k);cv.height=Math.round(im.height*k);cv.getContext('2d').drawImage(im,0,0,cv.width,cv.height);URL.revokeObjectURL(u);ok(cv.toDataURL('image/jpeg',.82))};im.onerror=()=>no(new Error('No pude abrir la foto'));im.src=u});
+    const j=await apiM('/api/comandero/leer-constancia',{foto:b64}),d=j.datos;d._foto=1;d.uso='G03';
+    const ya=(d.existentes||[])[0];
+    if(ya){FACT.lista=d.existentes;facNuevo(d,`<p class="frev" style="margin:0">Ese RFC ya está en Mr. Tienda como <b style="min-width:0">${esc(ya.nombre)}</b>. <button class="chipbtn" data-fsel="0">Usar ese cliente</button></p>`);return}
+    facNuevo(d,'<p class="empty" style="margin:0">Revisa lo que se leyó y completa lo que falte (lo amarillo). El RFC casi siempre lo da el cliente.</p>')}
+  catch(e){facNuevo({},`<p class="err2">${esc(e.message)}</p>`)}}
+document.addEventListener('click',e=>{const t=e.target.closest('[data-fact],[data-fsel]');if(!t||!FACT)return;e.preventDefault();e.stopPropagation();
+  if(t.dataset.fsel!=null)return facExistente(FACT.lista[+t.dataset.fsel]);
+  const a=t.dataset.fact;
+  if(a==='buscar')return facBuscar();if(a==='volver')return hojaFactura();
+  if(a==='foto'){const f=$('#ffoto')||Object.assign(document.createElement('input'),{type:'file',accept:'image/*',id:'ffoto',hidden:true});f.setAttribute('capture','environment');if(!f.isConnected){$('#fsh').appendChild(f);f.onchange=ev=>{const x=ev.target.files&&ev.target.files[0];if(x)facFoto(x)}}f.value='';return f.click()}
+  if(a==='mano')return facNuevo({});if(a==='aplicar')return facAplicar(t);if(a==='revisar')return facRevisar();
+  if(a==='corregir')return facNuevo(FACT.nuevo);if(a==='enviar')return facEnviar(t)},true);
 async function buscarCte(){
   const t=($('#cnT')||{}).value||'',out=$('#cnRes');if(!out)return;
   if(t.replace(/\D/g,'').length<4){out.innerHTML='<p class="empty" style="margin:0">Escribe al menos 4 números.</p>';return}
@@ -643,6 +738,7 @@ document.addEventListener('click',e=>{
   if(a==='nosalio'){const v=vistos();v['p|'+t.dataset.dk]=Date.now()+5*60000;guardaVistos(v);alarmaK=null;$('#alarma').hidden=true;return}
   if(a==='yasalio'){const dk=t.dataset.dk||'';if(!dk.startsWith('postre|')){const p=dk.split('|');avisaTiempo('salio',p[0],p[p.length-1])}const v=vistos();v[t.dataset.dk]=1;guardaVistos(v);alarmaK=null;$('#alarma').hidden=true;return revisarDemoras()}
   if(a==='buscarcte')return buscarCte();
+  if(a==='factura')return hojaFactura();
   if(a==='agregar')return agregar();
   if(a==='salir'){if(S.draft.length&&!confirm('Tienes platillos sin enviar. ¿Salir de todos modos?'))return;return salir()}
   if(a==='reintentar'){S.falla='';return inicio()}

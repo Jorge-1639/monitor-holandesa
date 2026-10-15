@@ -191,3 +191,5 @@ Versión 30.7.9 — comandero: mapa del comedor (dibujo de Jorge): mesas 1A/1B, 
 Versión 30.7.10 — mapa del comedor rehecho con el segundo dibujo de Jorge (visto desde el comedor): 2 y 1 a la izquierda, 3-6-7 arriba, 4 y 5 inclinadas al centro, 8 y 9 a la derecha, caja abajo.
 
 Versión 30.7.11 — URGENTE: se restaura comandero.html (en la 30.7.10 se subió vacío por error) con el mapa del segundo dibujo.
+
+Versión 30.7.12 — comandero: "¿Va a querer factura?" en la cuenta: buscar cliente de Mr. Tienda por RFC, nombre o teléfono, revisar y completar CP/régimen/uso CFDI/correo, y poner la cuenta a su nombre (COD_CTE, DES_CTE, SOLICITA). Cliente nuevo: foto de la constancia (IA) o a mano, revisar con el cliente y enviar a la caja (panel → COMANDERO → Clientes para dar de alta). El actualizador ya no instala páginas vacías.
