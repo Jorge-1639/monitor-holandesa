@@ -1909,6 +1909,8 @@ if(RHMODE){
   $('#gen').textContent='Recursos Humanos';
   document.querySelector('.wrap').style.paddingBottom='40px';
   tab='rh';render();setTimeout(avisoSeguro,3000);
+  // mientras se llena un expediente o una nómina no se manda nada a la caja; esto mantiene la sesión viva para que no se cierre a media captura
+  setInterval(()=>{if(!document.hidden&&($('#rhForm')||document.querySelector('.rhn')))fetch('/api/acceso',{credentials:'same-origin',cache:'no-store'}).catch(()=>{})},240000);
 }else if(CAPMODE){
   document.title='Compras Holandesa';document.querySelector('link[rel=manifest]').href='/manifest-caja.webmanifest';
   document.querySelector('.datebar').hidden=true;document.querySelector('nav.tabs').hidden=true;document.querySelector('footer').hidden=true;

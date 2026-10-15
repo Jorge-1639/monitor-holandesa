@@ -879,7 +879,7 @@ def aplica_lectura(m, r):
 
 # ---------------------------------------------------------------- entrada de Jorge: sesión con cookie, contraseña o huella (WebAuthn / passkey)
 HUELLAS_FILE = os.path.join(AQUI, 'huellas.json')   # llaves públicas de los teléfonos de Jorge (no son secretas)
-SES_ADMIN = {}     # token -> vence (segundos)
+SES_ADMIN = {}     # token -> vence (segundos); se carga de sesiones_panel.json al arrancar (ver _ses_cargar)
 RETOS = {}         # reto -> (tipo, vence)
 
 def b64u(b): return base64.urlsafe_b64encode(b).rstrip(b'=').decode()
@@ -951,14 +951,32 @@ def rs256_ok(n, e, msg, sig):
     di = bytes.fromhex('3031300d060960864801650304020105000420') + hashlib.sha256(msg).digest()
     return m == b'\x00\x01' + b'\xff' * (k - len(di) - 3) + b'\x00' + di
 
+# Las sesiones del panel se guardan en la caja (sesiones_panel.json) para que una actualización automática
+# (que reinicia el programa) no saque a Jorge a media captura. Solo vive en la caja; nunca va a data.json ni a Drive.
+SES_FILE = os.path.join(AQUI, 'sesiones_panel.json')
+_ses_escrito = [0.0]
+def _ses_guardar(forzar=False):
+    if not forzar and time.time() - _ses_escrito[0] < 60: return
+    try:
+        tmp = SES_FILE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f: json.dump({k: v for k, v in SES_ADMIN.items() if v > time.time()}, f)
+        os.replace(tmp, SES_FILE); _ses_escrito[0] = time.time()
+    except OSError: pass
+def _ses_cargar():
+    try:
+        with open(SES_FILE, encoding='utf-8') as f: d = json.load(f)
+        SES_ADMIN.update({k: float(v) for k, v in d.items() if isinstance(v, (int, float)) and v > time.time()})
+    except (OSError, ValueError): pass
 def nueva_sesion_admin(minutos):
     t = secrets.token_urlsafe(32); SES_ADMIN[t] = time.time() + minutos * 60
     for k in [k for k, v in SES_ADMIN.items() if v < time.time()]: SES_ADMIN.pop(k, None)
+    _ses_guardar(True)
     return t
 def sesion_admin(tok, minutos):
     v = SES_ADMIN.get(tok or '')
     if not v or v < time.time(): SES_ADMIN.pop(tok or '', None); return False
     SES_ADMIN[tok] = time.time() + minutos * 60   # se renueva mientras se usa
+    _ses_guardar()
     return True
 def nuevo_reto(tipo):
     r = b64u(secrets.token_bytes(32)); RETOS[r] = (tipo, time.time() + 180)
@@ -2893,7 +2911,7 @@ def make_handler(mon, cfg):
                             FALLOS[ip] = f; raise
                         FALLOS.pop(ip, None); return self._json({'ok': True}, cookie=nueva_sesion_admin(self._min_sesion()))
                     if self.path == '/api/salir':
-                        SES_ADMIN.pop(self._cookie('hol_s'), None); return self._json({'ok': True}, cookie='')
+                        SES_ADMIN.pop(self._cookie('hol_s'), None); _ses_guardar(True); return self._json({'ok': True}, cookie='')
                     if not self._es_admin(): return self._json({'ok': False, 'error': 'Tu sesión terminó. Vuelve a entrar.', 'login': True}, 401)
                     if self.path == '/api/huella/registrar': out = registrar_huella(d, self._host())
                     else:
@@ -3330,6 +3348,7 @@ def main():
     if not os.path.isdir(cfg['carpeta_mrtienda']):
         log('No existe la carpeta ' + cfg['carpeta_mrtienda'] + '. Corrígela en config.json'); sys.exit(1)
     mon = Monitor(cfg)
+    _ses_cargar()   # quien ya había entrado al panel sigue dentro después de una actualización
     try: mon.borrar_fotos()
     except Exception as e: log('No pude borrar las fotos viejas: ' + str(e))
     threading.Thread(target=mon.loop, daemon=True).start()
