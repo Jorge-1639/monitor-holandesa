@@ -66,6 +66,11 @@ button:focus-visible{outline:2px solid var(--green-2);outline-offset:2px}
 .seg button{flex:1;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px;font-weight:600;font-size:14px}
 .seg button[aria-pressed="true"]{background:var(--green);color:var(--on-green);border-color:var(--green)}
 .factbar{display:flex;align-items:center;gap:8px;width:100%;margin:10px 0 4px;padding:12px 14px;border:2px dashed #5aa9e6;border-radius:14px;background:var(--surface);color:var(--ink);font:700 16px var(--body);text-align:left}
+.factbar.urge{border:2px solid #e8730c;background:#fff1e3;color:#7a3a00}.factbar.urge small{color:#c25a00}
+.factbar .foco{width:14px;height:14px;border-radius:50%;background:#ff8a00;box-shadow:0 0 0 3px rgba(255,138,0,.25);animation:foco 1s ease-in-out infinite;flex:none}
+@keyframes foco{50%{background:#ffe0b8;box-shadow:0 0 0 0 rgba(255,138,0,0)}}
+.factno{margin:8px 2px 0;font-size:13px;color:var(--muted)}.factno a{color:var(--muted)}
+.mesa .foco{display:inline-block;width:10px;height:10px;border-radius:50%;background:#ff8a00;animation:foco 1s ease-in-out infinite;margin-right:4px;vertical-align:0}
 .factbar.si{border-style:solid;border-color:#2f8fd8;background:#eaf4fd;color:#123}.factbar small{margin-left:auto;font-weight:600;color:#2f8fd8}
 .fform{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px 10px;width:100%}.fform label{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:700;color:var(--muted)}
 .fform label.w{grid-column:1/-1}.fform input,.fform select{width:100%;box-sizing:border-box;height:42px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);padding:0 10px;font:15px var(--body);min-width:0}
@@ -437,7 +442,7 @@ function render(){
     const c=S.sel.k?cuentaDe(S.sel.k):null;
     const prev=itemsDe(c), all=[...prev,...S.draft];
     app.innerHTML=`<header class="top"><button class="back" data-act="mesas" aria-label="Regresar">‹</button><h1>${esc(titulo())}<small>${c?'Abierta '+esc(c.abrio)+' · '+esc(c.mesero):'Cuenta nueva · '+esc(S.user.nombre)}</small></h1></header>
-      ${falla}${c&&!(canalDe(c)&&['didi','uber'].includes(canalDe(c).canal))?(c.cte&&c.cte!=='007482'?`<button class="factbar si" data-act="factura">🧾 Factura a nombre de <b>${esc(c.des_cte||c.cte)}</b><small>Cambiar</small></button>`:`<button class="factbar" data-act="factura">🧾 ¿Va a querer factura?</button>`):''}
+      ${falla}${factBar(c)}
       <div class="section">Consumo</div>
       ${all.length?`<div class="lines">${all.map((it,i)=>lineHTML(it,i-prev.length)).join('')}</div><div class="total num"><span>Total</span><span>${money(c&&!S.draft.length?c.total:tot(all))}</span></div>`:'<p class="empty">Todavía no hay nada en esta cuenta.</p>'}
       <p class="empty">El cobro se hace en la caja.</p>${avisoV1}`;
@@ -517,6 +522,19 @@ function hojaCanal(c){
     $('#sheet').innerHTML='';abrir(sel)};
 }
 // ---- factura: buscar al cliente en MrTienda o capturarlo (foto de la constancia o a mano), revisar y aplicar a la cuenta (30.7.12)
+// barra de factura en la cuenta: a nombre de (azul) · necesita factura (naranja parpadeando) · no necesita (gris, chiquito) · sin preguntar
+const sinFactura=c=>{const k=c&&canalDe(c);return k&&['didi','uber'].includes(k.canal)};
+const conCliente=c=>c&&c.cte&&c.cte!=='007482';
+function factBar(c){if(!c||sinFactura(c))return '';
+  if(conCliente(c))return `<button class="factbar si" data-act="factura">🧾 Factura a nombre de <b>${esc(c.des_cte||c.cte)}</b><small>Cambiar</small></button>`;
+  if(c.factura==='si')return `<button class="factbar urge" data-act="factura"><i class="foco"></i>Va a necesitar factura<small>Capturar datos ›</small></button>`;
+  if(c.factura==='no')return `<p class="factno">No va a necesitar factura · <a href="#" data-act="factpreg">cambiar</a></p>`;
+  return `<button class="factbar" data-act="factpreg">🧾 ¿Va a necesitar factura?</button>`}
+function preguntaFactura(sigue){
+  $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>🧾 ¿Va a necesitar factura?</h2><p class="empty" style="margin:0">Pregúntale al cliente.</p>
+    <div class="modo" style="margin-top:6px"><button data-factresp="si">Sí</button><button data-factresp="no">No</button></div></div></div>`;
+  preguntaFactura.sigue=sigue}
+async function guardaRespFactura(c,r){try{await apiM('/api/comandero/factura-resp',{k:c.archivo,factura:r});c.factura=r}catch(e){toast(e.message)}}
 const REGIMENES=[['601','General de Ley Personas Morales'],['603','Personas Morales con Fines no Lucrativos'],['605','Sueldos y Salarios'],['606','Arrendamiento'],['607','Enajenación o Adquisición de Bienes'],['608','Demás ingresos'],['610','Residentes en el Extranjero'],['611','Dividendos'],['612','Personas Físicas con Actividades Empresariales y Profesionales'],['614','Ingresos por intereses'],['615','Obtención de premios'],['616','Sin obligaciones fiscales'],['620','Sociedades Cooperativas de Producción'],['621','Incorporación Fiscal'],['622','Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras'],['623','Opcional para Grupos de Sociedades'],['624','Coordinados'],['625','Plataformas Tecnológicas'],['626','Régimen Simplificado de Confianza']];
 const USOS=[['G03','Gastos en general'],['G01','Adquisición de mercancías'],['G02','Devoluciones, descuentos o bonificaciones'],['I01','Construcciones'],['I02','Mobiliario y equipo de oficina'],['I03','Equipo de transporte'],['I04','Equipo de cómputo'],['I05','Dados, troqueles, moldes y herramental'],['I06','Comunicaciones telefónicas'],['I07','Comunicaciones satelitales'],['I08','Otra maquinaria y equipo'],['D01','Honorarios médicos, dentales y hospitalarios'],['D02','Gastos médicos por incapacidad'],['D03','Gastos funerales'],['D04','Donativos'],['D05','Intereses reales de créditos hipotecarios'],['D06','Aportaciones voluntarias al SAR'],['D07','Primas de seguros de gastos médicos'],['D08','Transportación escolar obligatoria'],['D09','Depósitos para el ahorro'],['D10','Servicios educativos (colegiaturas)'],['S01','Sin efectos fiscales'],['CP01','Pagos']];
 const txtReg=k=>{const r=REGIMENES.find(x=>x[0]===k);return r?k+' '+r[1]:(k||'—')}, txtUso=k=>{const r=USOS.find(x=>x[0]===k);return r?k+' '+r[1]:(k||'—')};
@@ -616,7 +634,7 @@ async function buscarCte(){
 function tile(c){
   const n=numMesa(c.ref), m=mia(c), kc=canalDe(c), cls=(S.filtro==='todas'&&!m?'other':'')+' k '+(n?'k-comedor':kc?{recoger:'k-llevar',domicilio:'k-dom',didi:'k-didi',uber:'k-uber'}[kc.canal]:c.llevar?'k-llevar':'k-comedor');
   const ct=c.cortes||0;
-  return `<button class="mesa ${cls} ${ct>=2?'c2':ct===1?'c1':''}" data-k="${esc(c.archivo)}">${ct>=2?`<span class="ctag">Hace ${ct} cortes</span>`:ct===1?'<span class="ctag">Corte anterior</span>':''}<b>${esc(n?mesaTxt(n):(canalDe(c)&&canalDe(c).nombre?canalDe(c).nombre:(c.ref||'Sin nombre')))}</b>${n?'':`<span>${canalDe(c)?esc(canalDe(c).canal==='didi'?'Didi · '+(canalDe(c).pago==='efectivo'?'Efectivo':'Tarjeta'):CANAL_TXT[canalDe(c).canal]):(c.llevar?'Para llevar':'Cuenta')}</span>`}<span>${esc(c.mesero)} · ${esc(c.abrio)}</span><span class="t num">${money(c.total)}</span></button>`;
+  return `<button class="mesa ${cls} ${ct>=2?'c2':ct===1?'c1':''}" data-k="${esc(c.archivo)}">${ct>=2?`<span class="ctag">Hace ${ct} cortes</span>`:ct===1?'<span class="ctag">Corte anterior</span>':''}<b>${esc(n?mesaTxt(n):(canalDe(c)&&canalDe(c).nombre?canalDe(c).nombre:(c.ref||'Sin nombre')))}</b>${n?'':`<span>${canalDe(c)?esc(canalDe(c).canal==='didi'?'Didi · '+(canalDe(c).pago==='efectivo'?'Efectivo':'Tarjeta'):CANAL_TXT[canalDe(c).canal]):(c.llevar?'Para llevar':'Cuenta')}</span>`}<span>${esc(c.mesero)} · ${esc(c.abrio)}</span>${c.factura==='si'&&!conCliente(c)?'<span style="color:#c25a00;font-weight:700"><i class="foco"></i>Factura</span>':''}<span class="t num">${money(c.total)}</span></button>`;
 }
 function modoHTML(){return `<div class="modo" role="group" aria-label="Tipo de pedido"><button data-modo="aqui" aria-pressed="${S.modo==='aqui'}">${ICON.aqui}Comer aquí</button><button data-modo="llevar" aria-pressed="${S.modo==='llevar'}">${ICON.llevar}Para llevar</button></div>`}
 function lineHTML(it,di){
@@ -684,6 +702,7 @@ async function enviar(btn){
   enviando=true;document.querySelectorAll('[data-act="enviar"]').forEach(b=>{b.disabled=true;b.textContent='Enviando…'});
   if(!S.envio)S.envio=Date.now().toString(36)+Math.random().toString(36).slice(2,8);
   const body={pin,envio:S.envio,llevar:!!S.sel.llevar,items:S.draft.map(i=>({id:i.id,qty:i.qty,llevar:i.llevar,g:i.g,o:i.o,nota:i.nota}))};
+  if(!S.sel.k&&S.sel.factura)body.factura=S.sel.factura;
   if(S.sel.k)body.k=S.sel.k;else if(S.sel.mesa){body.mesa=S.sel.mesa;body.pers=S.sel.pers||1}else if(S.sel.canal)Object.assign(body,S.sel.canal,{nombre:S.sel.canal.nombre||''});else body.nombre=S.sel.nombre;
   try{
     const r=await fetch('/api/comandero/enviar',{method:'POST',headers:{'Content-Type':'application/json','X-Mesero-Token':S.tok||''},body:JSON.stringify(body)});
@@ -737,8 +756,10 @@ document.addEventListener('click',e=>{
   if(a==='nueva')return conClave('Escribe tu clave para la nueva cuenta',hojaNueva);
   if(a==='nosalio'){const v=vistos();v['p|'+t.dataset.dk]=Date.now()+5*60000;guardaVistos(v);alarmaK=null;$('#alarma').hidden=true;return}
   if(a==='yasalio'){const dk=t.dataset.dk||'';if(!dk.startsWith('postre|')){const p=dk.split('|');avisaTiempo('salio',p[0],p[p.length-1])}const v=vistos();v[t.dataset.dk]=1;guardaVistos(v);alarmaK=null;$('#alarma').hidden=true;return revisarDemoras()}
+  if(t.dataset.factresp){const f=preguntaFactura.sigue;preguntaFactura.sigue=null;$('#sheet').innerHTML='';if(f)return f(t.dataset.factresp);return}
   if(a==='buscarcte')return buscarCte();
   if(a==='factura')return hojaFactura();
+  if(a==='factpreg'){e.preventDefault();const c=cuentaDe(S.sel&&S.sel.k);if(!c)return;return preguntaFactura(async r=>{await guardaRespFactura(c,r);$('#sheet').innerHTML='';render();if(r==='si')hojaFactura()})}
   if(a==='agregar')return agregar();
   if(a==='salir'){if(S.draft.length&&!confirm('Tienes platillos sin enviar. ¿Salir de todos modos?'))return;return salir()}
   if(a==='reintentar'){S.falla='';return inicio()}
@@ -749,6 +770,8 @@ document.addEventListener('click',e=>{
   if(a==='cuenta'){S.view='cuenta';return render()}
   if(a==='enviar'){
     if(!ESCRIBE){$('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Todavía no se envía</h2><p style="margin:0">El envío a MrTienda está apagado. El pedido se tiene que capturar en la caja.</p><p style="margin:0" class="empty">Tus platillos siguen en la cuenta como "Nuevo" para que los captures.</p><button class="big" data-act="cerrar">Entendido</button></div></div>`;return}
+    if(!S.sel.k&&S.draft.length&&!S.sel.factura&&!(S.sel.canal&&['didi','uber'].includes(S.sel.canal.canal)))
+      return preguntaFactura(r=>{S.sel.factura=r;enviar(t)});
     return enviar(t)}
 });
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refrescar()});

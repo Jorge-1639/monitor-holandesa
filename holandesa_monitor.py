@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 114            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.12'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 115            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.13'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -1764,6 +1764,11 @@ class Monitor:
             return d if isinstance(d, dict) else {}
         except (OSError, ValueError): return {}
 
+    def factura_resp(self, archivo, resp):
+        if resp not in ('si', 'no'): raise ValueError('Respuesta no válida.')
+        x = dict(self.pedidos().get(archivo) or {}); x['factura'] = resp; x.setdefault('fecha', datetime.datetime.now().isoformat(timespec='seconds'))
+        self._guardar_pedido(archivo, x); return {'ok': True}
+
     def _guardar_pedido(self, archivo, info):
         d = self.pedidos(); d[archivo] = info
         if len(d) > 800: d = dict(sorted(d.items(), key=lambda kv: kv[1].get('fecha', ''))[-600:])
@@ -1966,7 +1971,7 @@ class Monitor:
             out.append({'archivo': a['archivo'], 'ref': a['ref'], 'abrio': a['abrio'], 'fecha': a['fecha'], 'mesero': a['mesero'], 'cod': a['cod'],
                         'llevar': a['llevar'], 'pers': a['pers'], 'total': a['total'],
                         'canal': {k: v for k, v in (ped.get(a['archivo']) or {}).items() if k in ('canal', 'pedido', 'pago', 'nombre')}, 'cortes': a.get('cortes', 0),
-                        'cte': a.get('cte', ''), 'des_cte': a.get('des_cte', ''),
+                        'cte': a.get('cte', ''), 'des_cte': a.get('des_cte', ''), 'factura': (ped.get(a['archivo']) or {}).get('factura', ''),
                         'items': [{'n': _dbf_txt(i['n']), 'q': i['q'], 'imp': i['imp'], 'det': _dbf_txt(i.get('det', '')), 'h': i['h'], 'llevar': i['llevar']} for i in a['items']]})
         return out
 
@@ -2110,6 +2115,9 @@ class Monitor:
         if canal:
             try: self._guardar_pedido(res['archivo'], {k: v for k, v in canal.items() if k != 'ref'})
             except Exception as e: log('No pude guardar el canal del pedido: ' + str(e))
+        if d.get('factura') in ('si', 'no'):   # respuesta a "¿Va a necesitar factura?" al mandar la cuenta nueva (30.7.13)
+            try: self.factura_resp(res['archivo'], d['factura'])
+            except Exception as e: log('No pude guardar si lleva factura: ' + str(e))
         info = canal or (self.pedidos().get(res['archivo']) if d.get('k') else None)
         imp = self.imprimir_comanda(res['ref'], mesero['nombre'], ren, res['folio'], nueva=not d.get('k'), ahora=ahora, canal=info)
         out = {'ok': True, 'archivo': res['archivo'], 'ref': res['ref'], 'total': res['total'], 'impreso': imp.get('ok', False), 'aviso': imp.get('error', '')}
@@ -2914,7 +2922,7 @@ def make_handler(mon, cfg):
                     if not isinstance(e, (ValueError, PermissionError, RuntimeError)): log('Rol de descansos: ' + traceback.format_exc())
                     body = json.dumps({'ok': False, 'error': str(e), 'sesion': not isinstance(e, PermissionError)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(409); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
-            if self.path in ('/api/comandero/cliente-aplicar', '/api/comandero/leer-constancia', '/api/comandero/cliente-nuevo'):   # factura (30.7.12)
+            if self.path in ('/api/comandero/cliente-aplicar', '/api/comandero/leer-constancia', '/api/comandero/cliente-nuevo', '/api/comandero/factura-resp'):   # factura (30.7.12)
                 m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'), self.client_address[0])
                 try:
                     if m_ and m_.get('bloqueo'): raise PermissionError(m_['bloqueo'])
@@ -2924,6 +2932,9 @@ def make_handler(mon, cfg):
                     d = json.loads(self.rfile.read(n).decode('utf-8'))
                     if self.path.endswith('aplicar'): out = mon.cliente_aplicar(m_, d)
                     elif self.path.endswith('constancia'): out = mon.leer_constancia(str(d.get('foto') or ''))
+                    elif self.path.endswith('factura-resp'):
+                        if not any(a['archivo'] == str(d.get('k') or '') and a['cod'] == m_['cod'] for a in mon.abiertas()): raise RuntimeError('Esa cuenta ya no está abierta o es de otro mesero.')
+                        out = mon.factura_resp(str(d.get('k')), d.get('factura'))
                     else: out = mon.cliente_nuevo(m_, d)
                     return self._send(json.dumps(out, ensure_ascii=False).encode('utf-8'), 'application/json; charset=utf-8')
                 except Exception as e:
