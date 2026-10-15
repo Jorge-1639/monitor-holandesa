@@ -197,3 +197,5 @@ Versión 30.7.12 — comandero: "¿Va a querer factura?" en la cuenta: buscar cl
 Versión 30.7.13 — al mandar una cuenta nueva el comandero pregunta "¿Va a necesitar factura?" (Sí/No; no en Didi/Uber). Sí: aviso naranja parpadeando en la cuenta (y en su tarjeta) hasta capturar los datos. No: queda "No va a necesitar factura · cambiar".
 
 Versión 30.7.14 — factura: el cliente puede tener hasta 3 correos (CTE_MAIL, CTE_MAIL2, CTE_MAIL3 de Mr. Tienda). Un correo nuevo se agrega en el siguiente espacio libre sin borrar los otros; con 3 llenos, el mesero elige cuál reemplazar.
+
+Versión 30.7.15 — Personal: por hora = salario mínimo frontera ($440.87) ÷ 8 por defecto; casilla 'Pagarle prima dominical' por empleado (por hora llega apagada); el expediente muestra Sueldo + Séptimo día + Prima dominical + Incentivo = Nómina total.
