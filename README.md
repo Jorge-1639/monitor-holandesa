@@ -187,3 +187,5 @@ Versión 30.7.5 — PDF del comandero en 2 hojas: "¡Bienvenida/Bienvenido, nomb
 Versión 30.7.6 — botón "Enviar PDF por WhatsApp"; en Samsung Internet (no deja compartir archivos) abre la misma pantalla en Chrome (/panel?pdf=código) para mandarlo desde ahí.
 
 Versión 30.7.9 — comandero: mapa del comedor (dibujo de Jorge): mesas 1A/1B, 2A/2B, 3, 4A/4B, 5A/5B, 6A/6B, 7, 8A/8B, 9A/9B; se pueden juntar A+B (cuenta "M 1AB"); pestaña "Mapa" con mesas libres/ocupadas; la comanda dice MESA 1A o MESA 1A+1B.
+
+Versión 30.7.10 — mapa del comedor rehecho con el segundo dibujo de Jorge (visto desde el comedor): 2 y 1 a la izquierda, 3-6-7 arriba, 4 y 5 inclinadas al centro, 8 y 9 a la derecha, caja abajo.
