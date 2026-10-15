@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 115            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.13'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 116            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.14'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -1847,7 +1847,7 @@ class Monitor:
         t = lambda k: _dbf_txt(str(x.get(k) or '').strip())
         dom = ' '.join(v for v in (t('CTE_CALLE'), t('CTE_NOEXT'), ('int. ' + t('CTE_NOINT')) if t('CTE_NOINT') else '', t('CTE_COLON'), t('CTE_MUNIC')) if v) or ' '.join(v for v in (t('CTE_DIREC1'), t('CTE_DIREC2')) if v)
         return {'cod': t('COD_CTE'), 'nombre': t('CTE_NOMBRE'), 'razon': t('RAZON_SOC'), 'rfc': t('CTE_RFC'), 'cp': t('CTE_CP'), 'regimen': t('I_RGF'),
-                'uso': t('USOCFDI'), 'correo': t('CTE_MAIL'), 'tel': t('CTE_TEL1') or t('CTE_TEL2'), 'contacto': t('CTE_CONTAC'), 'domicilio': dom, 'referencia': t('CTE_REFLOC')}
+                'uso': t('USOCFDI'), 'correo': t('CTE_MAIL'), 'correos': [v for v in (t('CTE_MAIL'), t('CTE_MAIL2'), t('CTE_MAIL3')) if v], 'tel': t('CTE_TEL1') or t('CTE_TEL2'), 'contacto': t('CTE_CONTAC'), 'domicilio': dom, 'referencia': t('CTE_REFLOC')}
     def clientes_buscar(self, q):
         ruta = self._cat('CLIENTES.DBF')
         if not os.path.isfile(ruta): raise RuntimeError('No encontré el catálogo de clientes de MrTienda.')
@@ -1875,6 +1875,9 @@ class Monitor:
         if 'CTE_CP' in comp and not re.fullmatch(r'\d{5}', comp['CTE_CP']): raise ValueError('El código postal debe ser de 5 números.')
         if 'I_RGF' in comp and not re.fullmatch(r'\d{3}', comp['I_RGF']): raise ValueError('Régimen fiscal no válido.')
         if 'USOCFDI' in comp and not re.fullmatch(r'[A-Z]{1,2}\d{2}', comp['USOCFDI']): raise ValueError('Uso de CFDI no válido.')
+        comp.pop('CTE_MAIL', None)   # los correos se agregan sin borrar los que ya tiene (MrTienda guarda 3: CTE_MAIL, CTE_MAIL2, CTE_MAIL3)
+        correo_n = str(d.get('correo_nuevo') or '').strip()
+        if correo_n and not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', correo_n): raise ValueError('Revisa el correo.')
         with self.write_lock:
             with open(ruta, 'rb') as f: cb = bytearray(f.read())
             cn, chl, crl, cfl = _layout(cb)
@@ -1882,6 +1885,15 @@ class Monitor:
             if slot is None: raise RuntimeError('Ese cliente ya no está en MrTienda.')
             crec = bytearray(cb[chl + slot*crl:chl + (slot+1)*crl])
             nombre = _campo(crec, cfl, 'CTE_NOMBRE').decode('latin-1').strip(); contacto = _campo(crec, cfl, 'CTE_CONTAC').decode('latin-1').strip()
+            if correo_n:
+                ranuras = [k for k in ('CTE_MAIL', 'CTE_MAIL2', 'CTE_MAIL3') if k in cfl]
+                tiene = {k: _campo(crec, cfl, k).decode('latin-1').strip() for k in ranuras}
+                if correo_n.lower() not in [v.lower() for v in tiene.values()]:
+                    libre = next((k for k in ranuras if not tiene[k]), None)
+                    if not libre:
+                        libre = str(d.get('reemplazar') or '')
+                        if libre not in ranuras: raise ValueError('Ese cliente ya tiene 3 correos. Elige cuál reemplazar.')
+                    comp[libre] = correo_n
             # 1) completar datos fiscales del cliente (campos sin índice); respaldo del renglón original
             if comp:
                 d_ = _respaldar([], 'CTE' + cod)

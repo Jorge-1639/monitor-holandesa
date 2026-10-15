@@ -567,7 +567,9 @@ function facExistente(x){FACT.cte=x;
     <div class="frev"><div><b>Razón social</b> ${esc(x.razon||'—')}</div><div><b>Nombre comercial</b> ${esc(x.nombre)}</div><div><b>RFC</b> ${esc(x.rfc||'—')}</div>${x.domicilio?`<div><b>Domicilio</b> ${esc(x.domicilio)}</div>`:''}</div>
     <p class="empty" style="margin:6px 0 0">${['cp','regimen','correo'].some(falta)?'Lo marcado en amarillo le falta en Mr. Tienda; pídeselo al cliente.':'Confirma los datos con el cliente.'}</p>
     <div class="fform"><label>Código postal<input id="fcp" inputmode="numeric" maxlength="5" value="${esc(x.cp)}" class="${falta('cp')?'falta':''}"></label>
-      <label>Correo<input id="fcorreo" type="email" value="${esc(x.correo)}" class="${falta('correo')?'falta':''}"></label>
+      <label class="w">Correos guardados (${(x.correos||[]).length} de 3)${(x.correos||[]).length?`<span style="font-weight:500;color:var(--ink);font-size:14px">${x.correos.map(esc).join('<br>')}</span>`:'<span style="font-weight:500">Ninguno</span>'}</label>
+      <label class="w">¿Otro correo para esta factura? (se agrega, no borra los otros)<input id="fcorreo" type="email" placeholder="correo@ejemplo.com" class="${falta('correo')?'falta':''}"></label>
+      ${(x.correos||[]).length>=3?`<label class="w">Si escribes uno nuevo, ¿cuál reemplazo?<select id="freemp"><option value="">Elige…</option>${x.correos.map((c,i)=>`<option value="${['CTE_MAIL','CTE_MAIL2','CTE_MAIL3'][i]}">${esc(c)}</option>`).join('')}</select></label>`:''}
       <label class="w">Régimen fiscal<select id="freg" class="${falta('regimen')?'falta':''}">${selOpts(REGIMENES,x.regimen,'Elige…')}</select></label>
       <label class="w">Uso de CFDI<select id="fuso">${selOpts(USOS,x.uso||'G03')}</select></label></div>
     <p id="ferr" class="err2" hidden></p>
@@ -576,9 +578,11 @@ function facExistente(x){FACT.cte=x;
 async function facAplicar(btn){const x=FACT.cte,v=id=>($('#'+id).value||'').trim(),err=m=>{const e=$('#ferr');e.textContent=m;e.hidden=false};
   const cp=v('fcp'),reg=v('freg'),uso=v('fuso'),correo=v('fcorreo');
   if(!/^\d{5}$/.test(cp))return err('El código postal debe ser de 5 números.');if(!reg)return err('Elige el régimen fiscal.');
-  const comp={};if(cp!==x.cp)comp.CTE_CP=cp;if(reg!==x.regimen)comp.I_RGF=reg;if(uso!==x.uso)comp.USOCFDI=uso;if(correo&&correo!==x.correo)comp.CTE_MAIL=correo;
+  const comp={};if(cp!==x.cp)comp.CTE_CP=cp;if(reg!==x.regimen)comp.I_RGF=reg;if(uso!==x.uso)comp.USOCFDI=uso;
+  const nuevo=correo&&!(x.correos||[]).some(c=>c.toLowerCase()===correo.toLowerCase()),remp=$('#freemp')?$('#freemp').value:'';
+  if(nuevo&&(x.correos||[]).length>=3&&!remp)return err('Ya tiene 3 correos: elige cuál reemplazar.');
   btn.disabled=true;btn.textContent='Guardando…';
-  try{const j=await apiM('/api/comandero/cliente-aplicar',{k:FACT.k,cod:x.cod,completar:comp});$('#sheet').innerHTML='';toast('Listo: la cuenta quedó a nombre de '+j.nombre);await cargar(false);render()}
+  try{const j=await apiM('/api/comandero/cliente-aplicar',{k:FACT.k,cod:x.cod,completar:comp,correo_nuevo:nuevo?correo:'',reemplazar:remp});$('#sheet').innerHTML='';toast('Listo: la cuenta quedó a nombre de '+j.nombre);await cargar(false);render()}
   catch(e){btn.disabled=false;btn.textContent='✅ Datos correctos: poner la cuenta a su nombre';err(e.message)}}
 // cliente nuevo: foto de la constancia o a mano, y luego revisar
 const CAMPOS_N=[['razon_social','Razón social','w'],['nombre','Nombre comercial (si es diferente)','w'],['contacto','Contacto',''],['rfc','RFC',''],['correo','Correo','w'],['telefono','Teléfono',''],['cp','Código postal',''],

@@ -195,3 +195,5 @@ Versión 30.7.11 — URGENTE: se restaura comandero.html (en la 30.7.10 se subi�
 Versión 30.7.12 — comandero: "¿Va a querer factura?" en la cuenta: buscar cliente de Mr. Tienda por RFC, nombre o teléfono, revisar y completar CP/régimen/uso CFDI/correo, y poner la cuenta a su nombre (COD_CTE, DES_CTE, SOLICITA). Cliente nuevo: foto de la constancia (IA) o a mano, revisar con el cliente y enviar a la caja (panel → COMANDERO → Clientes para dar de alta). El actualizador ya no instala páginas vacías.
 
 Versión 30.7.13 — al mandar una cuenta nueva el comandero pregunta "¿Va a necesitar factura?" (Sí/No; no en Didi/Uber). Sí: aviso naranja parpadeando en la cuenta (y en su tarjeta) hasta capturar los datos. No: queda "No va a necesitar factura · cambiar".
+
+Versión 30.7.14 — factura: el cliente puede tener hasta 3 correos (CTE_MAIL, CTE_MAIL2, CTE_MAIL3 de Mr. Tienda). Un correo nuevo se agrega en el siguiente espacio libre sin borrar los otros; con 3 llenos, el mesero elige cuál reemplazar.
