@@ -201,3 +201,5 @@ Versión 30.7.14 — factura: el cliente puede tener hasta 3 correos (CTE_MAIL, 
 Versión 30.7.15 — Personal: por hora = salario mínimo frontera ($440.87) ÷ 8 por defecto; casilla 'Pagarle prima dominical' por empleado (por hora llega apagada); el expediente muestra Sueldo + Séptimo día + Prima dominical + Incentivo = Nómina total.
 
 Versión 30.7.16 — la sesión del panel ya no se pierde cuando la caja se actualiza sola (se guarda en sesiones_panel.json, solo en la caja); en Personal la sesión se mantiene viva mientras se llena un expediente o una nómina.
+
+Versión 30.7.17 — protección en la actualización automática: si alguien publica con `version.txt` distinto del `VERSION` del programa, la caja rechaza esa versión (lo anota en el registro) y sigue funcionando con la actual, en lugar de reiniciarse sin parar. No vuelve a intentar hasta que se publique un número nuevo.

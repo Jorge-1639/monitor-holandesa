@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 118            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.16'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 119            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.17'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -3235,17 +3235,26 @@ def _bajar(nombre):
     with urllib.request.urlopen(req, timeout=30) as r:
         return r.read()
 
+_RECHAZADA = [0]   # 30.7.17: versión publicada con números disparejos que ya se rechazó (no se vuelve a bajar hasta que cambie)
+
 def buscar_actualizacion():
     """Regresa True si instaló una versión nueva (y hay que reiniciar)."""
     try:
         remota = int(_bajar('version.txt').decode().strip() or 0)
     except Exception as e:
         log('No pude revisar actualizaciones: ' + str(e)); return False
-    if remota <= VERSION: return False
+    if remota <= VERSION or remota == _RECHAZADA[0]: return False
     log(f'Hay versión nueva {remota} (tengo {VERSION}). Descargando…')
     nuevo = os.path.join(AQUI, '_nuevo'); resp = os.path.join(AQUI, '_respaldo', 'programa')
     shutil.rmtree(nuevo, ignore_errors=True); os.makedirs(nuevo, exist_ok=True)
     try:
+        # 30.7.17: el programa nuevo debe decir el mismo número que version.txt; si no, instalarlo haría que la caja
+        # se reinicie sin parar (pasó el 15-oct-2026). Se rechaza y se sigue con la versión actual.
+        m = re.search(rb'^VERSION = (\d+)', _bajar('holandesa_monitor.py'), re.M)
+        interna = int(m.group(1)) if m else 0
+        if interna != remota:
+            _RECHAZADA[0] = remota
+            raise RuntimeError(f'la versión publicada está dispareja (version.txt dice {remota} y el programa dice {interna}); no se instala')
         archivos = [a.strip() for a in _bajar('archivos.txt').decode().splitlines() if a.strip()]
         permitidos = {'holandesa_monitor.py', 'panel.html', 'detener_monitor.bat', 'iniciar_monitor.vbs', 'probar.bat', 'actualizar.bat', 'icon.png'}
         archivos = [a for a in archivos if a in permitidos or re.fullmatch(r'[a-z0-9_]+\.(html|css|js|png|bat|vbs)', a)]
