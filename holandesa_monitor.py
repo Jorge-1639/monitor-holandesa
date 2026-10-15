@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 119            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.17'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 120            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.18'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -792,8 +792,18 @@ def pdf_comandero(nombre, url, horario='', candado=False, logo=None):
         'El cobro lo hace la caja. Cuando termines tu turno toca "Salir".',
         'Si algo no funciona, avísale a la encargada o a Jorge.',
     ]
-    for n, t in enumerate(uso, 1): y = punto(n, y, t)
-    nota_clave(y - 10)
+    for n, t in enumerate(uso, 1): y = punto(n, y, t, 11)
+    # cómo escribir la mesa en la caja (15-oct-2026): así el comandero la marca ocupada en el mapa
+    y -= 6; col(VERDE_S); c.append('%d %.1f %d 2 re f' % (M, y + 8, W - 2 * M))
+    texto(M, y - 12, 'Cómo escribir la mesa en la caja (referencia de la cuenta)', 13, True, VERDE); y -= 30
+    texto(M, y, 'M + espacio + número + letra. Así la mesa sale ocupada en el mapa del comandero.', 11, False, GRIS); y -= 18
+    filas = [('Mesa 3 (sola)', 'M 3'), ('Mesa 7 (sola)', 'M 7'), ('Mesa 1A', 'M 1A'), ('Mesa 1B', 'M 1B'), ('Mesas 1A y 1B juntas', 'M 1AB')]
+    for k, (a_, b_) in enumerate(filas):
+        x0 = M + (k % 2) * ((W - 2 * M) / 2); yy = y - (k // 2) * 18
+        texto(x0, yy, a_ + ':', 11, False, TINTA); texto(x0 + 150, yy, b_, 12, True, VERDE)
+    y -= ((len(filas) + 1) // 2) * 18 + 2
+    texto(M, y, 'No escribas: M1A+B, M 1A-1B, 1A (sin la M) ni MESA UNO.', 11, True, ROJO); y -= 14
+    nota_clave(y - 8)
     pie()
     conts = [b'\n'.join(x if isinstance(x, bytes) else x.encode('latin-1') for x in pg_) for pg_ in paginas]
     # armar el PDF

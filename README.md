@@ -203,3 +203,5 @@ Versión 30.7.15 — Personal: por hora = salario mínimo frontera ($440.87) ÷ 
 Versión 30.7.16 — la sesión del panel ya no se pierde cuando la caja se actualiza sola (se guarda en sesiones_panel.json, solo en la caja); en Personal la sesión se mantiene viva mientras se llena un expediente o una nómina.
 
 Versión 30.7.17 — protección en la actualización automática: si alguien publica con `version.txt` distinto del `VERSION` del programa, la caja rechaza esa versión (lo anota en el registro) y sigue funcionando con la actual, en lugar de reiniciarse sin parar. No vuelve a intentar hasta que se publique un número nuevo.
+
+Versión 30.7.18 — PDF del comandero: en la hoja 2, "Cómo escribir la mesa en la caja" (M 3, M 1A, M 1AB…) para que la mesa salga ocupada en el mapa.
