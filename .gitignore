@@ -1,2 +1,4 @@
 comandas_tarde.json
 comandas_tiempos.json
+__pycache__/
+*.pyc
