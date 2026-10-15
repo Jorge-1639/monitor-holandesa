@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 110            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.8'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 111            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.9'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -460,7 +460,7 @@ def comanda_bytes(ref, mesero, renglones, folio, nueva, ahora, canal=None, fmt=N
     o DIDI / UBER + los últimos 3 números de la clave."""
     ESC, GS = b'\x1b', b'\x1d'
     e = lambda x: str(x).encode('cp850', 'replace')
-    n_ = re.match(r'^M\s*(\d+)$', ref)
+    n_ = re.match(r'^M\s*(\d+\s*(?:A|B|AB)?)$', ref.strip(), re.I)
     modos = {r['COD_ESCALA'] for r in renglones}
     canal = canal or {}
     c_ = canal.get('canal') if canal.get('canal') in CANALES else None
@@ -470,7 +470,8 @@ def comanda_bytes(ref, mesero, renglones, folio, nueva, ahora, canal=None, fmt=N
     elif c_:
         abajo = [CANALES[c_], (canal.get('nombre') or ref).upper()[:21]]
     elif n_:
-        abajo = ['COMER AQUI' if modos != {'02'} else 'PARA LLEVAR', 'MESA ' + n_.group(1)]
+        mt = re.sub(r'\s+', '', n_.group(1)).upper(); mt = re.sub(r'^(\d+)AB$', r'\1A+\1B', mt)
+        abajo = ['COMER AQUI' if modos != {'02'} else 'PARA LLEVAR', 'MESA ' + mt]
     else:
         abajo = ['PARA LLEVAR' if modos == {'02'} else 'COMER AQUI', _dbf_txt(ref).upper()[:21]]
     F = fmt_comanda(fmt)
@@ -1952,12 +1953,17 @@ class Monitor:
                 res = _agregar_a_cuenta(com, pend, archivo, mesero['cod'], ren, self._tc(), ahora)
             else:
                 if d.get('mesa'):
-                    m = re.sub(r'\D', '', str(d['mesa']))[:2]
-                    if not m: raise ValueError('Mesa no válida.')
+                    # mesa del plano: 3, 7 o con lado 1A / 1B, o juntas 1AB (versión 30.7.9)
+                    mm = re.match(r'^\s*(\d{1,2})\s*(A|B|AB)?\s*$', str(d['mesa']).upper())
+                    if not mm: raise ValueError('Mesa no válida.')
+                    num, lado = str(int(mm.group(1))), mm.group(2) or ''
+                    quiero = set(lado) if lado else {'A', 'B'}
                     for a in self.abiertas():
-                        n_ = re.match(r'^(?:M|MESA)\s*-?\s*(\d{1,2})$', a['ref'], re.I)
-                        if n_ and str(int(n_.group(1))) == str(int(m)): raise RuntimeError(f'La mesa {int(m)} ya tiene cuenta abierta ({a["mesero"]}). Actualiza el comandero.')
-                    ref = 'M ' + str(int(m))
+                        n_ = re.match(r'^(?:M|MESA)\s*-?\s*(\d{1,2})\s*(A|B|AB)?$', a['ref'].strip(), re.I)
+                        if not n_ or str(int(n_.group(1))) != num: continue
+                        tiene = set((n_.group(2) or '').upper()) or {'A', 'B'}
+                        if quiero & tiene: raise RuntimeError(f'La mesa {num}{lado} ya tiene cuenta abierta ({a["mesero"]}). Actualiza el comandero.')
+                    ref = 'M ' + num + lado
                 elif canal:
                     ref = canal['ref']
                 else:

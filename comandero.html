@@ -65,6 +65,17 @@ button:focus-visible{outline:2px solid var(--green-2);outline-offset:2px}
 .seg{display:flex;gap:6px;margin:14px 0}
 .seg button{flex:1;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px;font-weight:600;font-size:14px}
 .seg button[aria-pressed="true"]{background:var(--green);color:var(--on-green);border-color:var(--green)}
+.plano{position:relative;width:100%;aspect-ratio:100/112;background:var(--surface);border:1px solid var(--line);border-radius:16px;margin-top:6px;overflow:hidden}
+.pent{position:absolute;left:2%;top:4%;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border:1px dashed var(--line);border-radius:8px;padding:2px 5px}
+.pg{position:absolute;display:flex;gap:3px}.pg.v{flex-direction:column}
+.pm{flex:1;min-width:0;border:2px solid #f0b37a;background:#fff;color:#1a1a1a;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2px;line-height:1.05}
+.pm b{font:800 17px/1 var(--display)}.pm small{font-size:9.5px;color:#666;white-space:nowrap;overflow:hidden;max-width:100%}
+.pm.ocu{background:#cfd6de;border-color:#7d8b99}.pm.ocu.mia{background:#2f7d4f;border-color:#1f5c38;color:#fff}.pm.ocu.mia small{color:#e6f3ea}
+.pm.c1{background:#ffe7a3!important;border-color:#e0a800!important;color:#1a1a1a!important}.pm.c2{background:#f9c4bf!important;border-color:#c62828!important;color:#1a1a1a!important}
+.pm.c1 small,.pm.c2 small{color:#333!important}.pm:disabled{opacity:.85}
+.pley{display:flex;flex-wrap:wrap;gap:6px 12px;margin:8px 2px 0;font-size:12px;color:var(--muted)}.pley i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:4px;vertical-align:-2px;border:2px solid #f0b37a;background:#fff}
+.pley i.mi{background:#2f7d4f;border-color:#1f5c38}.pley i.ot{background:#cfd6de;border-color:#7d8b99}.pley i.c1{background:#ffe7a3;border-color:#e0a800}
+.seg.seg3{grid-template-columns:1fr 1fr .8fr}
 .mesas{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .mesa{border:1px solid var(--line);background:var(--surface);border-radius:14px;padding:12px 10px;text-align:left;display:flex;flex-direction:column;gap:2px;min-height:86px}
 .mesa b{font:800 22px/1 var(--display);font-stretch:85%}
@@ -231,7 +242,23 @@ const GRUPOS = [
   {n:'Tortas y hamburguesas', c:'#7a5a1e', cats:['Tortas','Sandwiches','Hamburguesas']},
   {n:'Promociones y extras', c:'#6b4b8a', cats:['Promociones','Cupones','Otros Extras']},
 ];
-const MESAS = ['1','2','3','4','5','6','7','8','9','10','11'];
+// ---- mapa del comedor (versión 30.7.9, del dibujo de Jorge del 14-oct-2026). x, y, w, h en % del plano; r = giro en grados.
+// Las mesas con A y B se pueden usar por separado o juntas (cuenta "M 1AB" = 1A + 1B).
+const PLANO=[
+  {g:'8',x:22,y:3,w:31,h:11,p:['8A','8B']},
+  {g:'9',x:59,y:3,w:36,h:11,p:['9A','9B']},
+  {g:'7',x:5,y:19,w:16,h:13,p:['7']},
+  {g:'6',x:5,y:37,w:16,h:23,p:['6B','6A'],v:1},
+  {g:'5',x:39,y:30,w:50,h:13,r:-24,p:['5A','5B']},
+  {g:'4',x:41,y:50,w:50,h:13,r:-24,p:['4A','4B']},
+  {g:'3',x:6,y:66,w:18,h:12,p:['3']},
+  {g:'2',x:5,y:84,w:40,h:12,p:['2A','2B']},
+  {g:'1',x:55,y:84,w:39,h:12,p:['1A','1B']}];
+const MESAS=PLANO.flatMap(g=>g.p);
+const mesaTxt=id=>{const m=String(id||'').match(/^(\d{1,2})(AB)$/);return m?m[1]+'A+'+m[1]+'B':String(id||'')};
+// qué mesas del plano ocupa una cuenta: "M 1A" → 1A; "M 1AB" o "M 1" (capturada en la caja sin letra) → 1A y 1B
+const ocupaDe=id=>{const m=String(id||'').match(/^(\d{1,2})(A|B|AB)?$/);if(!m)return [];const g=PLANO.find(x=>x.g===m[1]);if(!g)return [id];
+  return !m[2]||m[2]==='AB'?g.p:g.p.filter(x=>x===m[1]+m[2])};
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const money=n=>'$'+(+n||0).toLocaleString('es-MX',{minimumFractionDigits:0,maximumFractionDigits:2});
@@ -301,7 +328,7 @@ function revisarDemoras(){
   });
   if(!pend.length){el.hidden=true;alarmaK=null;return}
   const rk={critica:3,roja:2,demora:1,postre:0};pend.sort((a,b)=>(rk[b.tipo]||0)-(rk[a.tipo]||0)||b.min-a.min);const a=pend[0],n=numMesa(a.c.ref),k=canalDe(a.c);
-  const quien=n?'Mesa '+n:(k?canalTxt(k):a.c.ref);
+  const quien=n?'Mesa '+mesaTxt(n):(k?canalTxt(k):a.c.ref);
   el.innerHTML=a.tipo==='postre'
     ?`<div><b>🍮 ${esc(quien)}: ¿ya llevaste el postre?</b><p>Comida del día de las ${esc(a.h)}.${pend.length>1?` (+${pend.length-1} avisos más)`:''}</p></div><button data-act="yasalio" data-dk="${esc(a.k)}">Ya lo llevé</button>`
     :`<div><b>${a.tipo==='critica'?'🚨 CRÍTICO: ya tardó la comanda':'⏰'} ${esc(quien)}</b><p>La comanda de las ${esc(a.h)} lleva ${Math.floor(a.min)} min. Revisa con cocina.${pend.length>1?` (+${pend.length-1} avisos más)`:''}</p></div><span style="display:flex;flex-direction:column;gap:6px;margin-left:auto"><button data-act="yasalio" data-dk="${esc(a.k)}">Ya salió</button><button data-act="nosalio" data-dk="${esc(a.k)}" style="background:rgba(255,255,255,.75)">No ha salido</button></span>`;
@@ -335,12 +362,30 @@ const recuerdaComida=n=>/S\/?\s*AGUA|SIN\s*AGUA/.test(sinAcento(n))?'🍲 Lleva 
 function salir(msg){S.tok=null;store.set('cmd_tok',null);S.user=null;S.pin='';S.view='login';S.err=msg||'';S.draft=[];clearInterval(poll);render()}
 
 // ---- cuentas: la referencia de MrTienda dice la mesa (M 2, MESA9) o el nombre (LLEVAR, DIDI…)
-const numMesa=ref=>{const m=String(ref||'').trim().match(/^(?:M|MESA)\s*-?\s*(\d{1,2})$/i);return m?String(+m[1]):null};
+const numMesa=ref=>{const m=String(ref||'').trim().match(/^(?:M|MESA)\s*-?\s*(\d{1,2})\s*(A|B|AB)?$/i);return m?String(+m[1])+(m[2]||'').toUpperCase():null};
+function ocupacion(){const o={};CUENTAS.forEach(c=>{const n=numMesa(c.ref);if(n)ocupaDe(n).forEach(x=>{if(!o[x])o[x]=c})});return o}
+// dibuja el plano; modo 'elegir' (nueva cuenta: solo se tocan las libres) o 'ver' (pantalla principal: libres abren cuenta, ocupadas abren la cuenta)
+function planoHTML(modo){
+  const o=ocupacion(),ahora=new Date();
+  const mins=c=>{if(!c.abrio)return '';const [h,m]=c.abrio.split(':').map(Number);const t=new Date(ahora);t.setHours(h,m,0,0);if(t>ahora)t.setDate(t.getDate()-1);const x=Math.round((ahora-t)/6e4);return x<60?x+' min':Math.floor(x/60)+' h '+(x%60)+' m'};
+  const pieza=id=>{const c=o[id];
+    if(c){const m_=mia(c),ct=c.cortes||0;
+      return `<button class="pm ocu${m_?' mia':''}${ct>=2?' c2':ct===1?' c1':''}" ${modo==='ver'?`data-k="${esc(c.archivo)}"`:'disabled'}><b>${id}</b><small>${esc((c.mesero||'').split(' ')[0])}</small><small>${mins(c)}</small></button>`}
+    return `<button class="pm" data-${modo==='ver'?'mapalibre':'libre'}="${id}"><b>${id}</b><small>Libre</small></button>`};
+  return `<div class="plano"><span class="pent">Entrada</span>${PLANO.map(g=>`<div class="pg${g.v?' v':''}" style="left:${g.x}%;top:${g.y}%;width:${g.w}%;height:${g.h}%;${g.r?`transform:rotate(${g.r}deg)`:''}">${g.p.map(pieza).join('')}</div>`).join('')}</div>
+    <div class="pley"><span><i class="l"></i>Libre</span><span><i class="mi"></i>Tuya</span><span><i class="ot"></i>De otro mesero</span><span><i class="c1"></i>Corte anterior</span></div>`;
+}
+// elegir mesa libre: si su pareja (A/B) también está libre, pregunta si se juntan
+function elegirMesa(id){
+  const g=PLANO.find(x=>x.p.includes(id)),o=ocupacion();
+  if(g&&g.p.length===2&&!g.p.some(x=>o[x])){
+    $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Mesa ${id}</h2><div class="opciones"><button class="k k-comedor" data-libre1="${id}"><span>Solo la ${id}</span><small>Mesa separada</small></button><button class="k k-comedor" data-libre1="${g.g}AB"><span>Juntar ${g.p.join(' + ')}</span><small>Para 6 personas aprox.</small></button></div></div></div>`;return}
+  hojaPersonas(id)}
 const mia=c=>S.user&&c.cod===S.user.cod;
 const cuentaDe=k=>CUENTAS.find(c=>c.archivo===k);
 const itemsDe=c=>c?c.items.map(i=>({n:i.n,qty:i.q,price:i.q?i.imp/i.q:i.imp,detail:i.det,llevar:i.llevar,sent:true,h:i.h})):[];
 function titulo(){
-  if(S.sel&&S.sel.k){const c=cuentaDe(S.sel.k);if(c){const n=numMesa(c.ref);if(n)return 'Mesa '+n;const k=canalDe(c);return k?canalTxt(k):(c.llevar?'Llevar · ':'')+c.ref}}
+  if(S.sel&&S.sel.k){const c=cuentaDe(S.sel.k);if(c){const n=numMesa(c.ref);if(n)return 'Mesa '+mesaTxt(n);const k=canalDe(c);return k?canalTxt(k):(c.llevar?'Llevar · ':'')+c.ref}}
   if(S.sel&&S.sel.canal)return canalTxt(S.sel.canal);
   if(S.sel&&S.sel.mesa)return 'Mesa '+S.sel.mesa+(S.sel.pers?' · '+S.sel.pers+' pers.':'');
   if(S.sel&&S.sel.nombre)return 'Llevar · '+S.sel.nombre;
@@ -372,9 +417,9 @@ function render(){
     app.innerHTML=`<header class="top"><img class="mini" src="${LOGO}" alt=""><h1>Comandero<small>${esc(S.user?S.user.nombre:'')} · ${mine.length} ${mine.length===1?'cuenta':'cuentas'} · ${money(totMine)}</small></h1><button class="chipbtn" data-act="salir">Salir</button></header>
       ${falla}${avisoV1}
       <button class="big nueva" data-act="nueva">+ Nueva cuenta</button>
-      <div class="seg"><button data-f="mias" aria-pressed="${S.filtro==='mias'}">Mis cuentas (${mine.length})</button><button data-f="todas" aria-pressed="${S.filtro==='todas'}">Todas (${CUENTAS.length})</button></div>
-      <div class="section">${S.filtro==='mias'?'Mis cuentas abiertas':'Cuentas abiertas en la caja'}</div>
-      ${list.length?`<div class="mesas">${list.map(tile).join('')}</div>`:`<p class="empty">${S.filtro==='mias'?'No tienes cuentas abiertas. Toca "+ Nueva cuenta" para empezar.':'No hay cuentas abiertas.'}</p>`}
+      <div class="seg seg3"><button data-f="mias" aria-pressed="${S.filtro==='mias'}">Mis cuentas (${mine.length})</button><button data-f="todas" aria-pressed="${S.filtro==='todas'}">Todas (${CUENTAS.length})</button><button data-f="mapa" aria-pressed="${S.filtro==='mapa'}">Mapa</button></div>
+      ${S.filtro==='mapa'?`<div class="section">Comedor · toca una mesa libre para abrirla</div>${planoHTML('ver')}`:`<div class="section">${S.filtro==='mias'?'Mis cuentas abiertas':'Cuentas abiertas en la caja'}</div>
+      ${list.length?`<div class="mesas">${list.map(tile).join('')}</div>`:`<p class="empty">${S.filtro==='mias'?'No tienes cuentas abiertas. Toca "+ Nueva cuenta" para empezar.':'No hay cuentas abiertas.'}</p>`}`}
       <p class="empty" style="margin-top:18px">Se actualiza solo cada 20 segundos.</p>`;
     return;
   }
@@ -434,12 +479,11 @@ function hojaNueva(){
   $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Nueva cuenta</h2><div class="opciones">${ops.map(([c,t,d])=>`<button class="k ${({comedor:'k-comedor',recoger:'k-llevar',domicilio:'k-dom',didi:'k-didi',uber:'k-uber'})[c]}" data-nueva="${c}"><span>${t}</span><small>${d}</small></button>`).join('')}</div></div></div>`;
 }
 function hojaPersonas(m){
-  $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Mesa ${esc(m)} · ¿cuántas personas?</h2><div class="mesas">${[1,2,3,4,5,6,7,8,9,10,12,15].map(n=>`<button class="mesa" data-mesa="${esc(m)}" data-pers="${n}"><b>${n}</b><span>${n===1?'persona':'personas'}</span></button>`).join('')}</div></div></div>`;
+  $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Mesa ${esc(mesaTxt(m))} · ¿cuántas personas?</h2><div class="mesas">${[1,2,3,4,5,6,7,8,9,10,12,15].map(n=>`<button class="mesa" data-mesa="${esc(m)}" data-pers="${n}"><b>${n}</b><span>${n===1?'persona':'personas'}</span></button>`).join('')}</div></div></div>`;
 }
 function hojaMesas(){
-  const ocup={};CUENTAS.forEach(c=>{const n=numMesa(c.ref);if(n)ocup[n]=1});
-  const libres=MESAS.filter(m=>!ocup[m]);
-  $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Comedor · elige la mesa</h2>${libres.length?`<div class="mesas">${libres.map(m=>`<button class="mesa" data-libre="${m}"><b>${m}</b><span>Libre</span></button>`).join('')}</div>`:'<p class="empty">Todas las mesas están ocupadas.</p>'}</div></div>`;
+  const o=ocupacion(),libres=MESAS.filter(m=>!o[m]);
+  $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Comedor · toca la mesa</h2>${libres.length?planoHTML('elegir'):'<p class="empty">Todas las mesas están ocupadas.</p>'}</div></div>`;
 }
 const nuevoLlevar=()=>[['recoger','+ Llevar','Recoge aquí'],['domicilio','+ Domicilio','A su casa'],['didi','+ Didi','Pedido Didi'],['uber','+ Uber','Pedido Uber']]
   .map(([c,b,t])=>`<button class="mesa llevar" data-canal="${c}"><b>${b}</b><span>${t}</span></button>`).join('');
@@ -475,7 +519,7 @@ async function buscarCte(){
 function tile(c){
   const n=numMesa(c.ref), m=mia(c), kc=canalDe(c), cls=(S.filtro==='todas'&&!m?'other':'')+' k '+(n?'k-comedor':kc?{recoger:'k-llevar',domicilio:'k-dom',didi:'k-didi',uber:'k-uber'}[kc.canal]:c.llevar?'k-llevar':'k-comedor');
   const ct=c.cortes||0;
-  return `<button class="mesa ${cls} ${ct>=2?'c2':ct===1?'c1':''}" data-k="${esc(c.archivo)}">${ct>=2?`<span class="ctag">Hace ${ct} cortes</span>`:ct===1?'<span class="ctag">Corte anterior</span>':''}<b>${esc(n||(canalDe(c)&&canalDe(c).nombre?canalDe(c).nombre:(c.ref||'Sin nombre')))}</b>${n?'':`<span>${canalDe(c)?esc(canalDe(c).canal==='didi'?'Didi · '+(canalDe(c).pago==='efectivo'?'Efectivo':'Tarjeta'):CANAL_TXT[canalDe(c).canal]):(c.llevar?'Para llevar':'Cuenta')}</span>`}<span>${esc(c.mesero)} · ${esc(c.abrio)}</span><span class="t num">${money(c.total)}</span></button>`;
+  return `<button class="mesa ${cls} ${ct>=2?'c2':ct===1?'c1':''}" data-k="${esc(c.archivo)}">${ct>=2?`<span class="ctag">Hace ${ct} cortes</span>`:ct===1?'<span class="ctag">Corte anterior</span>':''}<b>${esc(n?mesaTxt(n):(canalDe(c)&&canalDe(c).nombre?canalDe(c).nombre:(c.ref||'Sin nombre')))}</b>${n?'':`<span>${canalDe(c)?esc(canalDe(c).canal==='didi'?'Didi · '+(canalDe(c).pago==='efectivo'?'Efectivo':'Tarjeta'):CANAL_TXT[canalDe(c).canal]):(c.llevar?'Para llevar':'Cuenta')}</span>`}<span>${esc(c.mesero)} · ${esc(c.abrio)}</span><span class="t num">${money(c.total)}</span></button>`;
 }
 function modoHTML(){return `<div class="modo" role="group" aria-label="Tipo de pedido"><button data-modo="aqui" aria-pressed="${S.modo==='aqui'}">${ICON.aqui}Comer aquí</button><button data-modo="llevar" aria-pressed="${S.modo==='llevar'}">${ICON.llevar}Para llevar</button></div>`}
 function lineHTML(it,di){
@@ -572,7 +616,9 @@ document.addEventListener('click',e=>{
   if(d.k&&S.view==='mesas'){const k=d.k;if(!cuentaDe(k))return;
     return conClave('Escribe tu clave para agregar a esta cuenta',()=>{const c=cuentaDe(k);if(!c)return;
       if(!mia(c)){toast('Esa cuenta es de '+c.mesero);return}abrir({k:c.archivo,llevar:c.llevar})})}
-  if(d.libre){return hojaPersonas(d.libre)}
+  if(d.libre){return elegirMesa(d.libre)}
+  if(d.libre1){return hojaPersonas(d.libre1)}
+  if(d.mapalibre&&S.view==='mesas'){const id=d.mapalibre;return conClave('Escribe tu clave para abrir la mesa '+id,()=>elegirMesa(id))}
   if(d.pers){$('#sheet').innerHTML='';return abrir({mesa:d.mesa,pers:+d.pers})}
   if(d.nueva){return d.nueva==='comedor'?hojaMesas():hojaCanal(d.nueva)}
   if(d.canal&&S.view==='mesas'){return hojaCanal(d.canal)}

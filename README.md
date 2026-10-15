@@ -185,3 +185,5 @@ Versión 30.7.4 — iPhone: ícono del comandero y del panel con dirección nuev
 Versión 30.7.5 — PDF del comandero en 2 hojas: "¡Bienvenida/Bienvenido, nombre!", cómo entrar, cómo usar el comandero y la nota "No compartas tu clave, es confidencial". Nombre de archivo sin acentos ni espacios; si el teléfono no deja compartir, el PDF se descarga solo y el error queda en monitor.log.
 
 Versión 30.7.6 — botón "Enviar PDF por WhatsApp"; en Samsung Internet (no deja compartir archivos) abre la misma pantalla en Chrome (/panel?pdf=código) para mandarlo desde ahí.
+
+Versión 30.7.9 — comandero: mapa del comedor (dibujo de Jorge): mesas 1A/1B, 2A/2B, 3, 4A/4B, 5A/5B, 6A/6B, 7, 8A/8B, 9A/9B; se pueden juntar A+B (cuenta "M 1AB"); pestaña "Mapa" con mesas libres/ocupadas; la comanda dice MESA 1A o MESA 1A+1B.

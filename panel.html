@@ -622,7 +622,7 @@ function rTardadas(){
   const c20=L.filter(r=>mins(r)>=20),c14=L.filter(r=>mins(r)<20),sc=L.filter(r=>r.min==null);
   const pill=r=>mins(r)>=20?'<span class="pill bad">+20 min</span>':'<span class="pill warn">+14 min</span>';
   const tiempo=r=>r.min!=null?r.min+' min':'+'+r.visto+' min';
-  const quien=r=>{const n=String(r.ref||'').trim().match(/^(?:M|MESA)\s*-?\s*(\d{1,2})$/i);return n?'Mesa '+(+n[1]):(CANAL_TXT[r.canal]||r.ref||'Cuenta')+(r.nombre?' · '+r.nombre:'')};
+  const quien=r=>{const n=String(r.ref||'').trim().match(/^(?:M|MESA)\s*-?\s*(\d{1,2})\s*(A|B|AB)?$/i);return n?'Mesa '+(+n[1])+(n[2]||'').toUpperCase():(CANAL_TXT[r.canal]||r.ref||'Cuenta')+(r.nombre?' · '+r.nombre:'')};
   const det=r=>`${(r.platillos||[]).map(p=>esc(p.q+' '+p.n)+(p.det?' ('+esc(p.det)+')':'')).join('<br>')}<br>Turno ${r.turno} · enviada ${esc(r.enviada)}${r.salio?' · salió '+esc(r.salio):''}${r.min==null?' · <b>sin confirmar</b>: nadie tocó "Ya salió"':''}`;
   const item=r=>`<details class="drow"><summary><span>${corto(r.fecha)} ${esc(r.enviada)} · ${esc(quien(r))} ${pill(r)}<small>${esc(r.mesero||'')} · Turno ${r.turno}</small></span><span class="num">${tiempo(r)}</span></summary><div class="dlist"><p style="margin:6px 0;line-height:1.5">${det(r)}</p></div></details>`;
   const grupo=(tit,fn)=>{const g={};L.forEach(r=>{const k=fn(r);(g[k]=g[k]||[]).push(r)});const E=Object.entries(g).sort((a,b)=>b[1].length-a[1].length);
