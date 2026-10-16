@@ -1522,15 +1522,20 @@ function rhNomCalc(e,sem){
 }
 const rhBruto=v=>(+v.base||0)+(+v.septimo||0)+(+v.extra_horas||0)+(+v.prima_dom||0)+(+v.incentivo||0)+(+v.extras||0);
 const rhTot=v=>rhBruto(v)-(+v.comida||0)-(+v.vales||0)-(+v.abono||0)-(+v.otros||0);
-const rhNomActivos=()=>rhAct().filter(e=>e.diario>0||e.sueldo>0||(e.pago==='hora'&&e.tarifa>0)||(RH.nominas[rhSem]||{})[e.id]);
+// en la nómina van agrupados por puesto, en el orden en que Jorge los revisa: cocineros, meseros, ayudantes generales y después los demás
+const RH_NOM_ORDEN=['Cocinero','Ayudante de cocina','Mesero','Cajero','Encargada','Ayudante general','Repartidor','Lavaloza','Otro'];
+const RH_NOM_TIT={Cocinero:'Cocineros','Ayudante de cocina':'Ayudantes de cocina',Mesero:'Meseros',Cajero:'Cajeros',Encargada:'Encargada','Ayudante general':'Ayudantes generales',Repartidor:'Repartidores',Lavaloza:'Lavaloza',Otro:'Otros'};
+const rhNomPos=e=>{const i=RH_NOM_ORDEN.indexOf(e.puesto);return i<0?99:i};
+const rhNomActivos=()=>rhAct().filter(e=>e.diario>0||e.sueldo>0||(e.pago==='hora'&&e.tarifa>0)||(RH.nominas[rhSem]||{})[e.id]).sort((a,b)=>(rhNomPos(a)-rhNomPos(b))||a.nombre.localeCompare(b.nombre));
+const rhNomTitulo=(A,i)=>{const p=A[i].puesto||'Otro';return i&&(A[i-1].puesto||'Otro')===p?'':`<h3 style="font:900 15px var(--display);letter-spacing:.1em;text-transform:uppercase;margin:22px 4px 8px;color:var(--ink)">${esc(RH_NOM_TIT[p]||p)}</h3>`};
 function rhNomina(){
   const A=rhNomActivos(); let T=0,TR=0;
-  const cards=A.map(e=>{const c=rhNomCalc(e,rhSem),v=c.v,tot=rhTot(v);T+=tot;TR+=(+v.transfer||0);
+  const cards=A.map((e,ix)=>{const c=rhNomCalc(e,rhSem),v=c.v,tot=rhTot(v);T+=tot;TR+=(+v.transfer||0);const tit=rhNomTitulo(A,ix);
     const inp=(k,l,hint='')=>`<div class="field" style="margin-top:8px"><label>${l}${hint?` <small style="color:var(--muted)">${hint}</small>`:''}</label><input class="rhn" data-emp="${e.id}" data-k="${k}" inputmode="decimal" value="${v[k]||''}"></div>`;
     const hsSin=rhHorasSem(e,rhSem,false).t, hsCon=rhHorasSem(e,rhSem,true).t, mins=+e.comida_min||30;
     const horas=`<div class="note" style="background:var(--surface-2);color:var(--ink);margin:10px 0 0">Horas del rol: <b id="rh_hs_${e.id}">${rhHtxt(c.resta?hsCon:hsSin)}</b>${c.porHora?` × ${fmt2(c.tar)} por hora`:''}
       <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-weight:600"><input type="checkbox" class="rhn rhrc" data-emp="${e.id}" data-k="resta_comida" data-sin="${hsSin}" data-con="${hsCon}" data-tar="${c.porHora?c.tar:0}" data-th="${c.th||0}" data-dsin="${rhHorasSem(e,rhSem,false).dom}" data-dcon="${rhHorasSem(e,rhSem,true).dom}" ${c.resta?'checked':''} style="width:20px;height:20px">Restar ${mins} min de comida por día</label></div>`;
-    return `<div class="card"><h2>${esc(e.nombre)} <small>${esc(e.puesto)} · ${c.t} días${c.f?` · <b style="color:var(--bad)">${c.f} ${c.f===1?'falta':'faltas'}</b>`:''}${c.g?(v.pagada?' · <span class="pill good">Pagada</span>':' · <span class="pill mut">Guardada</span>'):''}</small></h2>${horas}
+    return tit+`<div class="card"><h2>${esc(e.nombre)} <small>${esc(e.puesto)} · ${c.t} días${c.f?` · <b style="color:var(--bad)">${c.f} ${c.f===1?'falta':'faltas'}</b>`:''}${c.g?(v.pagada?' · <span class="pill good">Pagada</span>':' · <span class="pill mut">Guardada</span>'):''}</small></h2>${horas}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
         ${inp('base',c.porHora?'Sueldo por horas':+e.diario?'Sueldo':'Nómina completa',c.porHora?'':+e.diario?'('+(c.parcial.length?(+c.diasPag.toFixed(2))+' días':(c.t+c.vac))+' × '+fmt2(+e.diario)+')'+(c.parcial.length?'<br><span style="color:var(--warn)">por horas: '+esc(c.parcial.join(', '))+'</span>':''):c.f?'(menos faltas)':'')}${inp('incentivo','Incentivo',+e.incentivo&&c.t<c.prog?'('+c.t+' de '+c.prog+' días)':'')}
         ${inp('septimo','Séptimo día','(lo trabajado ÷ 6)')}${inp('extra_horas','Horas extra',c.xe.ext?'('+rhExtraTxt(c.xe)+')':'(más de 48 h)')}${inp('prima_dom','Prima dominical',c.dom?'(25%)':'')}${inp('extras','Extras / bonos','(autorizadas)')}
@@ -1543,7 +1548,8 @@ function rhNomina(){
       <table class="ledger num" style="margin-top:12px"><tbody>
         <tr><td><b>Total a pagar</b></td><td><b id="rt_${e.id}">${fmt2(tot)}</b></td></tr></tbody></table>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">${inp('transfer','Transferencia')}<div class="field" style="margin-top:8px"><label>Efectivo</label><input id="re_${e.id}" readonly value="${fmt2(tot-(+v.transfer||0))}"></div></div>
-      <div class="btns"><button class="btn pri" data-rh="nomguardar" data-id="${e.id}">Guardar</button><button class="btn" data-rh="nompagar" data-id="${e.id}">${v.pagada?'Quitar pagada':'Marcar pagada'}</button><a class="btn" data-rh="recibo" data-id="${e.id}" href="#">Recibo por WhatsApp</a></div></div>`}).join('');
+      <div class="btns"><button class="btn pri" data-rh="nomguardar" data-id="${e.id}">Guardar</button><button class="btn" data-rh="nompagar" data-id="${e.id}">${v.pagada?'Quitar pagada':'Marcar pagada'}</button><a class="btn" data-rh="recibo" data-id="${e.id}" href="#">Recibo por WhatsApp</a>${c.g?`<button class="btn" data-rh="nomrecalc" data-id="${e.id}">Volver a calcular</button>`:''}</div>
+      ${c.g?'<p class="empty" style="margin-top:6px">Ya está guardada: puedes cambiar cualquier cuadro y darle Guardar otra vez. "Volver a calcular" pone de nuevo lo que sale del rol, las horas y los vales (luego dale Guardar).</p>':''}</div>`}).join('');
   return rhSemNav()+`<div class="kpis"><div class="kpi"><b class="num">${fmt2(T)}</b><span>total a pagar</span></div><div class="kpi"><b class="num">${fmt2(T-TR)}</b><span>en efectivo · ${fmt2(TR)} transferido</span></div></div>`+
     (cards||'<p class="empty">Captura el sueldo por día o el pago por hora de cada empleado en su expediente para calcular la nómina.</p>')+
     `<p class="empty" style="margin-top:10px">Por día: días trabajados y de vacaciones × sueldo diario, más prima dominical (25% del sueldo diario si trabajó domingo) y el incentivo proporcional a los días que trabajó. Por hora: las horas del rol × pago por hora; la comida se resta solo si marcas la casilla. Los préstamos se abonan solos con lo que digas por semana; los vales salen de los capturados aquí y de las salidas de caja de MrTienda que digan VALE y el nombre. Todo se puede corregir a mano antes de guardar.</p>`;
@@ -1564,7 +1570,7 @@ function rhResumen(){
     ${fila('Efectivo a pagar',S('ef'),false,true)}</tbody></table>
     <div class="btns"><a class="btn pri" data-rh="resberenice" href="#">Mandar el efectivo a Berenice por WhatsApp</a></div></div>
   <div class="card"><h2>Por empleado <small>desliza para ver todo</small></h2><div class="tscroll"><table class="tk num" style="font-size:12.5px"><thead><tr><th>Empleado</th><th class="r">Nómina</th><th class="r">Préstamo</th><th class="r">V. comida</th><th class="r">V. dinero</th>${S('otr')?'<th class="r">Otros</th>':''}<th class="r">Transfer.</th><th class="r">Efectivo</th></tr></thead><tbody>
-    ${F.map(f=>`<tr><td>${esc(f.e.nombre.split(' ').slice(0,2).join(' '))}${f.g?'':' <small style="color:var(--warn)">sin guardar</small>'}</td><td class="r">${fmt2(f.b)}</td><td class="r">${f.ab?fmt2(f.ab):'—'}</td><td class="r">${f.com?fmt2(f.com):'—'}</td><td class="r">${f.val?fmt2(f.val):'—'}</td>${S('otr')?`<td class="r">${f.otr?fmt2(f.otr):'—'}</td>`:''}<td class="r">${f.tr?fmt2(f.tr):'—'}</td><td class="r"><b>${fmt2(f.ef)}</b></td></tr>`).join('')}
+    ${F.map((f,ix)=>(ix&&(F[ix-1].e.puesto||'Otro')===(f.e.puesto||'Otro')?'':`<tr><td colspan="9" style="font-weight:900;text-transform:uppercase;letter-spacing:.08em;padding-top:12px">${esc(RH_NOM_TIT[f.e.puesto]||f.e.puesto||'Otros')}</td></tr>`)+`<tr><td>${esc(f.e.nombre.split(' ').slice(0,2).join(' '))}${f.g?'':' <small style="color:var(--warn)">sin guardar</small>'}</td><td class="r">${fmt2(f.b)}</td><td class="r">${f.ab?fmt2(f.ab):'—'}</td><td class="r">${f.com?fmt2(f.com):'—'}</td><td class="r">${f.val?fmt2(f.val):'—'}</td>${S('otr')?`<td class="r">${f.otr?fmt2(f.otr):'—'}</td>`:''}<td class="r">${f.tr?fmt2(f.tr):'—'}</td><td class="r"><b>${fmt2(f.ef)}</b></td></tr>`).join('')}
     <tr class="tt"><td>Total</td><td class="r">${fmt2(S('b'))}</td><td class="r">${fmt2(S('ab'))}</td><td class="r">${fmt2(S('com'))}</td><td class="r">${fmt2(S('val'))}</td>${S('otr')?`<td class="r">${fmt2(S('otr'))}</td>`:''}<td class="r">${fmt2(S('tr'))}</td><td class="r">${fmt2(S('ef'))}</td></tr></tbody></table></div></div>`;
 }
 function rhMsgBerenice(){
@@ -1680,6 +1686,8 @@ document.addEventListener('click',async e=>{
   if(a==='semant'||a==='semsig'){rhSem=rhMas(rhSem,a==='semant'?-7:7);return render()}
   if(a==='comabrir'){rhComAb=rhComAb===d.id?null:d.id;render();return $('#rcDet')?.scrollIntoView({behavior:'smooth',block:'center'})}
   if(a==='comcerrar'){rhComAb=null;return render()}
+  if(a==='nomrecalc'){const e_=rhEmp(d.id),c=rhNomCalc(e_,rhSem).calc;document.querySelectorAll(`.rhn[data-emp="${d.id}"]`).forEach(i=>{const k=i.dataset.k;if(k==='transfer'||k==='nota')return;if(i.type==='checkbox')i.checked=!!c[k];else if(k in c)i.value=c[k]||''});
+    const i0=document.querySelector(`.rhn[data-emp="${d.id}"]`);if(i0)i0.dispatchEvent(new Event('input',{bubbles:true}));toast('Recalculado. Revisa y dale Guardar.');return}
   if(a==='resberenice'){window.open('https://wa.me/?text='+encodeURIComponent(rhMsgBerenice()),'_blank');return}
   if(a==='recibo'){const e_=rhEmp(d.id),v=rhLeeNom(d.id),tot=rhTot(v),L=[`*Nómina La Holandesa*`,`${e_.nombre}`,`Semana del ${rhCorta(rhSem)} al ${rhCorta(rhMas(rhSem,6))}`,``];
     if(e_.pago==='hora')L.push(`Horas: ${rhHtxt(+v.horas||0)} × ${fmt2(+e_.tarifa||0)}`);L.push(`Sueldo: ${fmt2(+v.base||0)}`);

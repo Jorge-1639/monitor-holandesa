@@ -209,3 +209,5 @@ Versión 30.7.18 — PDF del comandero: en la hoja 2, "Cómo escribir la mesa en
 Versión 30.7.19 — nómina: horas extra automáticas (más de 48 h a la semana; las primeras 9 al doble y de ahí al triple; hora = sueldo diario ÷ 8 o su pago por hora). Salen en el expediente, la nómina, el resumen y el recibo.
 
 Versión 30.7.20 — vales de comida: cada comida de empleado (cuenta quitada en Ventas con motivo Empleado) se abre con su comanda; descuento en % o en $ (se calculan uno al otro) y a qué empleado le toca si el nombre no se reconoció; pasa solo a la nómina y al resumen.
+
+Versión 30.7.21 — nómina y resumen agrupados por puesto con título (cocineros, meseros, ayudantes generales…); botón 'Volver a calcular' en la nómina ya guardada.
