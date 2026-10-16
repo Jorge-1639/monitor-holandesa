@@ -1095,6 +1095,7 @@ function tarjetasCajeros(){
     <div class="field"><input id="iaK" type="password" autocomplete="off" placeholder="${ia.activa?'Llave guardada · pega otra para cambiarla':'Pega aquí tu llave (sk-ant-…)'}"></div>
     <div class="btns"><button class="btn pri" data-iasave="1">Guardar llave</button>${ia.activa?'<button class="btn" data-iaquitar="1">Quitar llave</button>':''}${ia.activa&&pend?`<button class="btn" data-leerpend="1">Leer ${pend} fotos pendientes</button>`:''}</div></div>
   ${tarjetaDrive()}
+  ${tarjetaGithub()}
   ${tarjetaHuella()}`;
 }
 // ---- entrada con huella (WebAuthn): solo en la dirección segura https
@@ -1125,6 +1126,25 @@ async function activarHuella(t){
     try{localStorage.setItem('hol_huella','1')}catch(e){}
     toast('Huella activada. La próxima vez entras con tu huella.');await cargar(true);
   }catch(e){toast(e&&e.name==='NotAllowedError'?'Se canceló la huella.':e&&e.name==='InvalidStateError'?'Este teléfono ya tiene la huella activada.':(e.message||'No se pudo activar.'));t.disabled=false}
+}
+// ---- 30.7.39: llave de GitHub de solo lectura (para que la caja se siga actualizando con el repositorio privado)
+function tarjetaGithub(){
+  const g=DATA.github||{}, hoy=new Date().toISOString().slice(0,10);
+  let dias=null;if(g.vence){dias=Math.round((new Date(g.vence+'T12:00')-new Date(hoy+'T12:00'))/864e5)}
+  const pill=!g.activa?'<span class="pill mut">Sin llave</span>':g.revision_ok===false?'<span class="pill bad">Falla</span>':'<span class="pill good">Guardada</span>';
+  const rev=g.revision?`Última revisión de versiones: <b>${corto(g.revision.slice(0,10))} ${g.revision.slice(11,16)}</b> ${g.revision_ok?'✓ bien':'✗ '+esc(g.revision_error||'falló')}`:'Todavía no revisa versiones desde que se prendió.';
+  return `<div class="card"><h2>Llave de GitHub (actualizaciones) <small>${pill}</small></h2>
+    <p class="empty">La caja baja las versiones nuevas del sistema desde GitHub. Para poder hacer <b>privado</b> el código, la caja necesita esta llave de <b>solo lectura</b>. Se guarda solo en la computadora de la caja y nunca se muestra completa.</p>
+    ${g.activa?`<table class="ledger" style="margin-top:10px"><tbody>
+      <tr><td>Llave guardada</td><td>termina en <b>…${esc(g.termina)}</b></td></tr>
+      <tr><td>Repositorio</td><td>${g.privado===true?'<span class="pill good">Privado</span>':g.privado===false?'<span class="pill warn">Público todavía</span>':'—'}</td></tr>
+      <tr><td>Vence</td><td>${g.vence?corto(g.vence)+(dias!==null?` (${dias<0?'<b style="color:var(--bad)">ya venció</b>':dias<=30?'<b style="color:var(--bad)">faltan '+dias+' días</b>':'faltan '+dias+' días'})`:''):'Sin fecha'}</td></tr>
+    </tbody></table>`:''}
+    <p class="empty" style="margin-top:10px">${rev}</p>
+    <div class="field"><input id="ghK" type="password" autocomplete="off" spellcheck="false" placeholder="${g.activa?'Pega otra llave para cambiarla':'Pega aquí la llave (github_pat_…)'}"></div>
+    <div class="btns"><button class="btn pri" data-ghsave="1">Guardar y probar llave</button>${g.activa?'<button class="btn" data-ghprobar="1">Probar otra vez</button><button class="btn" data-ghquitar="1">Quitar llave</button>':''}</div>
+    ${g.activa&&g.privado===false?'<p class="note" style="margin-top:12px">La llave funciona. Ya puedes cambiar el repositorio a privado en GitHub; después toca "Probar otra vez" y debe decir <b>Privado</b>.</p>':''}
+    ${!g.activa?'<p class="note" style="margin-top:12px">No hagas privado el repositorio hasta que esta tarjeta diga "Guardada". Si lo haces antes, la caja deja de recibir versiones nuevas.</p>':''}</div>`;
 }
 function tarjetaDrive(){
   const dv=DATA.drive||{}, nf=GA().movs.filter(m=>m.foto_drive).length;
@@ -1879,6 +1899,9 @@ async function accionAdmin(t,d){
       await api('/api/meseros',{accion:'clave',id:d.msclave,pin:pin.trim()});NUEVO_MS=m?m.nombre:null;NUEVO_MS_COD=m?m.cod:null;
       try{ACCESO=await (await fetch('/api/acceso',{credentials:'same-origin'})).json();ACCESO.cmd=true}catch(e){}toast('Clave cambiada. La anterior ya no sirve.')}
     else if(d.msbaja){if(!confirm('¿Quitarle el acceso al comandero? Su clave dejará de funcionar.')){t.disabled=false;return}await api('/api/meseros',{accion:'baja',id:d.msbaja});toast('Acceso quitado')}
+    else if(d.ghsave){t.textContent='Probando con GitHub…';const j=await api('/api/github',{llave:$('#ghK').value});toast('Llave guardada y probada'+(j.privado?' · repositorio privado':' · ya puedes hacer privado el repositorio'))}
+    else if(d.ghprobar){t.textContent='Probando…';const j=await api('/api/github',{});toast('La llave funciona'+(j.privado?' · repositorio privado ✓':' · el repositorio sigue público'))}
+    else if(d.ghquitar){if(!confirm('¿Quitar la llave de GitHub? Si el repositorio ya es privado, la caja dejará de actualizarse.')){t.disabled=false;return}await api('/api/github',{quitar:true});toast('Llave quitada')}
     else if(d.iasave){await api('/api/ia',{llave:$('#iaK').value});toast('Llave guardada; la lectura automática está activa')}
     else if(d.iaquitar){if(!confirm('¿Quitar la llave? Se apaga la lectura automática.')){t.disabled=false;return}await api('/api/ia',{quitar:true});toast('Llave quitada')}
     else if(d.drconectar){t.textContent='Probando…';await api('/api/drive',{accion:'guardar',url:$('#drU').value});toast('Google Drive conectado')}
@@ -1980,7 +2003,7 @@ $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(b)irA(b.dataset.tab)};
 $('#view').addEventListener('click',e=>{
-  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-cnquitar],[data-cf],[data-cfej],[data-cfguardar],[data-cfprueba],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes],[data-hactivar],[data-hquitar],[data-hsalir]');if(!t)return;
+  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-cnquitar],[data-cf],[data-cfej],[data-cfguardar],[data-cfprueba],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaquitar],[data-ghsave],[data-ghprobar],[data-ghquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes],[data-hactivar],[data-hquitar],[data-hsalir]');if(!t)return;
   const d=t.dataset;
   if(d.go) return irA(d.go);
   if(d.pm){prodModo=d.pm;return render()} if(d.pt){prodT=d.pt;return render()}
@@ -2010,7 +2033,7 @@ $('#view').addEventListener('click',e=>{
   if(d.drver){fetch('/api/drive-script',{credentials:'same-origin'}).then(r=>r.text()).then(t=>{DSCRIPT=t;render()}).catch(err=>toast(err.message));return}
   if(d.drcopiar){const ta=$('#drS');ta.select();(navigator.clipboard?navigator.clipboard.writeText(ta.value):Promise.reject()).then(()=>toast('Programa copiado')).catch(()=>{document.execCommand('copy');toast('Programa copiado')});return}
   if(d.famalta||d.fambaja){e.preventDefault();(async()=>{try{t.disabled=true;await api('/api/familia',{accion:d.famalta?'alta':'baja',nombre:d.famalta?$('#famN').value:d.fambaja});toast(d.famalta?'Agregado':'Quitado');await cargar(true)}catch(err){toast(err.message);t.disabled=false}})();return}
-  if(d.msremoto||d.msenvio||d.mscandado||d.msalta||d.msbaja||d.msclave||d.cjalta||d.cjbaja||d.cjclave||d.iasave||d.iaquitar||d.leerpend||d.drconectar||d.drquitar||d.drborrar||d.drmes){e.preventDefault();accionAdmin(t,d);return}
+  if(d.msremoto||d.msenvio||d.mscandado||d.msalta||d.msbaja||d.msclave||d.cjalta||d.cjbaja||d.cjclave||d.iasave||d.iaquitar||d.ghsave||d.ghprobar||d.ghquitar||d.leerpend||d.drconectar||d.drquitar||d.drborrar||d.drmes){e.preventDefault();accionAdmin(t,d);return}
   if(d.cpurl){(navigator.clipboard?navigator.clipboard.writeText(d.cpurl):Promise.reject()).then(()=>toast('Dirección copiada')).catch(()=>toast(d.cpurl));return}
   if(d.msver){e.preventDefault();const el=document.getElementById('msk-'+d.msver);if(!el)return;
     if(el.dataset.v){el.textContent='••••';delete el.dataset.v;return}

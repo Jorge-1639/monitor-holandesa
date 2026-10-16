@@ -15,9 +15,11 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 140            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.38'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 141            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.39'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
+REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
+ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
 DEFAULT_CONFIG = {
@@ -2874,6 +2876,9 @@ class Monitor:
         out['comandero_escribe'] = bool(self.cfg.get('comandero_escribe'))
         out['emp_mrtienda'] = sorted([{'cod': k, 'nombre': v} for k, v in self.EMP.items() if v], key=lambda e: e['nombre'])
         out['ia'] = {'activa': bool(self.cfg.get('ia_llave')), 'modelo': self.cfg.get('ia_modelo') or IA_MODELO}
+        tok_ = str(self.cfg.get('github_token') or '').strip()
+        out['github'] = {'activa': bool(tok_), 'termina': tok_[-4:] if tok_ else '', 'privado': self.cfg.get('github_privado'), 'vence': self.cfg.get('github_vence') or '',
+                         'revision': ESTADO_ACT.get('t', ''), 'revision_ok': ESTADO_ACT.get('ok'), 'revision_error': ESTADO_ACT.get('error', '')}
         out['drive'] = {'conectado': bool(self.cfg.get('drive_url')), 'mensual': bool(self.cfg.get('drive_mensual')), 'ultimo_borrado': self.cfg.get('drive_ultimo_borrado') or ''}
         # suelta de la memoria los archivos que ya no se leyeron en esta vuelta
         with self.rows_lock:
@@ -3132,7 +3137,7 @@ def make_handler(mon, cfg):
                     body = json.dumps({'ok': False, 'error': str(e), 'sesion': not isinstance(e, PermissionError)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(409); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
             if not self._auth(caja_ok=(self.path in ('/api/compra', '/api/leer-ticket'))): return
-            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/log-cliente', '/api/clientes-nuevos', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia'): self.send_response(404); self.end_headers(); return
+            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/log-cliente', '/api/clientes-nuevos', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia', '/api/github'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return
             try:
@@ -3173,6 +3178,20 @@ def make_handler(mon, cfg):
                     else: cfg['ia_llave'] = llave
                     with open(CONFIG_FILE, 'w', encoding='utf-8') as f: json.dump(cfg, f, ensure_ascii=False, indent=2)
                     mon.cfg = cfg; mon.refresh(); out = {'ok': True}
+                elif self.path == '/api/github':   # 30.7.39: llave de solo lectura para que la caja se actualice con el repositorio privado
+                    if d.get('quitar'):
+                        for k_ in ('github_token', 'github_privado', 'github_vence'): cfg.pop(k_, None)
+                        out = {'ok': True}
+                    else:
+                        llave = re.sub(r'\s+', '', str(d.get('llave') or ''))
+                        if not llave and cfg.get('github_token'): llave = cfg['github_token']   # "Probar otra vez" con la que ya está guardada
+                        if not re.fullmatch(r'(github_pat_|ghp_)[A-Za-z0-9_]{20,255}', llave): raise ValueError('Esa no parece una llave de GitHub. Debe empezar con github_pat_ y ser un texto largo, sin espacios.')
+                        r_ = github_probar(llave)
+                        cfg['github_token'] = llave; cfg['github_privado'] = r_['privado']; cfg['github_vence'] = r_['vence']
+                        out = {'ok': True, **r_}
+                        log('Llave de GitHub guardada y probada' + (' (repositorio privado)' if r_['privado'] else ' (repositorio público)'))
+                    with open(CONFIG_FILE, 'w', encoding='utf-8') as f: json.dump(cfg, f, ensure_ascii=False, indent=2)
+                    mon.cfg = cfg; mon.refresh()
                 elif self.path == '/api/gastos': out=mon.gasto_accion(d)
                 elif self.path == '/api/quitada-motivo': out=mon.cambiar_motivo(d.get('id'),d.get('motivo'),d.get('nota'),d.get('persona'))
                 elif self.path == '/api/familia': out=mon.familia_accion(d)
@@ -3383,13 +3402,34 @@ def _bajar(nombre):
     with urllib.request.urlopen(req, timeout=30) as r:
         return r.read()
 
+def github_probar(tok):
+    """30.7.39: prueba una llave de GitHub contra el repositorio. Regresa {'privado', 'vence'} o lanza un error claro."""
+    hd = {'User-Agent': 'monitor-holandesa', 'Authorization': 'token ' + tok, 'Accept': 'application/vnd.github+json'}
+    try:
+        with urllib.request.urlopen(urllib.request.Request(REPO_API, headers=hd), timeout=20) as r:
+            info = json.loads(r.read().decode('utf-8')); vence = r.headers.get('github-authentication-token-expiration') or ''
+    except urllib.error.HTTPError as e:
+        if e.code == 401: raise ValueError('GitHub no reconoce esa llave. Revisa que la copiaste completa (empieza con github_pat_) y que no haya vencido.')
+        if e.code in (403, 404): raise ValueError('La llave es válida, pero no tiene permiso para leer monitor-holandesa. Al crearla, en "Repository access" elige "Only select repositories" → monitor-holandesa, y en permisos "Contents: Read-only".')
+        raise ValueError('GitHub respondió con error ' + str(e.code) + '. Intenta de nuevo en un momento.')
+    except urllib.error.URLError as e:
+        raise ValueError('La caja no pudo conectarse a GitHub (¿hay internet?): ' + str(e.reason))
+    req = urllib.request.Request(REPO_RAW + 'version.txt?t=' + str(int(time.time())), headers={'User-Agent': 'monitor-holandesa', 'Authorization': 'token ' + tok})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r: int(r.read().decode().strip() or 0)
+    except Exception:
+        raise ValueError('La llave abre el repositorio pero no puede leer los archivos. En permisos de la llave pon "Contents: Read-only".')
+    return {'privado': bool(info.get('private')), 'vence': vence[:10]}
+
 _RECHAZADA = [0]   # 30.7.17: versión publicada con números disparejos que ya se rechazó (no se vuelve a bajar hasta que cambie)
 
 def buscar_actualizacion():
     """Regresa True si instaló una versión nueva (y hay que reiniciar)."""
     try:
         remota = int(_bajar('version.txt').decode().strip() or 0)
+        ESTADO_ACT.update(t=datetime.datetime.now().isoformat(timespec='minutes'), ok=True, error='')
     except Exception as e:
+        ESTADO_ACT.update(t=datetime.datetime.now().isoformat(timespec='minutes'), ok=False, error=str(e)[:200])
         log('No pude revisar actualizaciones: ' + str(e)); return False
     if remota <= VERSION or remota == _RECHAZADA[0]: return False
     log(f'Hay versión nueva {remota} (tengo {VERSION}). Descargando…')
