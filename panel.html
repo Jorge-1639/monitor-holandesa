@@ -1493,7 +1493,7 @@ let rhAud=false;   // auditoría del rol encendida
 const AUD_REGLAS={
   'Cocinero':{tit:'Cocineros',turnos:[{e:'06:30',s:'14:30',req:'LV'},{e:'07:30',s:'15:30',req:'SD'},{e:'09:00',s:'17:00',req:'T'},{e:'12:30',s:'20:30',req:'T'}],suplente:'MOISES'},   // sáb y dom el primer turno es 7:30–3:30
   'Mesero':{tit:'Meseros',turnos:[{e:'07:30',s:'15:30',req:'T'},{e:'09:00',s:'17:00',req:'T'},{e:'15:00',s:'20:30',req:'T'}]},
-  'Ayudante general':{tit:'Ayudantes generales',turnos:[{e:'06:45',s:'14:30',req:'LV'},{e:'14:00',s:'20:30',req:'LV'},{e:'08:00',s:'20:00',req:'SD'}]}
+  'Ayudante general':{tit:'Ayudantes generales',turnos:[{e:'06:45',s:'14:30',req:'LV'},{e:'14:00',s:'20:30',req:'LV'},{e:'08:00',s:'20:30',req:'SD'}]}
 };
 // excepciones fijas: Ángel los viernes sale a las 2:00 pm porque va a la escuela (día como getDay: 5 = viernes)
 const AUD_EXC=[{nom:'ANGEL',wd:5,sale:'14:00'}];
