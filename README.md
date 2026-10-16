@@ -219,3 +219,5 @@ Versión 30.7.23 — la encargada solo captura en el restaurante: el PDF y el Wh
 Versión 30.7.24 — rol de descansos (panel y encargada): los días con su fecha se repiten en cada grupo; horas más grandes sin a.m./p.m.; con el teléfono acostado los cuadros crecen.
 
 Versión 30.7.25 — rol de descansos: al tocar un día se abre una ventanita encima (sin bajar hasta abajo); Enter guarda y se cierra; la pantalla se queda en el mismo lugar.
+
+Versión 30.7.26 — botón 'Auditoría' en el rol (Jorge y encargada): revisa las reglas de turnos de cocineros (6:30, 9:00, 12:30; Moisés suple 6:30–12:30), meseros (7:30–3:30, 9–5, 3–8:30) y ayudantes generales (6:45–2:30 y 2:00 L–V; 8–8 sáb y dom); marca en rojo los cuadros con error y lista lo que falta por día.

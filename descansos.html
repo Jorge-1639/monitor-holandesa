@@ -90,6 +90,7 @@ button:focus-visible{outline:2px solid var(--green-2);outline-offset:2px}
 .rol .d small{display:block;font:700 10.5px var(--body);letter-spacing:-.02em;margin-top:3px}
 .rol tr.dhead th{padding:2px 0 4px;border-bottom:1px solid var(--line)}
 @media (min-width:560px){.app{max-width:900px}.rol .d{max-width:84px;height:66px;font-size:18px}.rol .d small{font-size:14px}.rol col:first-child{width:120px!important}}
+.rol .d.bad{box-shadow:0 0 0 3px #e5484d}
 .rol .d.sel{outline:3px solid var(--ink);outline-offset:1px}
 .rol .d:disabled{opacity:.6;cursor:default}
 .modal{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.38);display:flex;align-items:center;justify-content:center;padding:14px}
@@ -162,17 +163,71 @@ function editor(e,r){const i=ED.i,h=r.h[i]||['',''];
     <div class="est4">${CICLO.map(k=>`<button data-k="${k}" aria-pressed="${ED.k===k}">${k} · ${EST[k][0]}</button>`).join('')}</div>
     <div class="hrs" ${ED.k==='T'?'':'hidden'}><div><label for="edE">Entra</label>${horaSel('edE',h[0])}</div><div><label for="edS">Sale</label>${horaSel('edS',h[1])}</div></div>
     <div class="dos"><button class="btn pri" data-guardar="1">Guardar</button><button class="btn" data-cerrar="1">Cerrar</button></div></div>`}
+let AUD=false;
+// ===== Auditoría del rol (reglas de Jorge, 15-oct-2026). Semana de martes a lunes: i=0 martes … i=6 lunes.
+// Cocineros: Lun–Vie alguien entra 6:30; todos los días alguien a las 9:00 y otro a las 12:30. Moisés suple: cuando un cocinero descansa
+//   entra 6:30 y sale 12:30. Meseros: todos los días 7:30–3:30, 9:00–5:00 y 3:00–8:30. Ayudantes generales: Lun–Vie uno 6:45–2:30
+//   y otro entra 2:00; sábado y domingo uno de 8:00 a 8:00.
+const AUD_REGLAS={
+  'Cocinero':{tit:'Cocineros',turnos:[{e:'06:30',s:'14:30',req:'LV'},{e:'09:00',s:'17:00',req:'T'},{e:'12:30',s:'20:30',req:'T'}],suplente:'MOISES'},
+  'Mesero':{tit:'Meseros',turnos:[{e:'07:30',s:'15:30',req:'T'},{e:'09:00',s:'17:00',req:'T'},{e:'15:00',s:'20:30',req:'T'}]},
+  'Ayudante general':{tit:'Ayudantes generales',turnos:[{e:'06:45',s:'14:30',req:'LV'},{e:'14:00',s:'',req:'LV'},{e:'08:00',s:'20:00',req:'SD'}]}
+};
+const AUD_SEM=[2,3,4,5,6,0,1], AUD_DIAS=['Martes','Miércoles','Jueves','Viernes','Sábado','Domingo','Lunes'];
+const audH=v=>{const m=/^(\d{1,2}):(\d{2})$/.exec(String(v||''));if(!m)return '';const H=+m[1];return (H%12||12)+':'+m[2]+(H<12?' am':' pm')};
+const audN=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase();
+function auditarRol(E,dia){   // E: empleados {id,nombre,puesto}; dia(e,i) -> {c:'T'|'D'…, h:[entra,sale]}
+  const items=[], malos=new Set();
+  for(let i=0;i<7;i++){
+    const wd=AUD_SEM[i], lv=wd>=1&&wd<=5, sd=wd===6||wd===0;
+    const aplica=r=>r==='T'||(r==='LV'&&lv)||(r==='SD'&&sd);
+    for(const [p,R] of Object.entries(AUD_REGLAS)){
+      const G=E.filter(e=>e.puesto===p); if(!G.length)continue;
+      const tr=G.map(e=>({e,x:dia(e,i)})).filter(o=>o.x&&o.x.c==='T'&&o.x.h&&o.x.h[0]);
+      const desc=G.filter(e=>{const x=dia(e,i);return x&&x.c!=='T'});
+      const sup=R.suplente?G.find(e=>audN(e.nombre).startsWith(R.suplente)):null;
+      const turnos=R.turnos.filter(t=>aplica(t.req));
+      for(const t of turnos){
+        if(!tr.some(o=>o.x.h[0]===t.e))items.push({i,nivel:'error',txt:`${R.tit}: falta quien entre a las ${audH(t.e)}${t.s?' (hasta '+audH(t.s)+')':''}.`});
+      }
+      for(const o of tr){
+        const t=R.turnos.find(t=>t.e===o.x.h[0]&&(aplica(t.req)||R.suplente));
+        const nom=o.e.nombre.split(' ')[0];
+        if(!t){const tarde=turnos.find(t=>t.e<o.x.h[0]);items.push({i,nivel:'error',txt:`${nom} entra a las ${audH(o.x.h[0])}: no corresponde a ningún turno de ${R.tit.toLowerCase()}${tarde?' (¿está entrando más tarde?)':''}.`});malos.add(o.e.id+'|'+i);continue}
+        const esSup=sup&&o.e.id===sup.id&&t.e==='06:30';
+        const sal=esSup?'12:30':t.s;   // Moisés siempre sale a las 12:30
+        if(sal&&o.x.h[1]&&o.x.h[1]!==sal){items.push({i,nivel:'aviso',txt:`${nom} sale a las ${audH(o.x.h[1])}; ${esSup?'cuando suple debe salir':'su turno termina'} a las ${audH(sal)}.`});malos.add(o.e.id+'|'+i)}
+      }
+      if(sup&&lv){
+        const otros=desc.filter(e=>e.id!==sup.id), supT=tr.find(o=>o.e.id===sup.id);
+        if(otros.length&&!supT)items.push({i,nivel:'error',txt:`Descansa ${otros.map(e=>e.nombre.split(' ')[0]).join(' y ')}: ${sup.nombre.split(' ')[0]} debe suplir (entra 6:30 y sale 12:30).`});
+        if(otros.length&&supT&&supT.x.h[0]!=='06:30'){items.push({i,nivel:'error',txt:`${sup.nombre.split(' ')[0]} suple: debe entrar a las 6:30 (está a las ${audH(supT.x.h[0])}).`});malos.add(sup.id+'|'+i)}
+        if(!otros.length&&supT)items.push({i,nivel:'aviso',txt:`${sup.nombre.split(' ')[0]} trabaja pero ningún cocinero descansa ese día.`});
+      }
+    }
+  }
+  return {items,malos};
+}
+function audHtml(r,fecha){   // fecha(i) -> número del día
+  if(!r.items.length)return '<p style="margin:0;font-weight:700;color:var(--good)">✓ Todo cuadra con las reglas. No encontré errores.</p>';
+  const nE=r.items.filter(x=>x.nivel==='error').length, nA=r.items.length-nE;
+  let h=`<p style="margin:0 0 8px;font-weight:700">${nE?`<span style="color:#b4342b">● ${nE} ${nE===1?'error':'errores'}</span>`:''}${nE&&nA?' · ':''}${nA?`<span style="color:#9a6400">● ${nA} ${nA===1?'observación':'observaciones'}</span>`:''}</p>`;
+  for(let i=0;i<7;i++){const X=r.items.filter(x=>x.i===i);if(!X.length)continue;
+    h+=`<div style="margin-top:8px"><b>${AUD_DIAS[i]} ${fecha(i)}</b>${X.map(x=>`<div style="display:flex;gap:6px;margin-top:4px;font-size:14px;line-height:1.35"><span style="color:${x.nivel==='error'?'#b4342b':'#d08a00'}">●</span><span>${x.txt}</span></div>`).join('')}</div>`}
+  return h;
+}
 // ---------- pantalla principal
 function pintar(){
   const _y=window.scrollY;setTimeout(()=>window.scrollTo(0,_y),0);
   const E=INFO.empleados, falta=E.filter(e=>!INFO.rol[e.id]&&!e.pagada).length;
   const ley=Object.entries(EST).map(([k,v])=>`<span><b style="color:var(${v[1]});background:var(${v[1]}-bg)">${k}</b>${v[0]}</span>`).join('');
   const ed=ED&&E.find(x=>x.id===ED.e);
+  const AU=AUD?auditarRol(E,(e,i)=>{const r=rolDe(e);return {c:r.d[i],h:r.h[i]}}):null;
   const TIT={Cocinero:'Cocineros','Ayudante de cocina':'Ayudantes de cocina',Mesero:'Meseros',Cajero:'Cajeros',Encargada:'Encargada','Ayudante general':'Ayudantes generales',Repartidor:'Repartidores',Lavaloza:'Lavaloza',Otro:'Otros'};
   const filas=E.map((e,ix)=>(ix&&(E[ix-1].puesto||'Otro')===(e.puesto||'Otro')?'':`<tr><td colspan="8" style="text-align:left;font:800 13px var(--display);letter-spacing:.1em;text-transform:uppercase;padding:14px 0 2px;color:var(--green)">${esc(TIT[e.puesto]||e.puesto||'Otros')}</td></tr><tr class="dhead"><th>Empleado</th>${DIAS.map((d,i)=>`<th>${d.slice(0,2)}<small>${pd(mas(SEM,i)).getDate()}</small></th>`).join('')}</tr>`)+(e=>{
     const r=rolDe(e), g=e.pagada?'<span class="g">pagada</span>':!r.g?'<span class="g no">sin guardar</span>':'<span class="g si">✓ guardado</span>';
     return `<tr><td><b>${esc(e.nombre.split(' ').slice(0,2).join(' '))}</b><span class="p">${esc(e.puesto)}</span>${g}</td>${r.d.map((c,i)=>{const h=r.h[i];
-      return `<td><button class="d ${ED&&ED.e===e.id&&ED.i===i?'sel':''}" data-e="${e.id}" data-i="${i}" ${e.pagada?'disabled':''} aria-label="${esc(e.nombre)}, ${DIAS_L[i]}: ${EST[c][0]}${c==='T'&&h&&h[0]?' de '+h[0]+' a '+h[1]:''}" style="color:var(${EST[c][1]});background:var(${EST[c][1]}-bg);border-color:var(${EST[c][1]}-bd,var(${EST[c][1]}))">${c}${c==='T'&&h&&h[0]?`<small>${h12(h[0])}<br>${h12(h[1])}</small>`:''}</button></td>`}).join('')}</tr>`})(e)).join('');
+      return `<td><button class="d ${ED&&ED.e===e.id&&ED.i===i?'sel':''}${AU&&AU.malos.has(e.id+'|'+i)?' bad':''}" data-e="${e.id}" data-i="${i}" ${e.pagada?'disabled':''} aria-label="${esc(e.nombre)}, ${DIAS_L[i]}: ${EST[c][0]}${c==='T'&&h&&h[0]?' de '+h[0]+' a '+h[1]:''}" style="color:var(${EST[c][1]});background:var(${EST[c][1]}-bg);border-color:var(${EST[c][1]}-bd,var(${EST[c][1]}))">${c}${c==='T'&&h&&h[0]?`<small>${h12(h[0])}<br>${h12(h[1])}</small>`:''}</button></td>`}).join('')}</tr>`})(e)).join('');
   const m=ed&&INFO.meta[ed.id];
   const tarjetas=`<div class="rol"><table><colgroup><col style="width:76px"></colgroup><tbody>${filas}</tbody></table>
     ${ed?`<div class="modal"><div class="edit" role="dialog" aria-modal="true"><b style="font-size:17px">${esc(ed.nombre)}</b><div class="nota" style="margin-top:2px">${esc(ed.horario||'')}${m?' · último cambio: '+esc(m.por)+', '+hora(m.cuando):''}</div>${editor(ed,rolDe(ed)).replace('<div class="edit">','<div>')}</div></div>`:''}</div>`;
@@ -181,6 +236,8 @@ function pintar(){
     <div class="ley">${ley}</div>
     <p class="nota" style="margin-top:4px">Toca un día para cambiar si trabaja, descansa o faltó, y su horario de ese día.</p>
     ${E.length?tarjetas:'<div class="aviso">Todavía no hay empleados dados de alta. Avísale a Jorge.</div>'}
+    <button class="btn${AUD?' pri':''}" data-auditar="1">🔍 ${AUD?'Quitar auditoría':'Auditoría'}</button>
+    ${AU?`<div class="edit" id="audRes" style="background:var(--surface)"><b style="display:block;margin-bottom:6px">Auditoría · semana del ${corta(SEM)}</b>${audHtml(AU,i=>pd(mas(SEM,i)).getDate())}<p class="nota" style="margin-top:8px">Los cuadros con contorno rojo son los que hay que revisar.</p></div>`:''}
     ${INFO.anterior_tiene?'<button class="btn" data-copiar="1">Copiar la semana anterior</button>':''}
     ${falta?`<button class="btn pri" data-confirmar="1">${falta===1?'Guardar el que falta como está':'Guardar los '+falta+' que faltan como están'}</button>`:E.length?'<p class="nota" style="text-align:center;font-weight:600;color:var(--good)">✓ Toda la semana está capturada</p>':''}
     <p class="nota">Lo que captures aquí le llega a Jorge en Recursos Humanos. Él lo revisa y lo puede corregir.</p>`;
@@ -192,6 +249,7 @@ document.addEventListener('click',async ev=>{
   if(d.n!==undefined)return tecla(d.n);
   if(d.salir){setTok('');INFO=null;return pintarLogin()}
   if(d.sem){return cargar(mas(SEM,+d.sem))}
+  if(d.auditar){AUD=!AUD;pintar();if(AUD)setTimeout(()=>document.getElementById('audRes')?.scrollIntoView({behavior:'smooth',block:'nearest'}),50);return}
   if(OCUPADO)return;OCUPADO=true;
   try{
     if(d.e){const e=INFO.empleados.find(x=>x.id===d.e);ED={e:d.e,i:+d.i,k:rolDe(e).d[+d.i]};pintar();OCUPADO=false;return}   // se abre como ventana encima, sin moverse de lugar
