@@ -215,3 +215,5 @@ Versión 30.7.21 — nómina y resumen agrupados por puesto con título (cociner
 Versión 30.7.22 — Captura de la encargada: el nombre se elige del catálogo de empleados; botón 'Ver como la ve' (abre su página); hoja de bienvenida en PDF con el logotipo de Personal, las direcciones del WiFi y de Tailscale y, si se marca, su clave. El rol (panel y página de la encargada) agrupado por puesto con títulos.
 
 Versión 30.7.23 — la encargada solo captura en el restaurante: el PDF y el WhatsApp ya no traen la dirección de Tailscale ni la clave (Jorge se la da en persona).
+
+Versión 30.7.24 — rol de descansos (panel y encargada): los días con su fecha se repiten en cada grupo; horas más grandes sin a.m./p.m.; con el teléfono acostado los cuadros crecen.

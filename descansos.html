@@ -86,8 +86,10 @@ button:focus-visible{outline:2px solid var(--green-2);outline-offset:2px}
 .rol td .p{display:block;font-size:11px;color:var(--muted);line-height:1.2}
 .rol td .g{display:block;font-size:10.5px;font-weight:700;line-height:1.2;margin-top:1px}
 .rol td .g.no{color:var(--bad)}.rol td .g.si{color:var(--good)}
-.rol .d{width:100%;max-width:44px;height:54px;border-radius:9px;border:1.5px solid;font:800 15px var(--display);padding:2px 0;line-height:1.05}
-.rol .d small{display:block;font:600 8.5px var(--body);letter-spacing:-.02em;margin-top:2px}
+.rol .d{width:100%;max-width:46px;height:56px;border-radius:9px;border:1.5px solid;font:800 15px var(--display);padding:2px 0;line-height:1.05}
+.rol .d small{display:block;font:700 10.5px var(--body);letter-spacing:-.02em;margin-top:3px}
+.rol tr.dhead th{padding:2px 0 4px;border-bottom:1px solid var(--line)}
+@media (min-width:560px){.app{max-width:900px}.rol .d{max-width:84px;height:66px;font-size:18px}.rol .d small{font-size:14px}.rol col:first-child{width:120px!important}}
 .rol .d.sel{outline:3px solid var(--ink);outline-offset:1px}
 .rol .d:disabled{opacity:.6;cursor:default}
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;font-weight:600;z-index:30;max-width:90%;text-align:center}
@@ -149,7 +151,7 @@ const HORAS=(()=>{const o=[];for(let m=5*60;m<24*60;m+=15)o.push(String(Math.flo
 const horaLarga=v=>{const m=/^(\d{1,2}):(\d{2})$/.exec(String(v||''));if(!m)return v;const H=+m[1];return (H%12||12)+':'+m[2]+(H<12?' am':' pm')};
 function horaSel(id,val){const v=String(val||''),L=HORAS.includes(v)||!v?HORAS:[...HORAS,v].sort();
   return `<select id="${id}"><option value="">—</option>${L.map(x=>`<option value="${x}" ${x===v?'selected':''}>${horaLarga(x)}</option>`).join('')}</select>`}
-const h12=v=>{const m=/^(\d{1,2}):(\d{2})$/.exec(String(v||'').trim());if(!m)return String(v||'');const H=+m[1];return (H%12||12)+':'+m[2]+(H<12?'a':'p')};
+const h12=v=>{const m=/^(\d{1,2}):(\d{2})$/.exec(String(v||'').trim());if(!m)return String(v||'');const H=+m[1];return (H%12||12)+':'+m[2]};   // sin a.m./p.m. para que se lea más grande
 const hora=s=>{if(!s)return '';const d=new Date(s);let h=d.getHours(),m=String(d.getMinutes()).padStart(2,'0'),ap=h<12?'am':'pm';h=h%12||12;return corta(iso(d))+', '+h+':'+m+' '+ap};
 
 // ---------- editar un día: si trabaja, descansa, faltó… y de qué hora a qué hora
@@ -164,12 +166,12 @@ function pintar(){
   const ley=Object.entries(EST).map(([k,v])=>`<span><b style="color:var(${v[1]});background:var(${v[1]}-bg)">${k}</b>${v[0]}</span>`).join('');
   const ed=ED&&E.find(x=>x.id===ED.e);
   const TIT={Cocinero:'Cocineros','Ayudante de cocina':'Ayudantes de cocina',Mesero:'Meseros',Cajero:'Cajeros',Encargada:'Encargada','Ayudante general':'Ayudantes generales',Repartidor:'Repartidores',Lavaloza:'Lavaloza',Otro:'Otros'};
-  const filas=E.map((e,ix)=>(ix&&(E[ix-1].puesto||'Otro')===(e.puesto||'Otro')?'':`<tr><td colspan="8" style="text-align:left;font:800 13px var(--display);letter-spacing:.1em;text-transform:uppercase;padding:12px 0 4px;color:var(--green)">${esc(TIT[e.puesto]||e.puesto||'Otros')}</td></tr>`)+(e=>{
+  const filas=E.map((e,ix)=>(ix&&(E[ix-1].puesto||'Otro')===(e.puesto||'Otro')?'':`<tr><td colspan="8" style="text-align:left;font:800 13px var(--display);letter-spacing:.1em;text-transform:uppercase;padding:14px 0 2px;color:var(--green)">${esc(TIT[e.puesto]||e.puesto||'Otros')}</td></tr><tr class="dhead"><th>Empleado</th>${DIAS.map((d,i)=>`<th>${d.slice(0,2)}<small>${pd(mas(SEM,i)).getDate()}</small></th>`).join('')}</tr>`)+(e=>{
     const r=rolDe(e), g=e.pagada?'<span class="g">pagada</span>':!r.g?'<span class="g no">sin guardar</span>':'<span class="g si">✓ guardado</span>';
     return `<tr><td><b>${esc(e.nombre.split(' ').slice(0,2).join(' '))}</b><span class="p">${esc(e.puesto)}</span>${g}</td>${r.d.map((c,i)=>{const h=r.h[i];
       return `<td><button class="d ${ED&&ED.e===e.id&&ED.i===i?'sel':''}" data-e="${e.id}" data-i="${i}" ${e.pagada?'disabled':''} aria-label="${esc(e.nombre)}, ${DIAS_L[i]}: ${EST[c][0]}${c==='T'&&h&&h[0]?' de '+h[0]+' a '+h[1]:''}" style="color:var(${EST[c][1]});background:var(${EST[c][1]}-bg);border-color:var(${EST[c][1]}-bd,var(${EST[c][1]}))">${c}${c==='T'&&h&&h[0]?`<small>${h12(h[0])}<br>${h12(h[1])}</small>`:''}</button></td>`}).join('')}</tr>`})(e)).join('');
   const m=ed&&INFO.meta[ed.id];
-  const tarjetas=`<div class="rol"><table><thead><tr><th>Empleado</th>${DIAS.map((d,i)=>`<th>${d.slice(0,2)}<small>${pd(mas(SEM,i)).getDate()}</small></th>`).join('')}</tr></thead><tbody>${filas}</tbody></table>
+  const tarjetas=`<div class="rol"><table><colgroup><col style="width:76px"></colgroup><tbody>${filas}</tbody></table>
     ${ed?`<div class="edit"><b>${esc(ed.nombre)}</b><div class="nota" style="margin-top:2px">${esc(ed.horario||'')}${m?' · último cambio: '+esc(m.por)+', '+hora(m.cuando):''}</div>${editor(ed,rolDe(ed)).replace('<div class="edit">','<div>')}</div>`:''}</div>`;
   $('#app').innerHTML=`<div class="top"><div class="fila"><div><h1>Rol de descansos</h1><small>${esc(INFO.nombre)}</small></div><button class="salir" data-salir="1">Salir</button></div>
     <div class="sem"><button data-sem="-7" aria-label="Semana anterior">‹</button><b>Semana del ${corta(SEM)} al ${corta(mas(SEM,6))}</b><button data-sem="7" aria-label="Semana siguiente">›</button></div></div>
