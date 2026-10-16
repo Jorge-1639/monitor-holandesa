@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 136            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.34'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 137            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.35'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -2313,7 +2313,7 @@ class Monitor:
         try:
             with open(RH_FILE, encoding='utf-8') as f: d = json.load(f)
         except (OSError, ValueError): d = {}
-        for k, v in (('empleados', []), ('roles', {}), ('roles_meta', {}), ('roles_h', {}), ('nominas', {}), ('prestamos', []), ('vales', []), ('acceso_rol', {}), ('desc_comida', {}), ('aud_ok', {})):
+        for k, v in (('empleados', []), ('roles', {}), ('roles_meta', {}), ('roles_h', {}), ('nominas', {}), ('prestamos', []), ('vales', []), ('acceso_rol', {}), ('desc_comida', {}), ('aud_ok', {}), ('res_aj', {})):
             if not isinstance(d.get(k), type(v)): d[k] = v
         if d.get('semana_inicia') != 'martes':
             rh_a_martes(d)
@@ -2526,6 +2526,14 @@ class Monitor:
             if m <= 0: raise ValueError('Escribe el descuento.' if tipo == 'comida' else 'Escribe el monto del vale.')
             d['vales'].append({'id': secrets.token_hex(4), 'emp': emp_id(a.get('emp')), 'fecha': fecha(a.get('fecha'), True), 'monto': m, 'tipo': tipo,
                                'consumo': num(a.get('consumo')) if tipo == 'comida' else 0, 'nota': txt(a.get('nota'), 120)})
+        elif acc == 'res_aj':
+            # ajuste que Jorge escribe en el Resumen de nómina (préstamo, vales, otros, transferencia); vacío = automático
+            sem = fecha(a.get('semana'), True); e = emp_id(a.get('emp')); k = a.get('k')
+            if k not in ('abono', 'comida', 'vales', 'otros', 'transfer'): raise ValueError('Ese dato no se puede cambiar aquí.')
+            r = d['res_aj'].setdefault(sem, {}).setdefault(e, {})
+            if a.get('valor') in (None, ''): r.pop(k, None)
+            else: r[k] = num(a.get('valor'))
+            if not r: d['res_aj'][sem].pop(e, None)
         elif acc in ('aud_ok', 'aud_quitar'):
             # diferencias de horario que Jorge acepta en la auditoría del rol (p. ej. Martín entra 15 min después); opcional: pagar la diferencia
             k = txt(a.get('k'), 80)
