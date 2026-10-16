@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 138            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.36'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 139            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.37'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -2479,7 +2479,7 @@ class Monitor:
             except ValueError: raise ValueError('Revisa los minutos de comida.')
             reg = {'nombre': nombre, 'puesto': puesto, 'cod_mt': txt(e.get('cod_mt'), 6), 'ingreso': fecha(e.get('ingreso')),
                    'diario': diario, 'incentivo': num(e.get('incentivo')), 'comida_min': comida_min, 'horario': base,
-                   'pago': 'hora' if e.get('pago') == 'hora' else 'dia', 'tarifa': num(e.get('tarifa')), 'resta_comida': bool(e.get('resta_comida')), 'paga_prima': bool(e.get('paga_prima')), 'paga_extra': e.get('paga_extra') is not False,
+                   'pago': 'hora' if e.get('pago') == 'hora' else 'dia', 'tarifa': num(e.get('tarifa')), 'resta_comida': bool(e.get('resta_comida')), 'paga_prima': bool(e.get('paga_prima')), 'prima_siempre': bool(e.get('prima_siempre')), 'paga_extra': e.get('paga_extra') is not False,
                    'sueldo': round(diario * len(trab), 2) if diario else num(e.get('sueldo')),
                    'telefono': txt(e.get('telefono'), 20), 'nss': txt(e.get('nss'), 15), 'curp': txt(e.get('curp'), 18).upper(), 'rfc': txt(e.get('rfc'), 13).upper(),
                    'domicilio': txt(e.get('domicilio'), 160), 'entrada': comunes[0][0][0] if comunes else '', 'salida': comunes[0][0][1] if comunes else '',
