@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 139            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.37'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 140            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.38'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -3374,7 +3374,12 @@ def make_handler(mon, cfg):
 import urllib.request, urllib.error, shutil, subprocess, py_compile
 
 def _bajar(nombre):
-    req = urllib.request.Request(REPO_RAW + nombre + '?t=' + str(int(time.time())), headers={'User-Agent': 'monitor-holandesa'})
+    hd = {'User-Agent': 'monitor-holandesa'}
+    # 30.7.38: si el repositorio se hace privado, la caja necesita una llave de solo lectura en config.json ("github_token")
+    try: tok = (json.load(open(CONFIG_FILE, encoding='utf-8')).get('github_token') or '').strip()
+    except Exception: tok = ''
+    if tok: hd['Authorization'] = 'token ' + tok
+    req = urllib.request.Request(REPO_RAW + nombre + '?t=' + str(int(time.time())), headers=hd)
     with urllib.request.urlopen(req, timeout=30) as r:
         return r.read()
 
