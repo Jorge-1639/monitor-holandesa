@@ -1464,20 +1464,17 @@ function rhAccesoRol(){
 2. Abre esta dirección: ${url}
 3. Entra con la clave que te di.
 4. En el navegador toca "Agregar a pantalla de inicio" para que te quede como app.
-${tsIp?`
-Desde tu casa (con Tailscale prendido en tu teléfono): http://${tsIp}:${ACCESO.puerto}/descansos
-`:''}
+
 Toca cada día para cambiarlo: T trabaja, D descansa, F faltó, V vacaciones, I incapacidad. Se guarda solo.`;
   return `<div class="card"><h2>Captura de la encargada <small>${esc(ac.nombre)}</small></h2>
     <div style="display:flex;align-items:center;gap:8px;font-size:15px">Clave: <b class="num" style="letter-spacing:.25em;min-width:60px" id="raClave">••••</b><button class="btn" data-rh="raver" aria-label="Ver clave" style="padding:4px 10px;min-height:0"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
     ${url?`<p style="margin:10px 0 0;font-weight:700;word-break:break-all" class="num">${esc(url)}</p>`:'<p class="note" style="margin-top:10px">No pude saber la dirección de la caja en el WiFi del restaurante.</p>'}
-    ${tsIp?`<p class="empty" style="margin:8px 0 0">Desde fuera del restaurante (con Tailscale): <b class="num" style="word-break:break-all">http://${tsIp}:${ACCESO.puerto}/descansos</b></p>`:''}
-    ${url||tsIp?`<div class="btns" style="margin-top:8px"><a class="btn" href="${tsIp?`http://${tsIp}:${ACCESO.puerto}/descansos`:url}" target="_blank" rel="noopener">👁 Ver como la ve ${esc(String(ac.nombre).split(' ')[0])}</a></div><p class="empty" style="margin-top:4px">Se abre su página en otra pestaña; entras con su clave (el ojito de arriba). Lo que cambies ahí queda como capturado por ella.</p>`:''}
-    ${url?`<div class="note" style="background:var(--surface-2);color:var(--ink);margin-top:10px"><b>Hoja de bienvenida (PDF)</b> con el logotipo, las dos direcciones y cómo capturar.
-      <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-weight:600"><input type="checkbox" id="raPdfClave" style="width:20px;height:20px">Poner su clave en el PDF</label>
+
+    ${url||tsIp?`<div class="btns" style="margin-top:8px"><a class="btn" href="${tsIp?`http://${tsIp}:${ACCESO.puerto}/descansos`:url}" target="_blank" rel="noopener">👁 Ver como la ve ${esc(String(ac.nombre).split(' ')[0])}</a></div><p class="empty" style="margin-top:4px">Solo para ti${tsIp?' (con tu Tailscale)':''}: se abre su página en otra pestaña y entras con su clave (el ojito de arriba). Lo que cambies ahí queda como capturado por ella.</p>`:''}
+    ${url?`<div class="note" style="background:var(--surface-2);color:var(--ink);margin-top:10px"><b>Hoja de bienvenida (PDF)</b> con el logotipo, la dirección del WiFi del restaurante y cómo capturar. La clave no va en el PDF: dásela tú en persona.
       <div class="btns" style="margin-top:8px"><button class="btn pri" data-rh="rapdf">Enviar PDF por WhatsApp</button><a class="btn" id="raPdfDesc" href="/api/descansos-pdf" download="Descansos.pdf">Descargar PDF</a></div></div>`:''}
     <div class="btns" style="margin-top:8px">${url?`<a class="btn pri" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">Mandarle el link por WhatsApp</a>`:''}<button class="btn" data-rh="raclave">Cambiar clave</button><button class="btn" data-rh="raquitar" style="color:var(--bad)">Quitar acceso</button></div>
-    <p class="empty" style="margin-top:8px">Solo ve nombres y puestos, y solo cambia el rol. No puede cambiar semanas con la nómina ya pagada. La clave no va en el mensaje de WhatsApp; en el PDF solo va si marcas la casilla (si no, dásela en persona). Para entrar desde su casa necesita la app Tailscale en su teléfono y que tú le compartas la computadora de la caja. Funciona con su teléfono en el WiFi del restaurante${ts?' (o con Tailscale si lo tiene instalado)':''}.</p></div>`;
+    <p class="empty" style="margin-top:8px">Solo ve nombres y puestos, y solo cambia el rol. No puede cambiar semanas con la nómina ya pagada. La clave no va en el mensaje ni en el PDF: dásela tú en persona. Solo puede capturar en el restaurante, conectada al WiFi (no tiene Tailscale). </p></div>`;
 }
 function rhRol(){
   const A=rhAct().slice().sort((a,b)=>(rhNomPos(a)-rhNomPos(b))||a.nombre.localeCompare(b.nombre)); if(!A.length)return '<p class="empty">Primero da de alta a los empleados.</p>';
@@ -1711,7 +1708,7 @@ document.addEventListener('click',async e=>{
       const en=$('#rdE').value,sa=$('#rdS').value;if(k==='T'&&en&&sa)hs[i]=[en,sa];
       await rhApi({accion:'rol_guardar',semana:rhSem,emp:rhDia.id,dias,horas:hs});rhDia=null;toast('Día guardado')}
     else if(a==='borrardoc'){if(!confirm('¿Borrar este archivo del expediente?')){t.disabled=false;return}await rhApi({accion:'archivo_borrar',emp:d.id,id:d.doc});toast('Archivo borrado')}
-    else if(a==='rapdf'){t.disabled=false;const cl=$('#raPdfClave')&&$('#raPdfClave').checked;
+    else if(a==='rapdf'){t.disabled=false;const cl=false;
       try{const r=await fetch('/api/descansos-pdf'+(cl?'?clave=1':''),{credentials:'same-origin'});if(!r.ok)throw new Error('No pude hacer el PDF');
         const nm='Descansos_'+(String(RH.acceso_rol.nombre||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z ]/g,'').trim().split(/\s+/)[0]||'Encargada')+'.pdf';
         const f=new File([await r.blob()],nm,{type:'application/pdf'});

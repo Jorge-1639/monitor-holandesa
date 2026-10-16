@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 124            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.22'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 125            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.23'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -3313,8 +3313,8 @@ def make_handler(mon, cfg):
                 wifi = [ip for ip in ips_locales() if not ip.startswith('100.')]; ts = [ip for ip in ips_locales() if ip.startswith('100.')]
                 if not ac.get('activo') or not wifi: self.send_response(404); self.end_headers(); return
                 nombre = ac.get('nombre') or 'Encargada'
-                pdf = pdf_descansos(nombre, 'http://%s:%s/descansos' % (wifi[0], cfg['puerto']), ('http://%s:%s/descansos' % (ts[0], cfg['puerto'])) if ts else '',
-                                    icon_rh, ac.get('clave', '') if (q.get('clave') or [''])[0] == '1' else '')
+                # decisión de Jorge (15-oct-2026): la encargada solo captura en el restaurante (sin Tailscale) y la clave se la da él en persona
+                pdf = pdf_descansos(nombre, 'http://%s:%s/descansos' % (wifi[0], cfg['puerto']), '', icon_rh, '')
                 arch = 'Descansos_' + re.sub(r'[^A-Za-z]', '', _sin_acento((nombre.split() or ['Encargada'])[0])).title() + '.pdf'
                 self.send_response(200); self.send_header('Content-Type', 'application/pdf'); self.send_header('Cache-Control', 'no-store')
                 self.send_header('Content-Disposition', "attachment; filename=\"Descansos.pdf\"; filename*=UTF-8''" + urllib.parse.quote(arch))
