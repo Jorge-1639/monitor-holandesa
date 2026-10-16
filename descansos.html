@@ -178,45 +178,53 @@ const AUD_EXC=[{nom:'ANGEL',wd:5,sale:'14:00'}];
 const AUD_SEM=[2,3,4,5,6,0,1], AUD_DIAS=['Martes','Miércoles','Jueves','Viernes','Sábado','Domingo','Lunes'];
 const audH=v=>{const m=/^(\d{1,2}):(\d{2})$/.exec(String(v||''));if(!m)return '';const H=+m[1];return (H%12||12)+':'+m[2]+(H<12?' am':' pm')};
 const audN=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase();
-function auditarRol(E,dia){   // E: empleados {id,nombre,puesto}; dia(e,i) -> {c:'T'|'D'…, h:[entra,sale]}
-  const items=[], malos=new Set();
+// ok: diferencias que Jorge ya aceptó {"emp|ent|07:00|06:45": {pagar}} — no se vuelven a marcar (30.7.30)
+function auditarRol(E,dia,ok){   // E: empleados {id,nombre,puesto}; dia(e,i) -> {c:'T'|'D'…, h:[entra,sale]}
+  ok=ok||{};const items=[], malos=new Set(), acept=[];
+  const esOk=(id,tipo,val,esp)=>!!ok[id+'|'+tipo+'|'+val+'|'+esp];
   for(let i=0;i<7;i++){
     const wd=AUD_SEM[i], lv=wd>=1&&wd<=5, sd=wd===6||wd===0;
     const aplica=r=>r==='T'||(r==='LV'&&lv)||(r==='SD'&&sd);
     for(const [p,R] of Object.entries(AUD_REGLAS)){
       const G=E.filter(e=>e.puesto===p); if(!G.length)continue;
-      const tr=G.map(e=>({e,x:dia(e,i)})).filter(o=>o.x&&o.x.c==='T'&&o.x.h&&o.x.h[0]);
+      const turnos=R.turnos.filter(t=>aplica(t.req));
+      // entrada efectiva: si Jorge aceptó que entre a otra hora en lugar de un turno, cuenta como ese turno
+      const tr=G.map(e=>({e,x:dia(e,i)})).filter(o=>o.x&&o.x.c==='T'&&o.x.h&&o.x.h[0]).map(o=>{
+        const a=turnos.find(t=>t.e!==o.x.h[0]&&esOk(o.e.id,'ent',o.x.h[0],t.e));if(a)acept.push(o.e.id+'|'+i);return {...o,ent:a?a.e:o.x.h[0]}});
       const desc=G.filter(e=>{const x=dia(e,i);return x&&x.c!=='T'});
       const sup=R.suplente?G.find(e=>audN(e.nombre).startsWith(R.suplente)):null;
-      const turnos=R.turnos.filter(t=>aplica(t.req));
       for(const t of turnos){
-        if(!tr.some(o=>o.x.h[0]===t.e))items.push({i,nivel:'error',txt:`${R.tit}: falta quien entre a las ${audH(t.e)}${t.s?' (hasta '+audH(t.s)+')':''}.`});
+        if(!tr.some(o=>o.ent===t.e))items.push({i,nivel:'error',txt:`${R.tit}: falta quien entre a las ${audH(t.e)}${t.s?' (hasta '+audH(t.s)+')':''}.`});
       }
       for(const o of tr){
-        const t=R.turnos.find(t=>t.e===o.x.h[0]&&aplica(t.req));
+        const t=R.turnos.find(t=>t.e===o.ent&&aplica(t.req));
         const nom=o.e.nombre.split(' ')[0];
-        if(!t){const tarde=turnos.find(t=>t.e<o.x.h[0]);items.push({i,nivel:'error',txt:`${nom} entra a las ${audH(o.x.h[0])}: no corresponde a ningún turno de ${R.tit.toLowerCase()}${tarde?' (¿está entrando más tarde?)':''}.`});malos.add(o.e.id+'|'+i);continue}
+        if(!t){const cerca=turnos.slice().sort((a,b)=>Math.abs(audM(a.e)-audM(o.ent))-Math.abs(audM(b.e)-audM(o.ent)))[0];
+          items.push({i,nivel:'error',emp:o.e.id,tipo:'ent',val:o.ent,esp:cerca?cerca.e:'',txt:`${nom} entra a las ${audH(o.ent)}: no corresponde a ningún turno de ${R.tit.toLowerCase()}${cerca?' (el más cercano es '+audH(cerca.e)+')':''}.`});malos.add(o.e.id+'|'+i);continue}
         const esSup=sup&&o.e.id===sup.id&&t.e==='06:30', hayDesc=R.suplente&&desc.some(e=>!sup||e.id!==sup.id);
         const exc=AUD_EXC.find(x=>x.wd===wd&&audN(o.e.nombre).startsWith(x.nom));
         const sal=exc?exc.sale:t.e==='06:30'&&R.suplente&&hayDesc?'12:30':t.s;   // con descanso, el de las 6:30 (el suplente) sale 12:30; sin descanso sale 2:30
-        if(sal&&o.x.h[1]&&o.x.h[1]!==sal){items.push({i,nivel:'aviso',txt:`${nom} sale a las ${audH(o.x.h[1])}; ${esSup||sal==='12:30'?'cuando hay descanso debe salir':'su turno termina'} a las ${audH(sal)}.`});malos.add(o.e.id+'|'+i)}
+        if(sal&&o.x.h[1]&&o.x.h[1]!==sal){
+          if(esOk(o.e.id,'sal',o.x.h[1],sal)){acept.push(o.e.id+'|'+i);continue}
+          items.push({i,nivel:'aviso',emp:o.e.id,tipo:'sal',val:o.x.h[1],esp:sal,txt:`${nom} sale a las ${audH(o.x.h[1])}; ${esSup||sal==='12:30'?'cuando hay descanso debe salir':'su turno termina'} a las ${audH(sal)}.`});malos.add(o.e.id+'|'+i)}
       }
       if(sup&&lv){
         const otros=desc.filter(e=>e.id!==sup.id), supT=tr.find(o=>o.e.id===sup.id);
         if(otros.length&&!supT)items.push({i,nivel:'error',txt:`Descansa ${otros.map(e=>e.nombre.split(' ')[0]).join(' y ')}: ${sup.nombre.split(' ')[0]} debe suplir (entra 6:30 y sale 12:30).`});
-        if(otros.length&&supT&&supT.x.h[0]!=='06:30'){items.push({i,nivel:'error',txt:`${sup.nombre.split(' ')[0]} suple: debe entrar a las 6:30 (está a las ${audH(supT.x.h[0])}).`});malos.add(sup.id+'|'+i)}
+        if(otros.length&&supT&&supT.ent!=='06:30'){items.push({i,nivel:'error',txt:`${sup.nombre.split(' ')[0]} suple: debe entrar a las 6:30 (está a las ${audH(supT.x.h[0])}).`});malos.add(sup.id+'|'+i)}
         if(!otros.length&&supT)items.push({i,nivel:'aviso',txt:`${sup.nombre.split(' ')[0]} trabaja pero ningún cocinero descansa ese día (sin descanso, el de las 6:30 sale a las 2:30).`});
       }
     }
   }
-  return {items,malos};
+  return {items,malos,acept:new Set(acept)};
 }
-function audHtml(r,fecha){   // fecha(i) -> número del día
+const audM=v=>{const m=/^(\d{1,2}):(\d{2})$/.exec(String(v||''));return m?+m[1]*60+(+m[2]):0};
+function audHtml(r,fecha,aprobar){   // fecha(i) -> número del día; aprobar: muestra los botones para aceptar una diferencia (solo Jorge)
   if(!r.items.length)return '<p style="margin:0;font-weight:700;color:var(--good)">✓ Todo cuadra con las reglas. No encontré errores.</p>';
   const nE=r.items.filter(x=>x.nivel==='error').length, nA=r.items.length-nE;
   let h=`<p style="margin:0 0 8px;font-weight:700">${nE?`<span style="color:#b4342b">● ${nE} ${nE===1?'error':'errores'}</span>`:''}${nE&&nA?' · ':''}${nA?`<span style="color:#9a6400">● ${nA} ${nA===1?'observación':'observaciones'}</span>`:''}</p>`;
   for(let i=0;i<7;i++){const X=r.items.filter(x=>x.i===i);if(!X.length)continue;
-    h+=`<div style="margin-top:8px"><b>${AUD_DIAS[i]} ${fecha(i)}</b>${X.map(x=>`<div style="display:flex;gap:6px;margin-top:4px;font-size:14px;line-height:1.35"><span style="color:${x.nivel==='error'?'#b4342b':'#d08a00'}">●</span><span>${x.txt}</span></div>`).join('')}</div>`}
+    h+=`<div style="margin-top:8px"><b>${AUD_DIAS[i]} ${fecha(i)}</b>${X.map(x=>`<div style="display:flex;gap:6px;margin-top:4px;font-size:14px;line-height:1.35"><span style="color:${x.nivel==='error'?'#b4342b':'#d08a00'}">●</span><span>${x.txt}${aprobar&&x.emp&&x.esp?`<span style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"><button class="btn" data-rh="audok" data-k="${x.emp}|${x.tipo}|${x.val}|${x.esp}" data-p="0" style="padding:4px 10px;min-height:0;font-size:12.5px">✓ Así está bien</button><button class="btn" data-rh="audok" data-k="${x.emp}|${x.tipo}|${x.val}|${x.esp}" data-p="1" style="padding:4px 10px;min-height:0;font-size:12.5px">✓ Bien y pagar la diferencia</button></span>`:''}</span></div>`).join('')}</div>`}
   return h;
 }
 // ---------- pantalla principal
@@ -225,7 +233,7 @@ function pintar(){
   const E=INFO.empleados, falta=E.filter(e=>!INFO.rol[e.id]&&!e.pagada).length;
   const ley=Object.entries(EST).map(([k,v])=>`<span><b style="color:var(${v[1]});background:var(${v[1]}-bg)">${k}</b>${v[0]}</span>`).join('');
   const ed=ED&&E.find(x=>x.id===ED.e);
-  const AU=AUD?auditarRol(E,(e,i)=>{const r=rolDe(e);return {c:r.d[i],h:r.h[i]}}):null;
+  const AU=AUD?auditarRol(E,(e,i)=>{const r=rolDe(e);return {c:r.d[i],h:r.h[i]}},INFO.aud_ok):null;
   const TIT={Cocinero:'Cocineros','Ayudante de cocina':'Ayudantes de cocina',Mesero:'Meseros',Cajero:'Cajeros',Encargada:'Encargada','Ayudante general':'Ayudantes generales',Repartidor:'Repartidores',Lavaloza:'Lavaloza',Otro:'Otros'};
   const filas=E.map((e,ix)=>(ix&&(E[ix-1].puesto||'Otro')===(e.puesto||'Otro')?'':`<tr><td colspan="8" style="text-align:left;font:800 13px var(--display);letter-spacing:.1em;text-transform:uppercase;padding:14px 0 2px;color:var(--green)">${esc(TIT[e.puesto]||e.puesto||'Otros')}</td></tr><tr class="dhead"><th>Empleado</th>${DIAS.map((d,i)=>`<th>${d.slice(0,2)}<small>${pd(mas(SEM,i)).getDate()}</small></th>`).join('')}</tr>`)+(e=>{
     const r=rolDe(e), g=e.pagada?'<span class="g">pagada</span>':!r.g?'<span class="g no">sin guardar</span>':'<span class="g si">✓ guardado</span>';

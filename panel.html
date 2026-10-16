@@ -1500,57 +1500,69 @@ const AUD_EXC=[{nom:'ANGEL',wd:5,sale:'14:00'}];
 const AUD_SEM=[2,3,4,5,6,0,1], AUD_DIAS=['Martes','Miércoles','Jueves','Viernes','Sábado','Domingo','Lunes'];
 const audH=v=>{const m=/^(\d{1,2}):(\d{2})$/.exec(String(v||''));if(!m)return '';const H=+m[1];return (H%12||12)+':'+m[2]+(H<12?' am':' pm')};
 const audN=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase();
-function auditarRol(E,dia){   // E: empleados {id,nombre,puesto}; dia(e,i) -> {c:'T'|'D'…, h:[entra,sale]}
-  const items=[], malos=new Set();
+// ok: diferencias que Jorge ya aceptó {"emp|ent|07:00|06:45": {pagar}} — no se vuelven a marcar (30.7.30)
+function auditarRol(E,dia,ok){   // E: empleados {id,nombre,puesto}; dia(e,i) -> {c:'T'|'D'…, h:[entra,sale]}
+  ok=ok||{};const items=[], malos=new Set(), acept=[];
+  const esOk=(id,tipo,val,esp)=>!!ok[id+'|'+tipo+'|'+val+'|'+esp];
   for(let i=0;i<7;i++){
     const wd=AUD_SEM[i], lv=wd>=1&&wd<=5, sd=wd===6||wd===0;
     const aplica=r=>r==='T'||(r==='LV'&&lv)||(r==='SD'&&sd);
     for(const [p,R] of Object.entries(AUD_REGLAS)){
       const G=E.filter(e=>e.puesto===p); if(!G.length)continue;
-      const tr=G.map(e=>({e,x:dia(e,i)})).filter(o=>o.x&&o.x.c==='T'&&o.x.h&&o.x.h[0]);
+      const turnos=R.turnos.filter(t=>aplica(t.req));
+      // entrada efectiva: si Jorge aceptó que entre a otra hora en lugar de un turno, cuenta como ese turno
+      const tr=G.map(e=>({e,x:dia(e,i)})).filter(o=>o.x&&o.x.c==='T'&&o.x.h&&o.x.h[0]).map(o=>{
+        const a=turnos.find(t=>t.e!==o.x.h[0]&&esOk(o.e.id,'ent',o.x.h[0],t.e));if(a)acept.push(o.e.id+'|'+i);return {...o,ent:a?a.e:o.x.h[0]}});
       const desc=G.filter(e=>{const x=dia(e,i);return x&&x.c!=='T'});
       const sup=R.suplente?G.find(e=>audN(e.nombre).startsWith(R.suplente)):null;
-      const turnos=R.turnos.filter(t=>aplica(t.req));
       for(const t of turnos){
-        if(!tr.some(o=>o.x.h[0]===t.e))items.push({i,nivel:'error',txt:`${R.tit}: falta quien entre a las ${audH(t.e)}${t.s?' (hasta '+audH(t.s)+')':''}.`});
+        if(!tr.some(o=>o.ent===t.e))items.push({i,nivel:'error',txt:`${R.tit}: falta quien entre a las ${audH(t.e)}${t.s?' (hasta '+audH(t.s)+')':''}.`});
       }
       for(const o of tr){
-        const t=R.turnos.find(t=>t.e===o.x.h[0]&&aplica(t.req));
+        const t=R.turnos.find(t=>t.e===o.ent&&aplica(t.req));
         const nom=o.e.nombre.split(' ')[0];
-        if(!t){const tarde=turnos.find(t=>t.e<o.x.h[0]);items.push({i,nivel:'error',txt:`${nom} entra a las ${audH(o.x.h[0])}: no corresponde a ningún turno de ${R.tit.toLowerCase()}${tarde?' (¿está entrando más tarde?)':''}.`});malos.add(o.e.id+'|'+i);continue}
+        if(!t){const cerca=turnos.slice().sort((a,b)=>Math.abs(audM(a.e)-audM(o.ent))-Math.abs(audM(b.e)-audM(o.ent)))[0];
+          items.push({i,nivel:'error',emp:o.e.id,tipo:'ent',val:o.ent,esp:cerca?cerca.e:'',txt:`${nom} entra a las ${audH(o.ent)}: no corresponde a ningún turno de ${R.tit.toLowerCase()}${cerca?' (el más cercano es '+audH(cerca.e)+')':''}.`});malos.add(o.e.id+'|'+i);continue}
         const esSup=sup&&o.e.id===sup.id&&t.e==='06:30', hayDesc=R.suplente&&desc.some(e=>!sup||e.id!==sup.id);
         const exc=AUD_EXC.find(x=>x.wd===wd&&audN(o.e.nombre).startsWith(x.nom));
         const sal=exc?exc.sale:t.e==='06:30'&&R.suplente&&hayDesc?'12:30':t.s;   // con descanso, el de las 6:30 (el suplente) sale 12:30; sin descanso sale 2:30
-        if(sal&&o.x.h[1]&&o.x.h[1]!==sal){items.push({i,nivel:'aviso',txt:`${nom} sale a las ${audH(o.x.h[1])}; ${esSup||sal==='12:30'?'cuando hay descanso debe salir':'su turno termina'} a las ${audH(sal)}.`});malos.add(o.e.id+'|'+i)}
+        if(sal&&o.x.h[1]&&o.x.h[1]!==sal){
+          if(esOk(o.e.id,'sal',o.x.h[1],sal)){acept.push(o.e.id+'|'+i);continue}
+          items.push({i,nivel:'aviso',emp:o.e.id,tipo:'sal',val:o.x.h[1],esp:sal,txt:`${nom} sale a las ${audH(o.x.h[1])}; ${esSup||sal==='12:30'?'cuando hay descanso debe salir':'su turno termina'} a las ${audH(sal)}.`});malos.add(o.e.id+'|'+i)}
       }
       if(sup&&lv){
         const otros=desc.filter(e=>e.id!==sup.id), supT=tr.find(o=>o.e.id===sup.id);
         if(otros.length&&!supT)items.push({i,nivel:'error',txt:`Descansa ${otros.map(e=>e.nombre.split(' ')[0]).join(' y ')}: ${sup.nombre.split(' ')[0]} debe suplir (entra 6:30 y sale 12:30).`});
-        if(otros.length&&supT&&supT.x.h[0]!=='06:30'){items.push({i,nivel:'error',txt:`${sup.nombre.split(' ')[0]} suple: debe entrar a las 6:30 (está a las ${audH(supT.x.h[0])}).`});malos.add(sup.id+'|'+i)}
+        if(otros.length&&supT&&supT.ent!=='06:30'){items.push({i,nivel:'error',txt:`${sup.nombre.split(' ')[0]} suple: debe entrar a las 6:30 (está a las ${audH(supT.x.h[0])}).`});malos.add(sup.id+'|'+i)}
         if(!otros.length&&supT)items.push({i,nivel:'aviso',txt:`${sup.nombre.split(' ')[0]} trabaja pero ningún cocinero descansa ese día (sin descanso, el de las 6:30 sale a las 2:30).`});
       }
     }
   }
-  return {items,malos};
+  return {items,malos,acept:new Set(acept)};
 }
-function audHtml(r,fecha){   // fecha(i) -> número del día
+const audM=v=>{const m=/^(\d{1,2}):(\d{2})$/.exec(String(v||''));return m?+m[1]*60+(+m[2]):0};
+function audHtml(r,fecha,aprobar){   // fecha(i) -> número del día; aprobar: muestra los botones para aceptar una diferencia (solo Jorge)
   if(!r.items.length)return '<p style="margin:0;font-weight:700;color:var(--good)">✓ Todo cuadra con las reglas. No encontré errores.</p>';
   const nE=r.items.filter(x=>x.nivel==='error').length, nA=r.items.length-nE;
   let h=`<p style="margin:0 0 8px;font-weight:700">${nE?`<span style="color:#b4342b">● ${nE} ${nE===1?'error':'errores'}</span>`:''}${nE&&nA?' · ':''}${nA?`<span style="color:#9a6400">● ${nA} ${nA===1?'observación':'observaciones'}</span>`:''}</p>`;
   for(let i=0;i<7;i++){const X=r.items.filter(x=>x.i===i);if(!X.length)continue;
-    h+=`<div style="margin-top:8px"><b>${AUD_DIAS[i]} ${fecha(i)}</b>${X.map(x=>`<div style="display:flex;gap:6px;margin-top:4px;font-size:14px;line-height:1.35"><span style="color:${x.nivel==='error'?'#b4342b':'#d08a00'}">●</span><span>${x.txt}</span></div>`).join('')}</div>`}
+    h+=`<div style="margin-top:8px"><b>${AUD_DIAS[i]} ${fecha(i)}</b>${X.map(x=>`<div style="display:flex;gap:6px;margin-top:4px;font-size:14px;line-height:1.35"><span style="color:${x.nivel==='error'?'#b4342b':'#d08a00'}">●</span><span>${x.txt}${aprobar&&x.emp&&x.esp?`<span style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"><button class="btn" data-rh="audok" data-k="${x.emp}|${x.tipo}|${x.val}|${x.esp}" data-p="0" style="padding:4px 10px;min-height:0;font-size:12.5px">✓ Así está bien</button><button class="btn" data-rh="audok" data-k="${x.emp}|${x.tipo}|${x.val}|${x.esp}" data-p="1" style="padding:4px 10px;min-height:0;font-size:12.5px">✓ Bien y pagar la diferencia</button></span>`:''}</span></div>`).join('')}</div>`}
   return h;
 }
+function rhAudAceptadas(){   // diferencias que Jorge ya aceptó (no se vuelven a marcar)
+  const ok=RH.aud_ok||{},K=Object.keys(ok);if(!K.length)return '';
+  return `<details style="margin-top:10px"><summary style="cursor:pointer;font-weight:700">Diferencias aceptadas (${K.length})</summary>${K.map(k=>{const [id,tipo,val,esp]=k.split('|'),e=rhEmp(id);
+    return `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-top:6px;font-size:13.5px"><span>${esc(e?e.nombre.split(' ')[0]:'(baja)')}: ${tipo==='ent'?'entra':'sale'} a las ${audH(val)} en lugar de ${audH(esp)}${ok[k].pagar?' · <b>se le paga la diferencia</b>':' · sin pagar'}</span><a href="#" data-rh="audquitar" data-k="${esc(k)}" style="color:var(--bad);white-space:nowrap">quitar</a></div>`}).join('')}</details>`}
 function rhRol(){
   const A=rhAct().slice().sort((a,b)=>(rhNomPos(a)-rhNomPos(b))||a.nombre.localeCompare(b.nombre)); if(!A.length)return '<p class="empty">Primero da de alta a los empleados.</p>';
   const dias=SEM_DIAS.map((d,i)=>{const f=rhMas(rhSem,i);return `<th style="text-align:center;padding:4px 0">${d.slice(0,2)}<small style="display:block;font-weight:500">${rhPd(f).getDate()}</small></th>`}).join('');
-  const AU=rhAud?auditarRol(A,(e,i)=>{const r=rhRolDe(e,rhSem);return {c:r.d[i],h:r.h[i]}}):null;
+  const AU=rhAud?auditarRol(A,(e,i)=>{const r=rhRolDe(e,rhSem);return {c:r.d[i],h:r.h[i]}},RH.aud_ok):null;
   const filas=A.map((e,ix)=>{const r=rhRolDe(e,rhSem);const tit=ix&&(A[ix-1].puesto||'Otro')===(e.puesto||'Otro')?'':`<tr><td colspan="8" style="font:900 13px var(--display);letter-spacing:.1em;text-transform:uppercase;padding:14px 0 2px;color:var(--ink)">${esc(RH_NOM_TIT[e.puesto]||e.puesto||'Otros')}</td></tr><tr class="rhdias"><th style="padding:2px 2px 4px 0;text-align:left;font-size:11px;color:var(--muted)">Empleado</th>${dias}</tr>`;return tit+`<tr><td style="padding:6px 2px 6px 0;overflow:hidden"><b style="font-size:12px;display:block;width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.nombre.split(' ').slice(0,2).join(' '))}</b><small style="color:var(--muted);font-size:11px">${esc(e.puesto)}${r.g?'':' · sin guardar'}</small>${rhQuienRol(e)}</td>${r.d.map((c,i)=>{const s=RH_EST[c],h=r.h[i],sel=rhDia&&rhDia.id===e.id&&rhDia.i===i;return `<td style="text-align:center;padding:4px 0.5px"><button data-rh="dia" data-id="${e.id}" data-i="${i}" title="${s[0]}" aria-label="${SEM_DIAS[i]}: ${s[0]}${c==='T'&&h&&h[0]?' de '+h[0]+' a '+h[1]:''}" class="rhd" style="${AU&&AU.malos.has(e.id+'|'+i)?'box-shadow:0 0 0 3px #e5484d;':''}border-radius:8px;border:${sel?'2.5px':'1px'} solid ${sel?'var(--ink)':s[3]||s[1]};background:${s[2]};color:${s[1]};font:800 13px var(--body);cursor:pointer;padding:2px 0;line-height:1.05">${c}${c==='T'&&h&&h[0]?`<span class="rhdh"><span style="display:block">${rhH12(h[0],2)}</span><span style="display:block">${rhH12(h[1],2)}</span></span>`:''}</button></td>`}).join('')}</tr>`}).join('');
   return rhSemNav()+`<div class="card"><h2>Rol de descansos <small>toca un día para cambiarlo</small></h2>${rhResumenRol()}
     <div class="tscroll"><table class="tk rhtab" style="table-layout:fixed;min-width:300px"><colgroup><col style="width:68px"></colgroup><tbody>${filas}</tbody></table></div>${rhEditorDia()}
     <p class="empty" style="margin-top:10px">${Object.entries(RH_EST).map(([k,v])=>`<b style="color:${v[1]}">${k}</b> ${v[0]}`).join(' · ')}</p>
     <div class="btns"><button class="btn${rhAud?' pri':''}" data-rh="auditar">🔍 ${rhAud?'Quitar auditoría':'Auditoría'}</button><button class="btn" data-rh="copiar">Copiar la semana anterior</button></div>
-    ${AU?`<div class="note" id="rhAudRes" style="background:var(--surface-2);color:var(--ink);margin-top:10px"><b style="display:block;margin-bottom:6px">Auditoría del rol · semana del ${rhCorta(rhSem)}</b>${audHtml(AU,i=>rhPd(rhMas(rhSem,i)).getDate())}<p class="empty" style="margin-top:8px">Los cuadros con contorno rojo son los que hay que revisar. Se vuelve a revisar sola cada vez que cambias un día.</p></div>`:''}
+    ${AU?`<div class="note" id="rhAudRes" style="background:var(--surface-2);color:var(--ink);margin-top:10px"><b style="display:block;margin-bottom:6px">Auditoría del rol · semana del ${rhCorta(rhSem)}</b>${audHtml(AU,i=>rhPd(rhMas(rhSem,i)).getDate(),true)}${rhAudAceptadas()}<p class="empty" style="margin-top:8px">Los cuadros con contorno rojo son los que hay que revisar. Se vuelve a revisar sola cada vez que cambias un día.</p></div>`:''}
     <p class="empty" style="margin-top:10px">Si no has guardado la semana, se propone según el día de descanso de cada empleado. Con el candado del rol encendido (pestaña COMANDERO), quien descanse, falte o esté de vacaciones no puede usar el comandero ese día.</p></div>`+rhAccesoRol();
 }
 function rhEditorDia(){
@@ -1585,8 +1597,12 @@ function rhNomCalc(e,sem){
   // séptimo día (día de descanso pagado, LFT): lo que ganó en la semana ÷ 6; si faltó o trabajó menos horas, baja en proporción
   const septimo=(porHora||d)?Math.round(Math.min(base/6,porHora?Infinity:d)*100)/100:0;
   const th=!rhPagaExtra(e)?0:porHora?tar:d/8, xe=rhExtra(hs.t,th);
-  const calc={base,septimo,extra_horas:xe.monto,h_extra:xe.ext,prima_dom:prima,incentivo:inc,extras:0,comida:Math.round(vs.comida*100)/100,vales:Math.round((valesM+valesC)*100)/100,abono:abonoSug,otros:0,transfer:0,horas:hs.t,resta_comida:resta,nota:'',pagada:false}, v=g||calc;
-  return {v,calc,xe,th,diasPag,parcial,g:!!g,f,t,vac,prog,dom,valesM,valesC,comidas,sinDesc,pr,porHora,tar,resta,hs};
+  let difMin=0;const okE=Object.entries(RH.aud_ok||{}).filter(([k,v])=>v.pagar&&k.startsWith(e.id+'|'));
+  if(!porHora&&d&&okE.length)rr.d.forEach((c_,i)=>{if(c_!=='T'||!rr.h[i])return;let n=0;okE.forEach(([k])=>{const [,tipo,val,esp]=k.split('|');
+    if(tipo==='ent'&&rr.h[i][0]===val)n+=audM(esp)-audM(val);if(tipo==='sal'&&rr.h[i][1]===val)n+=audM(val)-audM(esp)});difMin+=Math.max(0,n)});   // neto del día: entrar 15 min tarde y salir 15 min tarde = 0
+  const difPago=Math.round(difMin/60*d/8*100)/100;
+  const calc={base,septimo,extra_horas:xe.monto,h_extra:xe.ext,prima_dom:prima,incentivo:inc,extras:difPago,comida:Math.round(vs.comida*100)/100,vales:Math.round((valesM+valesC)*100)/100,abono:abonoSug,otros:0,transfer:0,horas:hs.t,resta_comida:resta,nota:'',pagada:false}, v=g||calc;
+  return {v,calc,xe,th,difMin,diasPag,parcial,g:!!g,f,t,vac,prog,dom,valesM,valesC,comidas,sinDesc,pr,porHora,tar,resta,hs};
 }
 const rhBruto=v=>(+v.base||0)+(+v.septimo||0)+(+v.extra_horas||0)+(+v.prima_dom||0)+(+v.incentivo||0)+(+v.extras||0);
 const rhTot=v=>rhBruto(v)-(+v.comida||0)-(+v.vales||0)-(+v.abono||0)-(+v.otros||0);
@@ -1606,7 +1622,7 @@ function rhNomina(){
     return tit+`<div class="card"><h2>${esc(e.nombre)} <small>${esc(e.puesto)} · ${c.t} días${c.f?` · <b style="color:var(--bad)">${c.f} ${c.f===1?'falta':'faltas'}</b>`:''}${c.g?(v.pagada?' · <span class="pill good">Pagada</span>':' · <span class="pill mut">Guardada</span>'):''}</small></h2>${horas}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
         ${inp('base',c.porHora?'Sueldo por horas':+e.diario?'Sueldo':'Nómina completa',c.porHora?'':+e.diario?'('+(c.parcial.length?(+c.diasPag.toFixed(2))+' días':(c.t+c.vac))+' × '+fmt2(+e.diario)+')'+(c.parcial.length?'<br><span style="color:var(--warn)">por horas: '+esc(c.parcial.join(', '))+'</span>':''):c.f?'(menos faltas)':'')}${inp('incentivo','Incentivo',+e.incentivo&&c.t<c.prog?'('+c.t+' de '+c.prog+' días)':'')}
-        ${inp('septimo','Séptimo día','(lo trabajado ÷ 6)')}${inp('extra_horas','Horas extra',!rhPagaExtra(e)?(c.xe.ext?'('+rhHtxt(c.xe.ext)+', no se le pagan)':'(no se le pagan)'):c.xe.ext?'('+rhExtraTxt(c.xe)+')':'(más de 48 h)')}${inp('prima_dom','Prima dominical',c.dom?'(25%)':'')}${inp('extras','Extras / bonos','(autorizadas)')}
+        ${inp('septimo','Séptimo día','(lo trabajado ÷ 6)')}${inp('extra_horas','Horas extra',!rhPagaExtra(e)?(c.xe.ext?'('+rhHtxt(c.xe.ext)+', no se le pagan)':'(no se le pagan)'):c.xe.ext?'('+rhExtraTxt(c.xe)+')':'(más de 48 h)')}${inp('prima_dom','Prima dominical',c.dom?'(25%)':'')}${inp('extras','Extras / bonos',c.difMin?'('+c.difMin+' min de diferencia aceptada)':'(autorizadas)')}
       </div>
       <table class="ledger num" style="margin-top:12px"><tbody><tr><td>Nómina total <small style="color:var(--muted)">(sin descuentos)</small></td><td><b id="rb_${e.id}">${fmt2(rhBruto(v))}</b></td></tr></tbody></table>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
@@ -1748,6 +1764,7 @@ document.addEventListener('click',async e=>{
   if(a==='copialunes'){const l=$('#rfHd0').checked;for(let i=1;i<5;i++){$('#rfHd'+i).checked=l;$('#rfHe'+i).value=$('#rfHe0').value;$('#rfHs'+i).value=$('#rfHs0').value}return rhResumenForm()}
   if(a==='subir'){if(!($('#rfAt')||{}).value){toast('Antes dime si el contrato es por tiempo determinado o indeterminado.');$('#rfAt')?.focus();return}return $('#rfArch').click()}
   if(a==='dia'){rhDia={id:d.id,i:+d.i};return render()}
+  if(a==='audok'||a==='audquitar'){(async()=>{try{await rhApi(a==='audok'?{accion:'aud_ok',k:d.k,pagar:d.p==='1'}:{accion:'aud_quitar',k:d.k});render();toast(a==='audok'?(d.p==='1'?'Aceptado; la diferencia se paga en la nómina':'Aceptado; ya no se marca'):'Quitado')}catch(err){toast(err.message)}})();return}
   if(a==='auditar'){rhAud=!rhAud;render();if(rhAud)$('#rhAudRes')?.scrollIntoView({behavior:'smooth',block:'nearest'});return}   // 30.7.25: se abre como ventana encima, sin moverse de lugar
   if(a==='diacerrar'){rhDia=null;return render()}
   if(a==='diaest'){document.querySelectorAll('#rhEdDia [data-rh="diaest"]').forEach(b=>b.setAttribute('aria-pressed',b===t));return}

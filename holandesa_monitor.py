@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 131            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.29'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 132            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.30'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -2313,7 +2313,7 @@ class Monitor:
         try:
             with open(RH_FILE, encoding='utf-8') as f: d = json.load(f)
         except (OSError, ValueError): d = {}
-        for k, v in (('empleados', []), ('roles', {}), ('roles_meta', {}), ('roles_h', {}), ('nominas', {}), ('prestamos', []), ('vales', []), ('acceso_rol', {}), ('desc_comida', {})):
+        for k, v in (('empleados', []), ('roles', {}), ('roles_meta', {}), ('roles_h', {}), ('nominas', {}), ('prestamos', []), ('vales', []), ('acceso_rol', {}), ('desc_comida', {}), ('aud_ok', {})):
             if not isinstance(d.get(k), type(v)): d[k] = v
         if d.get('semana_inicia') != 'martes':
             rh_a_martes(d)
@@ -2384,7 +2384,7 @@ class Monitor:
         return {'ok': True, 'semana': lun, 'hoy': hoy.isoformat(),
                 'empleados': [{'id': e['id'], 'nombre': e.get('nombre', ''), 'puesto': e.get('puesto', ''), 'descanso': e.get('descanso', ''),
                                'horario': horario_texto(rh_base(e)), 'base': base_sem(rh_base(e)), 'comida': int(e.get('comida_min') or 0), 'pagada': e['id'] in pagados} for e in emps],
-                'rol': d['roles'].get(lun) or {}, 'meta': d['roles_meta'].get(lun) or {}, 'horas': (d.get('roles_h') or {}).get(lun) or {},
+                'rol': d['roles'].get(lun) or {}, 'meta': d['roles_meta'].get(lun) or {}, 'aud_ok': {k: {} for k in d.get('aud_ok', {})}, 'horas': (d.get('roles_h') or {}).get(lun) or {},
                 'anterior_tiene': bool(d['roles'].get((datetime.date.fromisoformat(lun) - datetime.timedelta(days=7)).isoformat()))}
 
     def rol_accion_enc(self, quien, a):
@@ -2526,6 +2526,12 @@ class Monitor:
             if m <= 0: raise ValueError('Escribe el descuento.' if tipo == 'comida' else 'Escribe el monto del vale.')
             d['vales'].append({'id': secrets.token_hex(4), 'emp': emp_id(a.get('emp')), 'fecha': fecha(a.get('fecha'), True), 'monto': m, 'tipo': tipo,
                                'consumo': num(a.get('consumo')) if tipo == 'comida' else 0, 'nota': txt(a.get('nota'), 120)})
+        elif acc in ('aud_ok', 'aud_quitar'):
+            # diferencias de horario que Jorge acepta en la auditoría del rol (p. ej. Martín entra 15 min después); opcional: pagar la diferencia
+            k = txt(a.get('k'), 80)
+            if not re.fullmatch(r'[0-9a-f]{4,16}\|(ent|sal)\|\d\d:\d\d\|\d\d:\d\d', k): raise ValueError('No entendí qué aceptar.')
+            if acc == 'aud_ok': d['aud_ok'][k] = {'pagar': bool(a.get('pagar')), 'cuando': datetime.date.today().isoformat()}
+            else: d['aud_ok'].pop(k, None)
         elif acc == 'comida_desc':
             # descuento que Jorge decide para una comida de empleado registrada en la caja (cuenta quitada con motivo Empleado)
             k = txt(a.get('id'), 80)
