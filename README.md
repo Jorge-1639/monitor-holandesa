@@ -223,3 +223,5 @@ Versión 30.7.25 — rol de descansos: al tocar un día se abre una ventanita en
 Versión 30.7.26 — botón 'Auditoría' en el rol (Jorge y encargada): revisa las reglas de turnos de cocineros (6:30, 9:00, 12:30; Moisés suple 6:30–12:30), meseros (7:30–3:30, 9–5, 3–8:30) y ayudantes generales (6:45–2:30 y 2:00 L–V; 8–8 sáb y dom); marca en rojo los cuadros con error y lista lo que falta por día.
 
 Versión 30.7.27 — auditoría: el cocinero de las 6:30 sale 2:30 si nadie descansa y 12:30 si hay descanso (Moisés suple); ayudante de la tarde 2:00–8:30.
+
+Versión 30.7.28 — auditoría: cocineros sábado y domingo 7:30–3:30, 9–5 y 12:30–8:30; Ángel los viernes sale a las 2:00 pm (escuela).
