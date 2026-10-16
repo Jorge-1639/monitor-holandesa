@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 123            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.21'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 124            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.22'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -116,6 +116,7 @@ def horario_texto(base):
         i = j + 1
     d = [cortos[k] for k in range(7) if base[k] is None]
     return ' · '.join(p.strip() for p in partes) + ((' · descansa ' + ', '.join(d)) if d else '')           # Recursos Humanos: expedientes, rol, nómina, vales y préstamos (solo en la caja)
+ORDEN_ROL = ['Cocinero', 'Ayudante de cocina', 'Mesero', 'Cajero', 'Encargada', 'Ayudante general', 'Repartidor', 'Lavaloza', 'Otro']   # así los agrupa Jorge: cocineros, meseros, ayudantes generales…
 PUESTOS = ['Mesero', 'Cajero', 'Encargada', 'Cocinero', 'Ayudante de cocina', 'Ayudante general', 'Repartidor', 'Lavaloza', 'Otro']       # meseros del comandero: código de MrTienda + huella de su clave
 IA_URL = 'https://api.anthropic.com/v1/messages'
 IA_MODELO = 'claude-haiku-5-5'
@@ -836,6 +837,101 @@ def pdf_comandero(nombre, url, horario='', candado=False, logo=None):
     x = len(out)
     out += b'xref\n0 %d\n0000000000 65535 f \n' % (len(objs) + 1) + b''.join(b'%010d 00000 n \n' % p for p in pos)
     out += b'trailer\n<< /Size %d /Root %d 0 R /Info << /Title (' % (len(objs) + 1, cat) + _pdf_txt('Comandero ' + (nombre.split() or [''])[0].title()) + b') >> >>\nstartxref\n%d\n%%%%EOF\n' % x
+    return bytes(out)
+
+def pdf_descansos(nombre, url_wifi, url_ts='', logo=None, clave=''):
+    """Hoja de bienvenida para la encargada: cómo entrar a capturar el rol de descansos (1 página). La clave solo va si Jorge lo pide."""
+    import zlib
+    W, H, M = 612, 792, 54
+    VERDE, VERDE_S, NARANJA, NARANJA_S, TINTA, GRIS = (0.114, 0.361, 0.231), (0.886, 0.937, 0.898), (0.886, 0.443, 0.114), (1.0, 0.929, 0.835), (0.082, 0.137, 0.102), (0.365, 0.431, 0.384)
+    ROJO, ROJO_S = (0.70, 0.13, 0.11), (0.99, 0.91, 0.89)
+    c = []; ann = []
+    col = lambda rgb, op='rg': c.append('%.3f %.3f %.3f %s' % (rgb + (op,)))
+    def texto(x, y, t, tam=12, negrita=False, rgb=TINTA):
+        col(rgb); c.append(('BT /%s %g Tf %.1f %.1f Td (' % ('F2' if negrita else 'F1', tam, x, y)).encode() + _pdf_txt(t) + b') Tj ET')
+    def parrafo(x, y, t, tam=12, ancho=W - 2 * M, negrita=False, rgb=TINTA, inter=1.36):
+        for r in _renglones(t, tam, ancho, negrita): texto(x, y, r, tam, negrita, rgb); y -= tam * inter
+        return y
+    def punto(n, y, t, tam=11):
+        col(NARANJA); c.append('%.1f %.1f m %.1f %.1f %.1f %.1f %.1f %.1f c %.1f %.1f %.1f %.1f %.1f %.1f c %.1f %.1f %.1f %.1f %.1f %.1f c %.1f %.1f %.1f %.1f %.1f %.1f c f' % _circulo(M + 10, y + 4, 10))
+        texto(M + 6.5, y, str(n), 12, True, (1, 1, 1))
+        return parrafo(M + 30, y, t, tam, W - 2 * M - 30) - 6
+    def caja(y, titulo, url, fondo, borde):
+        col(fondo); c.append('%d %.1f %d 62 re f' % (M, y - 50, W - 2 * M))
+        col(borde, 'RG'); c.append('1.5 w %d %.1f %d 62 re S' % (M, y - 50, W - 2 * M))
+        texto(M + 16, y - 6, titulo, 10, True, borde)
+        tam_u = 16 if _ancho(url, 16, True) < W - 2 * M - 32 else 12
+        texto(M + 16, y - 36, url, tam_u, True, TINTA)
+        if url.startswith('http'): ann.append((M, y - 50, W - M, y + 12, url))
+        return y - 68
+    # encabezado verde con el logotipo de Personal (los dos monitos)
+    col(VERDE); c.append('0 %d %d %d re f' % (H - 140, W, 140))
+    hay_logo = False
+    if logo:
+        try: lw, lh, rgb_, alfa = _png_rgb_alfa(logo); hay_logo = True
+        except Exception as e: log('PDF descansos: no pude usar el logo: ' + str(e))
+    tx = M
+    if hay_logo:
+        c.append('q 100 0 0 100 %d %d cm /Im1 Do Q' % (M, H - 120)); tx = M + 120
+    texto(tx, H - 66, 'Rol de descansos', 28, True, (1, 1, 1))
+    texto(tx, H - 92, 'Restaurante La Holandesa', 15, False, (1, 1, 1))
+    y = H - 172
+    pila = (nombre.split() or [''])[0].strip().lower()
+    saludo = 'Bienvenida' if (pila.endswith('a') or _sin_acento(pila) in NOMBRES_MUJER) and _sin_acento(pila) not in NOMBRES_HOMBRE_A else 'Bienvenido'
+    texto(M, y, '¡' + saludo + ', ' + (nombre.split() or [''])[0].title() + '!', 22, True); y -= 24
+    y = parrafo(M, y, 'Desde tu teléfono vas a capturar el rol de descansos de cada semana (de martes a lunes): quién trabaja, quién descansa, faltas, vacaciones e incapacidades, y el horario de cada día. Lo que captures le llega a Jorge para la nómina.', 11, rgb=GRIS) - 10
+    if clave:
+        col(NARANJA_S); c.append('%d %.1f %d 46 re f' % (M, y - 34, W - 2 * M))
+        col(NARANJA, 'RG'); c.append('1.5 w %d %.1f %d 46 re S' % (M, y - 34, W - 2 * M))
+        texto(M + 16, y - 18, 'TU CLAVE:', 13, True, NARANJA); texto(M + 110, y - 20, '  '.join(clave), 22, True, TINTA)
+        y -= 58
+    y = caja(y, 'EN EL RESTAURANTE (conectada al WiFi) — tócala para abrir', url_wifi, VERDE_S, VERDE)
+    if url_ts: y = caja(y, 'DESDE TU CASA (con Tailscale prendido) — tócala para abrir', url_ts, NARANJA_S, NARANJA)
+    texto(M, y, 'Cómo entrar', 15, True, VERDE); y -= 22
+    pasos = ['En el restaurante: conéctate al WiFi y toca la primera dirección.' + (' Desde tu casa: prende Tailscale en tu teléfono y toca la segunda.' if url_ts else ''),
+             'Escribe tu clave de 4 números.' + ('' if clave else ' Te la da Jorge en persona; no viene en este documento.'),
+             'Déjala como app: en Android toca los tres puntitos y "Agregar a pantalla de inicio"; en iPhone toca Compartir y "Agregar a pantalla de inicio".']
+    for n, t in enumerate(pasos, 1): y = punto(n, y, t)
+    y -= 2; texto(M, y, 'Cómo capturar', 15, True, VERDE); y -= 20
+    uso = ['Arriba eliges la semana con las flechas. Los trabajadores salen por grupo: cocineros, meseros y ayudantes generales.',
+           'Toca el día de un trabajador y elige: T trabaja, D descansa, F faltó, V vacaciones o I incapacidad. Si trabaja, elige la hora de entrada y de salida. Toca Guardar.',
+           '"Copiar la semana anterior" llena la semana igual que la pasada; luego solo cambias lo diferente.',
+           'Si una semana ya está pagada no se puede cambiar; avísale a Jorge. No ves sueldos ni nómina.']
+    for n, t in enumerate(uso, 1): y = punto(n, y, t)
+    if True:   # recuadro rojo: la clave es confidencial
+        col(ROJO_S); c.append('%d %.1f %d 40 re f' % (M, y - 30, W - 2 * M))
+        col(ROJO, 'RG'); c.append('1.5 w %d %.1f %d 40 re S' % (M, y - 30, W - 2 * M))
+        texto(M + 16, y - 15, 'NOTA: No compartas tu clave, es confidencial.', 13, True, ROJO)
+    col(VERDE_S, 'RG'); c.append('0.8 w %d 52 m %d 52 l S' % (M, W - M))
+    texto(M, 36, 'La Holandesa · Av. Reforma 1366, Ensenada · ' + datetime.date.today().strftime('%d/%m/%Y'), 9, False, GRIS)
+    cont = b'\n'.join(x if isinstance(x, bytes) else x.encode('latin-1') for x in c)
+    objs = []
+    def obj(b): objs.append(b); return len(objs)
+    cat = obj(None); pags = obj(None)
+    f1 = obj(b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>')
+    f2 = obj(b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>')
+    xo = b''
+    if hay_logo:
+        smask = ''
+        if alfa:
+            z = zlib.compress(alfa, 9)
+            sm = obj(b'<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length %d >>\nstream\n' % (lw, lh, len(z)) + z + b'\nendstream')
+            smask = ' /SMask %d 0 R' % sm
+        z = zlib.compress(rgb_, 9)
+        im = obj(b'<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode%s /Length %d >>\nstream\n' % (lw, lh, smask.encode(), len(z)) + z + b'\nendstream')
+        xo = b' /XObject << /Im1 %d 0 R >>' % im
+    z = zlib.compress(cont, 9)
+    st = obj(b'<< /Filter /FlateDecode /Length %d >>\nstream\n' % len(z) + z + b'\nendstream')
+    an = [obj(b'<< /Type /Annot /Subtype /Link /Rect [%.1f %.1f %.1f %.1f] /Border [0 0 0] /A << /S /URI /URI (' % a[:4] + _pdf_txt(a[4]) + b') >> >>') for a in ann]
+    kid = obj(b'<< /Type /Page /Parent %d 0 R /MediaBox [0 0 %d %d] /Resources << /Font << /F1 %d 0 R /F2 %d 0 R >>%s >> /Contents %d 0 R /Annots [%s] >>' %
+              (pags, W, H, f1, f2, xo, st, b' '.join(b'%d 0 R' % a for a in an)))
+    objs[cat - 1] = b'<< /Type /Catalog /Pages %d 0 R >>' % pags
+    objs[pags - 1] = b'<< /Type /Pages /Kids [%d 0 R] /Count 1 >>' % kid
+    out = bytearray(b'%PDF-1.4\n%\xe2\xe3\xcf\xd3\n'); pos = []
+    for k, b in enumerate(objs, 1): pos.append(len(out)); out += b'%d 0 obj\n' % k + b + b'\nendobj\n'
+    x = len(out)
+    out += b'xref\n0 %d\n0000000000 65535 f \n' % (len(objs) + 1) + b''.join(b'%010d 00000 n \n' % p for p in pos)
+    out += b'trailer\n<< /Size %d /Root %d 0 R /Info << /Title (' % (len(objs) + 1, cat) + _pdf_txt('Rol de descansos ' + (nombre.split() or [''])[0].title()) + b') >> >>\nstartxref\n%d\n%%%%EOF\n' % x
     return bytes(out)
 
 def _circulo(cx, cy, r):
@@ -2283,7 +2379,7 @@ class Monitor:
         try: f = datetime.date.fromisoformat(sem)
         except ValueError: f = hoy
         lun = inicio_sem(f).isoformat()
-        emps = sorted([e for e in d['empleados'] if e.get('activo', True)], key=lambda e: (PUESTOS.index(e['puesto']) if e.get('puesto') in PUESTOS else 99, e.get('nombre', '')))
+        emps = sorted([e for e in d['empleados'] if e.get('activo', True)], key=lambda e: (ORDEN_ROL.index(e['puesto']) if e.get('puesto') in ORDEN_ROL else 99, e.get('nombre', '')))
         pagados = {k for k, v in (d['nominas'].get(lun) or {}).items() if v.get('pagada')}
         return {'ok': True, 'semana': lun, 'hoy': hoy.isoformat(),
                 'empleados': [{'id': e['id'], 'nombre': e.get('nombre', ''), 'puesto': e.get('puesto', ''), 'descanso': e.get('descanso', ''),
@@ -3208,6 +3304,20 @@ def make_handler(mon, cfg):
                 arch = 'Comandero_' + re.sub(r'[^A-Za-z]', '', _sin_acento((nombre.split() or ['LaHolandesa'])[0])).title() + '.pdf'
                 self.send_response(200); self.send_header('Content-Type', 'application/pdf'); self.send_header('Cache-Control', 'no-store')
                 self.send_header('Content-Disposition', "attachment; filename=\"Comandero.pdf\"; filename*=UTF-8''" + urllib.parse.quote(arch))
+                self.send_header('Content-Length', str(len(pdf))); self.end_headers(); self.wfile.write(pdf); return
+            if p0 == '/api/descansos-pdf':
+                # hoja de bienvenida para la encargada (Personal → Rol de descansos → Captura de la encargada)
+                import urllib.parse
+                q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                ac = mon.rh().get('acceso_rol') or {}
+                wifi = [ip for ip in ips_locales() if not ip.startswith('100.')]; ts = [ip for ip in ips_locales() if ip.startswith('100.')]
+                if not ac.get('activo') or not wifi: self.send_response(404); self.end_headers(); return
+                nombre = ac.get('nombre') or 'Encargada'
+                pdf = pdf_descansos(nombre, 'http://%s:%s/descansos' % (wifi[0], cfg['puerto']), ('http://%s:%s/descansos' % (ts[0], cfg['puerto'])) if ts else '',
+                                    icon_rh, ac.get('clave', '') if (q.get('clave') or [''])[0] == '1' else '')
+                arch = 'Descansos_' + re.sub(r'[^A-Za-z]', '', _sin_acento((nombre.split() or ['Encargada'])[0])).title() + '.pdf'
+                self.send_response(200); self.send_header('Content-Type', 'application/pdf'); self.send_header('Cache-Control', 'no-store')
+                self.send_header('Content-Disposition', "attachment; filename=\"Descansos.pdf\"; filename*=UTF-8''" + urllib.parse.quote(arch))
                 self.send_header('Content-Length', str(len(pdf))); self.end_headers(); self.wfile.write(pdf); return
             if p0 == '/api/acceso':
                 body = json.dumps({'ok': True, 'puerto': cfg['puerto'], 'ips': ips_locales(), 'https': HTTPS_TS.get('url', '')}, ensure_ascii=False).encode('utf-8')

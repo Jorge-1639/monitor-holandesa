@@ -211,3 +211,5 @@ Versión 30.7.19 — nómina: horas extra automáticas (más de 48 h a la semana
 Versión 30.7.20 — vales de comida: cada comida de empleado (cuenta quitada en Ventas con motivo Empleado) se abre con su comanda; descuento en % o en $ (se calculan uno al otro) y a qué empleado le toca si el nombre no se reconoció; pasa solo a la nómina y al resumen.
 
 Versión 30.7.21 — nómina y resumen agrupados por puesto con título (cocineros, meseros, ayudantes generales…); botón 'Volver a calcular' en la nómina ya guardada.
+
+Versión 30.7.22 — Captura de la encargada: el nombre se elige del catálogo de empleados; botón 'Ver como la ve' (abre su página); hoja de bienvenida en PDF con el logotipo de Personal, las direcciones del WiFi y de Tailscale y, si se marca, su clave. El rol (panel y página de la encargada) agrupado por puesto con títulos.
