@@ -1318,12 +1318,19 @@ function rhHoras(h,comida){ // horas pagadas de un día: de la entrada a la sali
   if(!h)return 0;const a=rhHm(h[0]),b=rhHm(h[1]);if(a==null||b==null)return 0;let m=b-a;if(m<=0)m+=1440;return Math.max(0,(m-(+comida||0))/60);
 }
 const rhHtxt=n=>{const h=Math.floor(n+1e-9),m=Math.round((n-h)*60);return h+(m?':'+String(m).padStart(2,'0'):'')+' h'};
+// cómo suena el nombre: BERENISE = BERENICE, ANTUAN ≈ ANTOINE, VALERIA = BALERIA, YESICA = JESSICA…
+const rhSon=s=>rhNorm(s).replace(/CE|CI/g,m=>'S'+m[1]).replace(/Z/g,'S').replace(/V/g,'B').replace(/LL|Y/g,'I').replace(/QU|K|C/g,'K').replace(/H/g,'').replace(/(.)\1+/g,'$1');
+const rhDist=(a,b)=>{const m=a.length,n=b.length;if(Math.abs(m-n)>2)return 9;let p=[...Array(n+1).keys()];for(let i=1;i<=m;i++){const q=[i];for(let j=1;j<=n;j++)q[j]=Math.min(p[j]+1,q[j-1]+1,p[j-1]+(a[i-1]===b[j-1]?0:1));p=q}return p[n]};
 function rhQuien(texto){ // a quién corresponde un vale o comida escrito con nombre libre
   const t=' '+rhNorm(texto).replace(/^VALES? /,'')+' ', A=rhAct();
   let m=A.filter(e=>t.includes(' '+rhNorm(e.nombre)+' '));
   if(m.length===1)return m[0];
   const p=t.trim().split(' ')[0]; if(!p)return null;
   m=A.filter(e=>rhNorm(e.nombre).split(' ')[0]===p);
+  if(m.length===1)return m[0];
+  m=A.filter(e=>rhSon(rhNorm(e.nombre).split(' ')[0])===rhSon(p));          // se escribe distinto pero suena igual
+  if(m.length===1)return m[0];
+  m=A.filter(e=>{const n=rhSon(rhNorm(e.nombre).split(' ')[0]),s=rhSon(p);return n.length>=4&&rhDist(n,s)<=(n.length>=6?2:1)});   // una o dos letras de diferencia
   return m.length===1?m[0]:null;
 }
 async function rhCargar(){
@@ -1652,7 +1659,11 @@ function rhResumen(){
   const S=k=>F.reduce((a,f)=>a+f[k],0), sin=F.filter(f=>!f.g).length;
   const fila=(l,v,neg,b)=>`<tr${b?' class="tt"':''}><td>${b?'<b>'+l+'</b>':l}</td><td class="r">${neg&&v?'−':''}${b?'<b>'+fmt2(v)+'</b>':fmt2(v)}</td></tr>`;
   const cel=(f,k)=>{const ed=k in f.aj;return `<td class="r" style="padding:3px 2px"><input class="rsin num" data-emp="${f.e.id}" data-k="${k}" value="${f[k]?f[k].toFixed(2):''}" placeholder="0" inputmode="decimal" title="${ed?'Cambiado por ti; automático: '+fmt2(f.auto[k]):'Automático'}" style="width:78px;text-align:right;padding:5px 6px;border-radius:7px;border:1px solid ${ed?'#d97706':'var(--line)'};background:${ed?'#fff7e6':'var(--surface)'};font:600 13px var(--body);color:var(--ink)"></td>`};
-  return rhSemNav()+(sin?`<p class="note" style="margin-bottom:12px">${sin===1?'Falta guardar la nómina de 1 empleado':'Falta guardar la nómina de '+sin+' empleados'}; aquí se usa lo calculado. Guárdala en la pestaña Nómina.</p>`:'')+
+  const fin=rhMas(rhSem,6),en=x=>x.fecha>=rhSem&&x.fecha<=fin;
+  const sinD=(RH.comidas||[]).filter(c=>en(c)&&rhComidaEmp(c)&&rhDC(c).monto==null), sinQ=[...(RH.comidas||[]).filter(c=>en(c)&&!rhComidaEmp(c)).map(c=>'comida de '+(c.persona||'sin nombre')),...(RH.vales_caja||[]).filter(v=>en(v)&&!rhQuien(v.ref)).map(v=>v.ref+' '+fmt2(+v.monto||0))];
+  const avisos=(sinD.length?`<p class="note" style="margin-bottom:12px"><b>${sinD.length===1?'1 comida de empleado no tiene':sinD.length+' comidas de empleados no tienen'} descuento</b> (${sinD.map(c=>esc(rhComidaEmp(c).nombre.split(' ')[0])+' '+fmt2(+c.total||0)).join(', ')}), así que no se descuenta${sinD.length===1?'':'n'}. Ponle el descuento en <a href="#" data-rhtab="vp">Préstamos y vales</a> → Vales de comida.</p>`:'')+
+    (sinQ.length?`<p class="note" style="margin-bottom:12px"><b>No sé de quién es:</b> ${sinQ.map(esc).join(', ')}. No se descuenta${sinQ.length===1?'':'n'} hasta que se identifique${sinQ.length===1?'':'n'}.</p>`:'');
+  return rhSemNav()+avisos+(sin?`<p class="note" style="margin-bottom:12px">${sin===1?'Falta guardar la nómina de 1 empleado':'Falta guardar la nómina de '+sin+' empleados'}; aquí se usa lo calculado. Guárdala en la pestaña Nómina.</p>`:'')+
   `<div class="card"><h2>Resumen de la semana</h2><table class="ledger num"><tbody>
     ${fila('Total de la nómina',S('b'),false,true)}
     ${fila('Préstamos',S('abono'),true)}${fila('Vales de comida',S('comida'),true)}${fila('Vales de dinero',S('vales'),true)}${S('otros')?fila('Otros descuentos',S('otros'),true):''}
