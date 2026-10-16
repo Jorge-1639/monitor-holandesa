@@ -92,6 +92,8 @@ button:focus-visible{outline:2px solid var(--green-2);outline-offset:2px}
 @media (min-width:560px){.app{max-width:900px}.rol .d{max-width:84px;height:66px;font-size:18px}.rol .d small{font-size:14px}.rol col:first-child{width:120px!important}}
 .rol .d.sel{outline:3px solid var(--ink);outline-offset:1px}
 .rol .d:disabled{opacity:.6;cursor:default}
+.modal{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.38);display:flex;align-items:center;justify-content:center;padding:14px}
+.modal .edit{background:var(--surface);margin:0;width:100%;max-width:460px;max-height:88vh;overflow:auto;border-radius:16px;padding:16px;box-shadow:0 20px 50px -10px rgba(0,0,0,.45)}
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;font-weight:600;z-index:30;max-width:90%;text-align:center}
 </style></head>
 <body><div class="app" id="app"></div>
@@ -162,6 +164,7 @@ function editor(e,r){const i=ED.i,h=r.h[i]||['',''];
     <div class="dos"><button class="btn pri" data-guardar="1">Guardar</button><button class="btn" data-cerrar="1">Cerrar</button></div></div>`}
 // ---------- pantalla principal
 function pintar(){
+  const _y=window.scrollY;setTimeout(()=>window.scrollTo(0,_y),0);
   const E=INFO.empleados, falta=E.filter(e=>!INFO.rol[e.id]&&!e.pagada).length;
   const ley=Object.entries(EST).map(([k,v])=>`<span><b style="color:var(${v[1]});background:var(${v[1]}-bg)">${k}</b>${v[0]}</span>`).join('');
   const ed=ED&&E.find(x=>x.id===ED.e);
@@ -172,7 +175,7 @@ function pintar(){
       return `<td><button class="d ${ED&&ED.e===e.id&&ED.i===i?'sel':''}" data-e="${e.id}" data-i="${i}" ${e.pagada?'disabled':''} aria-label="${esc(e.nombre)}, ${DIAS_L[i]}: ${EST[c][0]}${c==='T'&&h&&h[0]?' de '+h[0]+' a '+h[1]:''}" style="color:var(${EST[c][1]});background:var(${EST[c][1]}-bg);border-color:var(${EST[c][1]}-bd,var(${EST[c][1]}))">${c}${c==='T'&&h&&h[0]?`<small>${h12(h[0])}<br>${h12(h[1])}</small>`:''}</button></td>`}).join('')}</tr>`})(e)).join('');
   const m=ed&&INFO.meta[ed.id];
   const tarjetas=`<div class="rol"><table><colgroup><col style="width:76px"></colgroup><tbody>${filas}</tbody></table>
-    ${ed?`<div class="edit"><b>${esc(ed.nombre)}</b><div class="nota" style="margin-top:2px">${esc(ed.horario||'')}${m?' · último cambio: '+esc(m.por)+', '+hora(m.cuando):''}</div>${editor(ed,rolDe(ed)).replace('<div class="edit">','<div>')}</div>`:''}</div>`;
+    ${ed?`<div class="modal"><div class="edit" role="dialog" aria-modal="true"><b style="font-size:17px">${esc(ed.nombre)}</b><div class="nota" style="margin-top:2px">${esc(ed.horario||'')}${m?' · último cambio: '+esc(m.por)+', '+hora(m.cuando):''}</div>${editor(ed,rolDe(ed)).replace('<div class="edit">','<div>')}</div></div>`:''}</div>`;
   $('#app').innerHTML=`<div class="top"><div class="fila"><div><h1>Rol de descansos</h1><small>${esc(INFO.nombre)}</small></div><button class="salir" data-salir="1">Salir</button></div>
     <div class="sem"><button data-sem="-7" aria-label="Semana anterior">‹</button><b>Semana del ${corta(SEM)} al ${corta(mas(SEM,6))}</b><button data-sem="7" aria-label="Semana siguiente">›</button></div></div>
     <div class="ley">${ley}</div>
@@ -183,6 +186,7 @@ function pintar(){
     <p class="nota">Lo que captures aquí le llega a Jorge en Recursos Humanos. Él lo revisa y lo puede corregir.</p>`;
 }
 
+document.addEventListener('keydown',ev=>{if(!ED||!document.querySelector('.modal'))return;if(ev.key==='Enter'){ev.preventDefault();document.querySelector('.modal [data-guardar]')?.click()}else if(ev.key==='Escape'){ED=null;pintar()}});
 document.addEventListener('click',async ev=>{
   const t=ev.target.closest('button');if(!t)return;const d=t.dataset;
   if(d.n!==undefined)return tecla(d.n);
@@ -190,7 +194,7 @@ document.addEventListener('click',async ev=>{
   if(d.sem){return cargar(mas(SEM,+d.sem))}
   if(OCUPADO)return;OCUPADO=true;
   try{
-    if(d.e){const e=INFO.empleados.find(x=>x.id===d.e);ED={e:d.e,i:+d.i,k:rolDe(e).d[+d.i]};pintar();OCUPADO=false;document.querySelector('.edit')?.scrollIntoView({block:'nearest',behavior:'smooth'});return}
+    if(d.e){const e=INFO.empleados.find(x=>x.id===d.e);ED={e:d.e,i:+d.i,k:rolDe(e).d[+d.i]};pintar();OCUPADO=false;return}   // se abre como ventana encima, sin moverse de lugar
     else if(d.k&&ED){ED.k=d.k;document.querySelectorAll('.edit [data-k]').forEach(b=>b.setAttribute('aria-pressed',b===t));const hr=document.querySelector('.edit .hrs');if(hr)hr.hidden=d.k!=='T';OCUPADO=false;return}
     else if(d.cerrar){ED=null;pintar();OCUPADO=false;return}
     else if(d.guardar&&ED){const e=INFO.empleados.find(x=>x.id===ED.e),r=rolDe(e),dias=r.d.slice(),hs=r.h.map(x=>x&&x[0]?x:null);dias[ED.i]=ED.k;

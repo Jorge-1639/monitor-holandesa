@@ -75,6 +75,8 @@ body.rh{--bg:#f3f3f4;--surface:#ffffff;--surface-2:#f4f4f5;--ink:#1c1c1f;--muted
 body.rh .live i{background:var(--muted);box-shadow:0 0 0 3px var(--line)}
 body.rh header.top{background:var(--surface);color:var(--ink);box-shadow:0 1px 0 var(--line),0 6px 16px -14px rgba(0,0,0,.3)}
 .rhhr input[type=time]::-webkit-calendar-picker-indicator{display:none}
+.rhmodal{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.38);display:flex;align-items:center;justify-content:center;padding:14px}
+.rhmodal-in{background:var(--surface);color:var(--ink);border-radius:16px;padding:16px;width:100%;max-width:460px;max-height:88vh;overflow:auto;box-shadow:0 20px 50px -10px rgba(0,0,0,.45)}
 .rhtab .rhd{width:100%;max-width:46px;height:56px;padding:2px 0;line-height:1.05}
 .rhtab .rhdh{display:block;font:700 10.5px var(--body);letter-spacing:-.02em;margin-top:3px}
 .rhtab .rhdh span{display:block}
@@ -1493,11 +1495,11 @@ function rhRol(){
 }
 function rhEditorDia(){
   if(!rhDia)return '';const e=rhEmp(rhDia.id);if(!e){rhDia=null;return ''}const r=rhRolDe(e,rhSem),i=rhDia.i,c=r.d[i],h=r.h[i]||['',''];
-  return `<div class="note" id="rhEdDia" style="background:var(--surface-2);color:var(--ink);margin-top:10px"><b>${esc(e.nombre.split(' ').slice(0,2).join(' '))} · ${SEM_DIAS_L[i]} ${rhPd(rhMas(rhSem,i)).getDate()}</b>
+  return `<div class="rhmodal"><div class="rhmodal-in" id="rhEdDia" role="dialog" aria-modal="true"><b style="font-size:16px">${esc(e.nombre.split(' ').slice(0,2).join(' '))} · ${SEM_DIAS_L[i]} ${rhPd(rhMas(rhSem,i)).getDate()}</b>
     <div class="seg" style="margin-top:8px;flex-wrap:wrap">${RH_CICLO.map(k=>`<button data-rh="diaest" data-k="${k}" aria-pressed="${c===k}">${k} · ${RH_EST[k][0]}</button>`).join('')}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px"><div class="field"><label for="rdE">Entra</label>${rhHoraSel('rdE',h[0],'class="msel" style="width:100%;height:44px"')}</div><div class="field"><label for="rdS">Sale</label>${rhHoraSel('rdS',h[1],'class="msel" style="width:100%;height:44px"')}</div></div>
     <div class="btns"><button class="btn pri" data-rh="diaguardar">Guardar</button><button class="btn" data-rh="diacerrar">Cerrar</button></div>
-    <p class="empty" style="margin-top:6px">El horario solo cuenta los días que trabaja (T). Si no lo cambias, se usa el de su expediente.</p></div>`;
+    <p class="empty" style="margin-top:6px">El horario solo cuenta los días que trabaja (T). Si no lo cambias, se usa el de su expediente. Enter = Guardar.</p></div></div>`;
 }
 // ---- Nómina
 function rhHorasSem(e,sem,resta){ // horas de la semana según el rol (días T con su horario), restando la comida si se pide
@@ -1673,6 +1675,7 @@ document.addEventListener('input',e=>{const i=e.target.closest('.rhn');if(!i)ret
     if(q('extra_horas'))q('extra_horas').value=rhExtra(hs,+i.dataset.th).monto||'';
     if(tar){if(q('base'))q('base').value=Math.round(Math.min(hs,48)*tar*100)/100;if(q('prima_dom')&&+q('prima_dom').value)q('prima_dom').value=Math.round(hd*tar*0.25*100)/100}}
   const o=rhLeeNom(id),t=rhTot(o);const a=$('#rt_'+id),b=$('#re_'+id),c=$('#rb_'+id);if(a)a.textContent=fmt2(t);if(c)c.textContent=fmt2(rhBruto(o));if(b)b.value=fmt2(t-(+o.transfer||0))});
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&$('#rhEdDia')){e.preventDefault();const b=document.querySelector('#rhEdDia [data-rh="diaguardar"]');if(b&&!b.disabled)b.click()}else if(e.key==='Escape'&&$('#rhEdDia')){rhDia=null;render()}});
 document.addEventListener('click',async e=>{
   const t=e.target.closest('[data-rh],[data-rhtab]');if(!t||tab!=='rh')return;e.preventDefault();
   const d=t.dataset, a=d.rh;
@@ -1684,7 +1687,7 @@ document.addEventListener('click',async e=>{
     return rhResumenForm()}
   if(a==='copialunes'){const l=$('#rfHd0').checked;for(let i=1;i<5;i++){$('#rfHd'+i).checked=l;$('#rfHe'+i).value=$('#rfHe0').value;$('#rfHs'+i).value=$('#rfHs0').value}return rhResumenForm()}
   if(a==='subir'){if(!($('#rfAt')||{}).value){toast('Antes dime si el contrato es por tiempo determinado o indeterminado.');$('#rfAt')?.focus();return}return $('#rfArch').click()}
-  if(a==='dia'){rhDia={id:d.id,i:+d.i};render();return $('#rhEdDia')?.scrollIntoView({behavior:'smooth',block:'center'})}
+  if(a==='dia'){rhDia={id:d.id,i:+d.i};return render()}   // 30.7.25: se abre como ventana encima, sin moverse de lugar
   if(a==='diacerrar'){rhDia=null;return render()}
   if(a==='diaest'){document.querySelectorAll('#rhEdDia [data-rh="diaest"]').forEach(b=>b.setAttribute('aria-pressed',b===t));return}
   if(a==='cancelar'){rhEdit=null;return render()}
@@ -1844,7 +1847,7 @@ function csvQuitadas(g){
 
 // ---------- pintar
 function render(){
-  if(RHMODE){$('#view').innerHTML=vRH();rhResumenForm();return}
+  if(RHMODE){const y=window.scrollY;$('#view').innerHTML=vRH();rhResumenForm();window.scrollTo(0,y);return}
   const D=DATA.detalle[cur]; sel.value=cur;
   const i=days.indexOf(cur); $('#prev').disabled=i<=0; $('#next').disabled=i>=days.length-1;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===tab));

@@ -217,3 +217,5 @@ Versión 30.7.22 — Captura de la encargada: el nombre se elige del catálogo d
 Versión 30.7.23 — la encargada solo captura en el restaurante: el PDF y el WhatsApp ya no traen la dirección de Tailscale ni la clave (Jorge se la da en persona).
 
 Versión 30.7.24 — rol de descansos (panel y encargada): los días con su fecha se repiten en cada grupo; horas más grandes sin a.m./p.m.; con el teléfono acostado los cuadros crecen.
+
+Versión 30.7.25 — rol de descansos: al tocar un día se abre una ventanita encima (sin bajar hasta abajo); Enter guarda y se cierra; la pantalla se queda en el mismo lugar.
