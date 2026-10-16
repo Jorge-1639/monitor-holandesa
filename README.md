@@ -225,3 +225,5 @@ Versión 30.7.26 — botón 'Auditoría' en el rol (Jorge y encargada): revisa l
 Versión 30.7.27 — auditoría: el cocinero de las 6:30 sale 2:30 si nadie descansa y 12:30 si hay descanso (Moisés suple); ayudante de la tarde 2:00–8:30.
 
 Versión 30.7.28 — auditoría: cocineros sábado y domingo 7:30–3:30, 9–5 y 12:30–8:30; Ángel los viernes sale a las 2:00 pm (escuela).
+
+Versión 30.7.29 — expediente: casilla 'Pagarle horas extra' por empleado (si no, no se suman aunque pase de 48 h).
