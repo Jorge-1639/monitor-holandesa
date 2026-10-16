@@ -1407,8 +1407,11 @@ function rhExtra(horas,th){const ext=Math.max(0,Math.round((+horas||0)*100)/100-
 const rhExtraTxt=x=>x.ext?`${rhHtxt(x.ext)}: ${rhHtxt(x.dob)} al doble${x.tri?' + '+rhHtxt(x.tri)+' al triple':''} × ${fmt2(x.th)}`:'';
 const rhPagaPrima=e=>e.paga_prima===undefined?e.pago!=='hora':!!e.paga_prima;   // antes de 30.6.22 todos los de por día la cobraban
 const rhPagoForm=()=>((document.querySelector('#rfPago [aria-pressed="true"]')||{dataset:{}}).dataset.v)||'dia';
+// descuento de una comida de empleado: {monto (null = sin capturar), pct, emp}; antes de 30.7.20 era solo el monto
+const rhDC=c=>{const v=(RH.desc_comida||{})[c.id];return v==null?{monto:null,pct:null,emp:''}:typeof v==='number'?{monto:v,pct:null,emp:''}:{monto:v.monto==null?null:+v.monto,pct:v.pct,emp:v.emp||''}};
+const rhComidaEmp=c=>{const x=rhDC(c);return (x.emp&&rhEmp(x.emp))||rhQuien(c.persona)};
 function rhValesSem(e,sem){const fin=rhMas(sem,6),en=x=>x.fecha>=sem&&x.fecha<=fin;
-  const V=(RH.vales||[]).filter(v=>v.emp===e.id&&en(v)), C=(RH.comidas||[]).filter(c=>en(c)&&rhQuien(c.persona)===e), DC=RH.desc_comida||{};
+  const V=(RH.vales||[]).filter(v=>v.emp===e.id&&en(v)), C=(RH.comidas||[]).filter(c=>en(c)&&rhComidaEmp(c)===e), DC={};C.forEach(c=>{const x=rhDC(c);if(x.monto!=null)DC[c.id]=x.monto});
   return {man:V.filter(v=>v.tipo!=='comida').reduce((a,v)=>a+v.monto,0),
     caja:(RH.vales_caja||[]).filter(v=>en(v)&&rhQuien(v.ref)===e).reduce((a,v)=>a+(+v.monto||0),0),
     comidas:C.reduce((a,c)=>a+(+c.total||0),0)+V.filter(v=>v.tipo==='comida').reduce((a,v)=>a+(+v.consumo||0),0),   // lo que consumió
@@ -1576,6 +1579,16 @@ function rhPrest(id){
   const ab=Object.values(RH.nominas||{}).reduce((a,n)=>a+((n[id]||{}).abono||0),0);
   return {P,pres,ab,saldo:Math.max(0,Math.round((pres-ab)*100)/100),sug:P.length?P[P.length-1].abono_sugerido||0:0};
 }
+let rhComAb=null;   // comida de empleado abierta en Vales de comida
+function rhComDetalle(c,q,x,op){
+  const T=+c.total||0, it=(c.items||[]);
+  return `<div class="note" id="rcDet" data-id="${esc(c.id)}" data-total="${T}" style="background:var(--surface-2);color:var(--ink);margin:4px 0 10px">
+    ${it.length?`<table class="ledger num" style="font-size:13px"><tbody>${it.map(i=>`<tr><td>${+i.q||1} × ${esc(i.n||'')}</td><td class="r">${fmt2(+i.imp||0)}</td></tr>`).join('')}<tr class="tt"><td><b>Total de la comanda</b></td><td class="r"><b>${fmt2(T)}</b></td></tr></tbody></table>`:`<b>Total de la comanda: ${fmt2(T)}</b>`}
+    ${c.nota?`<p style="margin:6px 0 0;font-size:13px">Nota: ${esc(c.nota)}</p>`:''}
+    ${rhSel('rcEmpC','Empleado',op,q?q.id:'')}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">${rhIn('rcPct','Descuento en %',x.pct!=null?x.pct:'','inputmode="decimal" placeholder="Ej. 50"')}${rhIn('rcMon','Descuento en $',x.monto!=null?x.monto:'','inputmode="decimal" placeholder="Ej. 60"')}</div>
+    <p class="empty" id="rcRes" style="margin-top:4px"></p>
+    <div class="btns"><button class="btn pri" data-rh="comguardar">Guardar descuento</button>${x.monto!=null?'<button class="btn" data-rh="comquitar" style="color:var(--bad)">Quitar descuento</button>':''}<button class="btn" data-rh="comcerrar">Cerrar</button></div></div>`}
 function rhValesPrest(){
   const A=rhAct(), op=[['','Elige…'],...A.map(e=>[e.id,e.nombre])];
   const conP=A.map(e=>({e,p:rhPrest(e.id)})).filter(x=>x.p.P.length);
@@ -1594,8 +1607,9 @@ function rhValesPrest(){
       ${VD.length?`<div class="list" style="margin-top:10px">${VD.map(v=>`<div class="item"><span>${esc((rhEmp(v.emp)||{}).nombre||'')}</span><span class="num">${fmt2(v.monto)}</span><span class="meta">${rhCorta(v.fecha)}${v.nota?' · '+esc(v.nota):''} · <a href="#" data-rh="borrarvale" data-id="${v.id}" style="color:var(--bad)">borrar</a></span></div>`).join('')}</div>`:''}</div>
     ${rhSemNav()}
     <div class="card"><h2>Vales de comida <small>semana del ${rhCorta(rhSem)}</small></h2>
-      <p class="empty" style="margin-top:0">Lo que comieron los empleados (cuentas quitadas con motivo "Empleado"). En cada cuadrito escribe el descuento que le vas a hacer; pasa solo a su nómina.</p>
-      ${CS.length?`<div class="list">${CS.map(c=>{const q=rhQuien(c.persona),dv=(RH.desc_comida||{})[c.id];return `<div class="item" style="align-items:center"><span>${esc(q?q.nombre:c.persona||'Sin nombre')} ${q?'':'<span class="pill warn">Sin identificar</span>'}<small style="display:block;color:var(--muted)">${rhCorta(c.fecha)} · consumió ${fmt2(+c.total||0)}</small></span><span><input class="rhdc num" data-id="${esc(c.id)}" inputmode="decimal" placeholder="Descuento" value="${dv!=null?dv:''}" style="width:104px;height:40px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--ink);padding:0 8px;text-align:right"></span></div>`}).join('')}</div>`:'<p class="empty">No hay comidas de empleados registradas esta semana.</p>'}
+      <p class="empty" style="margin-top:0">Lo que comieron los empleados (cuentas quitadas en Ventas con motivo "Empleado" y el nombre). Toca cada una para ver la comanda y poner el descuento en porcentaje o en pesos; pasa solo a su nómina y al resumen.</p>
+      ${CS.length?`<div class="list">${CS.map(c=>{const q=rhComidaEmp(c),x=rhDC(c),ab=rhComAb===c.id;
+        return `<div class="item" style="align-items:center;cursor:pointer" data-rh="comabrir" data-id="${esc(c.id)}"><span><b>${esc(q?q.nombre:c.persona||'Sin nombre')}</b> ${q?'':'<span class="pill warn">Sin identificar</span>'}<small style="display:block;color:var(--muted)">${rhCorta(c.fecha)}${c.abrio?' '+esc(c.abrio):''}${c.cuenta?' · cuenta '+esc(c.cuenta):''} · consumió ${fmt2(+c.total||0)}</small></span><span class="num" style="text-align:right">${x.monto!=null?`<b>−${fmt2(x.monto)}</b>${x.pct!=null?`<small style="display:block;color:var(--muted)">${x.pct}%</small>`:''}`:'<span class="pill warn">Sin descuento</span>'} <span style="color:var(--muted)">${ab?'▴':'▾'}</span></span></div>${ab?rhComDetalle(c,q,x,op):''}`}).join('')}</div>`:'<p class="empty">No hay comidas de empleados registradas esta semana.</p>'}
       <h2 style="margin-top:18px">Agregar vale de comida</h2>
       ${rhSel('rcEmp','Empleado',op,'')}<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">${rhIn('rcCon','Consumo','','inputmode="decimal" placeholder="Opcional"')}${rhIn('rcDes','Descuento','','inputmode="decimal"')}</div>${rhIn('rcFec','Fecha',RH.hoy,'type="date"')}
       <div class="btns"><button class="btn pri" data-rh="valecomida">Registrar vale de comida</button></div>
@@ -1635,6 +1649,10 @@ document.addEventListener('change',async e=>{if(e.target.id!=='rfArch'||!e.targe
     if(mime.startsWith('image/')){datos=await comprimir(f);mime='image/jpeg'}else datos=await new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=no;r.readAsDataURL(f)});
     toast('Subiendo…');const j=await api('/api/rh-archivo',{emp,tipo,mime,nombre:f.name,datos});RH=j.rh;toast('Contrato guardado en el expediente');render();$('#rhForm')?.scrollIntoView()}
   catch(err){toast(err.message)}});
+document.addEventListener('input',e=>{const d=e.target.closest('#rcDet');if(!d)return;const T=+d.dataset.total||0,p=$('#rcPct'),m=$('#rcMon'),nm=v=>+String(v||'').replace(/[$,%]/g,'');
+  if(e.target===p){m.value=p.value.trim()===''?'':Math.round(T*Math.min(100,nm(p.value))/100*100)/100}
+  else if(e.target===m){p.value=m.value.trim()===''||!T?'':Math.round(nm(m.value)/T*1000)/10}
+  const r=$('#rcRes');if(r)r.textContent=m.value.trim()===''?'':`Se le descuenta ${fmt2(nm(m.value))} de ${fmt2(T)} (paga la casa ${fmt2(Math.max(0,T-nm(m.value)))}).`});
 document.addEventListener('change',async e=>{const i=e.target.closest('.rhdc');if(!i||tab!=='rh')return;
   try{await rhApi({accion:'comida_desc',id:i.dataset.id,monto:i.value.trim()});toast(i.value.trim()?'Descuento guardado':'Descuento quitado')}catch(err){toast(err.message)}});
 document.addEventListener('input',e=>{const i=e.target.closest('.rhn');if(!i)return;const id=i.dataset.emp;
@@ -1660,6 +1678,8 @@ document.addEventListener('click',async e=>{
   if(a==='cancelar'){rhEdit=null;return render()}
   if(a==='bajas'){rhBajas=!rhBajas;return render()}
   if(a==='semant'||a==='semsig'){rhSem=rhMas(rhSem,a==='semant'?-7:7);return render()}
+  if(a==='comabrir'){rhComAb=rhComAb===d.id?null:d.id;render();return $('#rcDet')?.scrollIntoView({behavior:'smooth',block:'center'})}
+  if(a==='comcerrar'){rhComAb=null;return render()}
   if(a==='resberenice'){window.open('https://wa.me/?text='+encodeURIComponent(rhMsgBerenice()),'_blank');return}
   if(a==='recibo'){const e_=rhEmp(d.id),v=rhLeeNom(d.id),tot=rhTot(v),L=[`*Nómina La Holandesa*`,`${e_.nombre}`,`Semana del ${rhCorta(rhSem)} al ${rhCorta(rhMas(rhSem,6))}`,``];
     if(e_.pago==='hora')L.push(`Horas: ${rhHtxt(+v.horas||0)} × ${fmt2(+e_.tarifa||0)}`);L.push(`Sueldo: ${fmt2(+v.base||0)}`);
@@ -1687,6 +1707,9 @@ document.addEventListener('click',async e=>{
     else if(a==='nomguardar'||a==='nompagar'){const g=(RH.nominas[rhSem]||{})[d.id];const c=rhLeeNom(d.id);c.pagada=a==='nompagar'?!(g&&g.pagada):!!(g&&g.pagada);await rhApi({accion:'nomina_guardar',semana:rhSem,emp:d.id,campos:c});toast(a==='nompagar'?(c.pagada?'Marcada como pagada':'Ya no está marcada como pagada'):'Nómina guardada')}
     else if(a==='prestamo'){await rhApi({accion:'prestamo_alta',emp:$('#rpEmp').value,monto:$('#rpMon').value,abono:$('#rpAb').value,fecha:$('#rpFec').value,concepto:$('#rpCon').value});toast('Préstamo registrado')}
     else if(a==='vale'){await rhApi({accion:'vale_alta',tipo:'dinero',emp:$('#rvEmp').value,monto:$('#rvMon').value,fecha:$('#rvFec').value,nota:$('#rvNot').value});toast('Vale de dinero registrado')}
+    else if(a==='comguardar'||a==='comquitar'){const q=a==='comquitar';const m=q?'':$('#rcMon').value.trim(),p=q?'':$('#rcPct').value.trim(),em=q?'':$('#rcEmpC').value;
+      if(!q&&!m){toast('Escribe el descuento en % o en $.');t.disabled=false;return}if(!q&&!em){toast('Elige a qué empleado le toca.');t.disabled=false;return}
+      await rhApi({accion:'comida_desc',id:rhComAb,monto:m,pct:p,emp:em});rhComAb=null;toast(q?'Descuento quitado':'Descuento guardado; ya pasa a su nómina')}
     else if(a==='valecomida'){await rhApi({accion:'vale_alta',tipo:'comida',emp:$('#rcEmp').value,monto:$('#rcDes').value,consumo:$('#rcCon').value,fecha:$('#rcFec').value});toast('Vale de comida registrado')}
     else if(a==='borrarprest'||a==='borrarvale'){if(!confirm('¿Borrar este registro?'))return;await rhApi({accion:a==='borrarprest'?'prestamo_borrar':'vale_borrar',id:d.id});toast('Borrado')}
     render();

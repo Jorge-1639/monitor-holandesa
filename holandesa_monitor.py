@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 121            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.19'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 122            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.20'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 CONFIG_FILE = os.path.join(AQUI, 'config.json')
 LOG_FILE = os.path.join(AQUI, 'monitor.log')
@@ -2242,7 +2242,10 @@ class Monitor:
         d['emp_mrtienda'] = sorted([{'cod': k, 'nombre': v} for k, v in getattr(self, 'EMP', {}).items() if v], key=lambda e: e['nombre'])
         try: d['vales_caja'] = self.vales_caja()
         except Exception as e: log('No pude leer vales de caja: ' + str(e)); d['vales_caja'] = []
-        d['comidas'] = [{'id': q.get('id'), 'fecha': q.get('fecha'), 'persona': q.get('persona'), 'total': q.get('total'), 'arts': q.get('arts')} for q in self.quitadas() if q.get('motivo') == 'Empleado']
+        d['comidas'] = [{'id': q.get('id'), 'fecha': q.get('fecha'), 'persona': q.get('persona'), 'total': q.get('total'), 'arts': q.get('arts'),
+                         'abrio': q.get('abrio'), 'cuenta': q.get('cuenta'), 'mesero': q.get('mesero'), 'nota': q.get('nota'),
+                         'items': [{'n': i.get('n'), 'q': i.get('q'), 'imp': i.get('imp')} for i in (q.get('items') or [])][:60]}
+                        for q in self.quitadas() if q.get('motivo') == 'Empleado']   # comidas de empleados (con su comanda) para los vales de comida
         d['hoy'] = datetime.date.today().isoformat()
         return d
 
@@ -2431,10 +2434,16 @@ class Monitor:
             # descuento que Jorge decide para una comida de empleado registrada en la caja (cuenta quitada con motivo Empleado)
             k = txt(a.get('id'), 80)
             if not k: raise ValueError('Falta la comida.')
-            m = num(a.get('monto'))
-            if m < 0: raise ValueError('Revisa el descuento.')
-            if a.get('monto') in (None, ''): d['desc_comida'].pop(k, None)
-            else: d['desc_comida'][k] = m
+            # 30.7.20: además del monto se guarda el porcentaje que se usó y a qué empleado le toca (si el nombre no se reconoció solo)
+            vacio = a.get('monto') in (None, '')
+            m = None if vacio else num(a.get('monto'))
+            if m is not None and m < 0: raise ValueError('Revisa el descuento.')
+            pct = None if a.get('pct') in (None, '') else num(a.get('pct'))
+            if pct is not None and not 0 <= pct <= 100: raise ValueError('El porcentaje va de 0 a 100.')
+            emp = a.get('emp') or ''
+            if emp: emp_id(emp)
+            if m is None and not emp: d['desc_comida'].pop(k, None)
+            else: d['desc_comida'][k] = {'monto': m, 'pct': pct, 'emp': emp}
         elif acc == 'archivo_borrar':
             x = next((x for x in d['empleados'] if x['id'] == a.get('emp')), None)
             if not x: raise ValueError('No encontré a ese empleado.')
