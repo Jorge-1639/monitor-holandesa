@@ -227,3 +227,5 @@ Versión 30.7.27 — auditoría: el cocinero de las 6:30 sale 2:30 si nadie desc
 Versión 30.7.28 — auditoría: cocineros sábado y domingo 7:30–3:30, 9–5 y 12:30–8:30; Ángel los viernes sale a las 2:00 pm (escuela).
 
 Versión 30.7.29 — expediente: casilla 'Pagarle horas extra' por empleado (si no, no se suman aunque pase de 48 h).
+
+Versión 30.7.40 — Reportes → Resultados: tarjeta "Ventas por tipo" (Comedor, Para llevar, A domicilio, Didi = efectivo + tarjeta, Uber) con el % de la venta, y tablas por día y por semana (lunes a domingo). La caja clasifica cada ticket: Didi por la referencia D…E / D…T, Uber por "UBER …", A domicilio si el comandero abrió la cuenta como Servicio a domicilio (comandero_pedidos.json, mismo nombre, ese día o el anterior) o si MrTienda la marca ADOMICILIO, y el resto por COD_ESCALA (02 llevar, 01 comedor). Con "Incluir Didi y Uber" se suman las cuentas quitadas según su motivo. El desglose también sale dentro de Ventas del Estado de resultados.

@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 141            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.39'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 142            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.40'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -1193,6 +1193,11 @@ def xlsx(rows, sheet='Hoja1', widths=None, money_cols=()):
         for n, c in files.items(): z.writestr(n, c)
     return buf.getvalue()
 
+def _sin_acentos(t):
+    import unicodedata
+    return ''.join(c for c in unicodedata.normalize('NFD', t) if unicodedata.category(c) != 'Mn')
+
+
 class Monitor:
     def __init__(self, cfg):
         self.cfg = cfg
@@ -1312,7 +1317,7 @@ class Monitor:
         for p in P:
             if p.get('CANCELADA'): continue
             k = (p['_turno'], p['FOL_VTA'])
-            t = tickets.setdefault(k, {'tot': 0, 'hora': p.get('HORA') or '', 'mesa': p.get('MESA') or '', 'mesero': self.name(p.get('COD_VENDED')),
+            t = tickets.setdefault(k, {'tot': 0, 'hora': p.get('HORA') or '', 'mesa': p.get('MESA') or '', 'mesero': self.name(p.get('COD_VENDED')), 'adom': bool(p.get('ADOMICILIO')),
                                        'pers': p.get('COMENSALES') or 0, 'esc': p.get('COD_ESCALA'), 'pagos': [],
                                        'cobro': self.name(p.get('COD_CAJERO')), 'items': [], 'capt': collections.Counter(), 'folz': p.get('FOL_Z') or ''})
             a = amt(p); t['tot'] += a
@@ -1322,6 +1327,11 @@ class Monitor:
             t.setdefault('raw', []).append([f, round((p.get('PAGO') or 0) * (p.get('TC') or 1), 2), round((p.get('CAMBIO') or 0) * (p.get('TC_CAMBIO') or 1), 2)])
         tot = sum(t['tot'] for t in tickets.values())
         s = {'fecha': d.isoformat(), 'total': round(tot, 2), 'tickets': len(tickets), 'personas': int(sum(t['pers'] for t in tickets.values()))}
+        # 30.7.40: venta por tipo (comedor, para llevar, a domicilio, Didi efectivo/tarjeta, Uber) para el reporte de Resultados
+        dom = self._domicilios(d)
+        can = collections.Counter()
+        for t in tickets.values(): can[self._canal_ticket(t, dom)] += t['tot']
+        s['canales'] = {k: round(v, 2) for k, v in can.items() if v}
         if not detail: return s
         hr = collections.Counter(); fp = collections.Counter(); ms = collections.defaultdict(lambda: [0, 0]); tur = collections.Counter()
         for (tn, _), t in tickets.items():
@@ -1883,6 +1893,30 @@ class Monitor:
             if L: cats.append({'n': lim(dp.get('CONCEPTO')).title(), 'i': L})
         # Solo lo que está en el menú táctil de la caja: los productos que no tienen botón suelen ser viejos o repetidos.
         return {'cats': cats}
+
+    def _domicilios(self, d):
+        """Nombres (como quedan en MrTienda, 10 letras) de las cuentas que el comandero abrió como Servicio a domicilio ese día o el anterior."""
+        try: mt = os.path.getmtime(PEDIDOS_FILE)
+        except OSError: return set()
+        c = getattr(self, '_dom_idx', None)
+        if not c or c[0] != mt:
+            idx = collections.defaultdict(set)
+            for x in self.pedidos().values():
+                if isinstance(x, dict) and x.get('canal') == 'domicilio' and x.get('nombre') and x.get('fecha'):
+                    idx[str(x['fecha'])[:10]].add(_sin_acentos(re.sub(r'\s+', ' ', str(x['nombre'])).strip().upper()[:10]).strip())
+            c = self._dom_idx = (mt, idx)
+        return c[1].get(d.isoformat(), set()) | c[1].get((d - datetime.timedelta(days=1)).isoformat(), set())
+
+    @staticmethod
+    def _canal_ticket(t, dom):
+        m = _sin_acentos(re.sub(r'\s+', ' ', str(t.get('mesa') or '')).strip().upper())
+        if re.match(r'^D ?-? ?\d{4,}[ET]?$', m) or m.startswith('DIDI'):
+            if m.endswith('E'): return 'didi_e'
+            if m.endswith('T'): return 'didi_t'
+            return 'didi_e' if any(f.startswith('Efectivo') for f, _ in t.get('pagos', [])) else 'didi_t'
+        if m.startswith('UBER'): return 'uber'
+        if t.get('adom') or (len(m) >= 3 and any(r == m or r.startswith(m) for r in dom)): return 'domicilio'
+        return 'llevar' if t.get('esc') == '02' else 'comedor'
 
     def pedidos(self):
         try:
