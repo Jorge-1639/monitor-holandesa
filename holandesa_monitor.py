@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 149            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.47'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 150            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.48'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -2547,6 +2547,57 @@ class Monitor:
             with open(self.CLIENTES_NUEVOS_F, 'w', encoding='utf-8') as f: json.dump(L, f, ensure_ascii=False, indent=1)
         self.refresh(); return {'ok': True}
 
+    # ------------------------------------------------ mapa del comedor (editor con los dedos en el panel, 19-oct-2026)
+    PLANO_F = os.path.join(AQUI, 'plano.json')
+    PLANO_DEF = {'mesas': [
+        {'g': '3', 'x': 15, 'y': 3, 'w': 17, 'h': 15, 'p': ['3']},
+        {'g': '6', 'x': 40, 'y': 4, 'w': 27, 'h': 14, 'p': ['6A', '6B']},
+        {'g': '7', 'x': 74, 'y': 3, 'w': 15, 'h': 16, 'p': ['7']},
+        {'g': '2', 'x': 2, 'y': 13, 'w': 12, 'h': 27, 'p': ['2B', '2A'], 'v': 1},
+        {'g': '1', 'x': 2, 'y': 52, 'w': 12, 'h': 27, 'p': ['1B', '1A'], 'v': 1},
+        {'g': '4', 'x': 27, 'y': 34, 'w': 13, 'h': 29, 'r': -20, 'p': ['4A', '4B'], 'v': 1},
+        {'g': '5', 'x': 46, 'y': 29, 'w': 12, 'h': 27, 'r': -20, 'p': ['5A', '5B'], 'v': 1},
+        {'g': '8', 'x': 76, 'y': 25, 'w': 13, 'h': 29, 'p': ['8A', '8B'], 'v': 1},
+        {'g': '9', 'x': 76, 'y': 60, 'w': 13, 'h': 27, 'p': ['9A', '9B'], 'v': 1}],
+        'etiq': [{'t': 'Caja', 'x': 47, 'y': 89, 'w': 24, 'h': 10}, {'t': 'Entrada', 'x': 91, 'y': 25, 'w': 8, 'h': 30, 'v': 1}]}
+    def plano_actual(self):
+        try:
+            with open(self.PLANO_F, encoding='utf-8') as f: return json.load(f)
+        except (OSError, ValueError): return self.PLANO_DEF
+    def plano_accion(self, d):
+        if d.get('accion') == 'original':
+            try: os.remove(self.PLANO_F)
+            except OSError: pass
+            log('Mapa del comedor: se regresó al original'); return {'ok': True, 'plano': self.PLANO_DEF}
+        P = d.get('plano') or {}
+        num = lambda v, lo, hi: max(lo, min(hi, round(float(v), 1)))
+        mesas, vistos = [], set()
+        for m in (P.get('mesas') or [])[:60]:
+            g = str(m.get('g') or '').strip().upper()
+            if not re.fullmatch(r'\d{1,2}', g): raise ValueError('Cada mesa necesita un número (1 a 99).')
+            if g in vistos: raise ValueError('La mesa ' + g + ' está repetida.')
+            vistos.add(g)
+            p = [str(x).upper() for x in (m.get('p') or [])]
+            p = [g] if len(p) != 2 else ([g + 'A', g + 'B'] if p[0].endswith('A') else [g + 'B', g + 'A'])
+            x = {'g': g, 'x': num(m.get('x', 0), 0, 95), 'y': num(m.get('y', 0), 0, 95), 'w': num(m.get('w', 12), 4, 60), 'h': num(m.get('h', 12), 4, 60), 'p': p}
+            if m.get('r'): x['r'] = num(m['r'], -180, 180)
+            if m.get('v') and len(p) == 2: x['v'] = 1
+            mesas.append(x)
+        etiq = []
+        for e in (P.get('etiq') or [])[:20]:
+            t = re.sub(r'\s+', ' ', str(e.get('t') or '')).strip()[:20]
+            if not t: continue
+            x = {'t': t, 'x': num(e.get('x', 0), 0, 98), 'y': num(e.get('y', 0), 0, 98), 'w': num(e.get('w', 15), 4, 60), 'h': num(e.get('h', 8), 4, 60)}
+            if e.get('v'): x['v'] = 1
+            etiq.append(x)
+        if not mesas: raise ValueError('El mapa necesita al menos una mesa.')
+        out = {'mesas': mesas, 'etiq': etiq}
+        tmp = self.PLANO_F + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f: json.dump(out, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, self.PLANO_F)
+        log('Mapa del comedor guardado: ' + ', '.join(sum((m['p'] for m in mesas), [])))
+        return {'ok': True, 'plano': out}
+
     def cuentas_comandero(self):
         out = []; ped = self.pedidos()
         for a in self.abiertas():
@@ -3370,7 +3421,7 @@ class Monitor:
         out['mensual'] = [{'mes': k, 'total': round(v[0], 2), 'tickets': v[1], 'personas': v[2]} for k, v in sorted(mon.items())]
         try: out['mensual_prod'] = self.productos_mes(idx, days)
         except Exception as e: log('No pude resumir productos por mes: ' + str(e)); out['mensual_prod'] = {}
-        out['clientes_nuevos'] = self.clientes_nuevos()
+        out['clientes_nuevos'] = self.clientes_nuevos(); out['plano'] = self.plano_actual()
         try: out['tardadas'] = self.tiempos_lista()
         except Exception as e: log('No pude leer los tiempos de comanda: ' + str(e)); out['tardadas'] = []
         out['huellas'] = [{k: x.get(k, '') for k in ('id', 'nombre', 'rp', 'alta', 'ultimo', 'v')} for x in huellas()]; out['minutos_sesion'] = self.cfg.get('minutos_sesion', 30)
@@ -3679,7 +3730,7 @@ def make_handler(mon, cfg):
                 except Exception as e:
                     log('Exportar nómina: ' + traceback.format_exc())
                     return self._json({'ok': False, 'error': 'No pude armar el archivo: ' + str(e)}, 409)
-            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/log-cliente', '/api/clientes-nuevos', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia', '/api/github', '/api/plataformas'): self.send_response(404); self.end_headers(); return
+            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/log-cliente', '/api/clientes-nuevos', '/api/plano', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia', '/api/github', '/api/plataformas'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return
             try:
@@ -3696,6 +3747,7 @@ def make_handler(mon, cfg):
                 elif self.path == '/api/comandero-envio': out=mon.comandero_interruptor(d)
                 elif self.path == '/api/comanda-formato': out=mon.comanda_formato(d)
                 elif self.path == '/api/clientes-nuevos': out = mon.clientes_nuevos_accion(d)
+                elif self.path == '/api/plano': out = mon.plano_accion(d); mon.refresh()
                 elif self.path == '/api/log-cliente': log('Teléfono (' + str(d.get('que', ''))[:40] + '): ' + str(d.get('error', ''))[:200] + ' · ' + str(d.get('ua', ''))[:160]); out = {'ok': True}
                 elif self.path == '/api/leer-pendientes': out=mon.leer_pendientes()
                 elif self.path == '/api/drive':
@@ -3836,6 +3888,7 @@ def make_handler(mon, cfg):
                 try:
                     out = {'ok': True, 'mesero': m_, 'cuentas': mon.cuentas_comandero(), 'hora': datetime.datetime.now().strftime('%H:%M'), 'escribe': bool(mon.cfg.get('comandero_escribe')), 'plataformas': mon.plat_cfg()}
                     if 'menu=1' in self.path: out['menu'] = mon.menu_comandero()
+                    out['plano'] = mon.plano_actual()
                     body = json.dumps(out, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
                     if 'gzip' in self.headers.get('Accept-Encoding', ''): return self._send(gzip.compress(body, 6), 'application/json; charset=utf-8', True)
                     return self._send(body, 'application/json; charset=utf-8')

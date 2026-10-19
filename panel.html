@@ -244,6 +244,16 @@ footer{color:var(--muted);font-size:12px;margin-top:24px;line-height:1.5}
 .ticketP .ta{display:inline-block;transform:scaleY(2);transform-origin:top left;margin-bottom:1.25em;font-weight:800}
 .ticketP .tg{font-size:2em;line-height:1.25;font-weight:800}
 .ticketP .tcorte{margin-top:10px;text-align:center;color:#999;font-size:11px}
+.pl-wrap{position:relative;width:100%;aspect-ratio:100/80;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-top:8px;touch-action:none;user-select:none}
+.pl-wrap.ed{background-image:linear-gradient(rgba(0,0,0,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,.05) 1px,transparent 1px);background-size:10% 12.5%;outline:2px dashed var(--green-3);outline-offset:-2px}
+.pl-g{position:absolute;display:flex;gap:2px;cursor:grab}.pl-g.v{flex-direction:column}
+.pl-m{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;border:2px solid #f0b37a;background:#fff;color:#1a1a1a;border-radius:8px;font:800 14px/1 var(--body)}
+.pl-e{position:absolute;display:flex;align-items:center;justify-content:center;border:1.5px dashed #9aa5b1;border-radius:8px;color:#5b6672;font:800 10px/1 var(--body);text-transform:uppercase;letter-spacing:.05em;cursor:grab}
+.pl-e.v span{writing-mode:vertical-rl}
+.pl-wrap.ed .sel .pl-m,.pl-wrap.ed .pl-e.sel{border-color:#1f7a45;background:#e3f4ea;box-shadow:0 0 0 3px rgba(31,122,69,.25)}
+.pl-tools{margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2)}
+.pl-tools label{display:flex;align-items:center;gap:8px;margin:6px 0;font-weight:600}.pl-tools input{height:40px;border:1px solid var(--line);border-radius:10px;padding:0 10px;font:16px var(--body);width:120px;background:var(--surface);color:var(--ink)}
+.pl-tools .btns .btn{padding:8px 10px;min-height:0;font-size:14px}
 </style>
 </head><body>
 <header class="top"><div class="hin">
@@ -1019,7 +1029,67 @@ function bloqueAcceso(){
     <p class="empty" style="margin-top:8px">Funciona solo con el teléfono conectado al WiFi del restaurante. La clave no va en el mensaje; dásela tú en persona o aparte.${ts.length?` Tú, desde fuera, puedes probarla con Tailscale: http://${esc(ts[0])}:${ACCESO.puerto}/captura`:''}</p></div>`;
 }
 // ---- comandero: meseros con clave de 4 números (pestaña COMANDERO)
-function vComandero(){return `<h2 class="corte-h" style="text-transform:uppercase;letter-spacing:.08em;margin:6px 0 12px">Comandero</h2>`+tarjetaClientesNuevos()+tarjetaComandero()+tarjetaComanda()}
+function vComandero(){return `<h2 class="corte-h" style="text-transform:uppercase;letter-spacing:.08em;margin:6px 0 12px">Comandero</h2>`+tarjetaClientesNuevos()+tarjetaMapa()+tarjetaComandero()+tarjetaComanda()}
+// ---- editor del mapa del comedor: se acomoda con el dedo (19-oct-2026). Lo que se guarda aquí es lo que ve el comandero.
+let PED=null,PSEL=null,PDRAG=null;
+const pClone=o=>JSON.parse(JSON.stringify(o));
+function planoVista(pl,ed){
+  return `<div class="pl-wrap${ed?' ed':''}" id="plWrap">${(pl.etiq||[]).map((e,i)=>`<div class="pl-e${e.v?' v':''}${ed&&PSEL==='e'+i?' sel':''}" data-pi="e${i}" style="left:${e.x}%;top:${e.y}%;width:${e.w}%;height:${e.h}%"><span>${esc(e.t)}</span></div>`).join('')}
+    ${(pl.mesas||[]).map((m,i)=>`<div class="pl-g${m.v?' v':''}${ed&&PSEL==='m'+i?' sel':''}" data-pi="m${i}" style="left:${m.x}%;top:${m.y}%;width:${m.w}%;height:${m.h}%;${m.r?`transform:rotate(${m.r}deg)`:''}">${m.p.map(id=>`<div class="pl-m">${esc(id)}</div>`).join('')}</div>`).join('')}</div>`}
+function tarjetaMapa(){
+  if(COPIA||!DATA.plano)return '';
+  if(!PED)return `<div class="card" id="mapaCard"><h2>Mapa del comedor</h2><p class="empty">Así lo ven los meseros en el comandero.</p>${planoVista(DATA.plano,false)}
+    <div class="btns" style="margin-top:10px"><button class="btn pri" data-pact="editar">✏️ Editar mapa</button></div></div>`;
+  const it=PSEL?(PSEL[0]==='m'?PED.mesas[+PSEL.slice(1)]:PED.etiq[+PSEL.slice(1)]):null, esM=PSEL&&PSEL[0]==='m';
+  const herr=!it?'<p class="empty" style="margin:8px 0 0">Toca una mesa o un letrero para seleccionarlo y arrástralo con el dedo a su lugar.</p>'
+    :`<div class="pl-tools"><b>${esM?'Mesa':'Letrero'}</b>
+      ${esM?`<label>Número <input id="pNum" inputmode="numeric" maxlength="2" value="${esc(it.g)}"></label>`:`<label>Texto <input id="pTxt" maxlength="20" value="${esc(it.t)}"></label>`}
+      <div class="btns">${esM?`<button class="btn" data-pact="gizq">↺ Girar</button><button class="btn" data-pact="gder">↻ Girar</button>`:''}
+        <button class="btn" data-pact="voltear">⤾ ${esM&&it.p.length===2?'Vertical / horizontal':'Acostar / parar'}</button>
+        ${esM&&it.p.length===2?'<button class="btn" data-pact="ab">A ⇄ B</button>':''}
+        <button class="btn" data-pact="mas">＋ Más grande</button><button class="btn" data-pact="menos">－ Más chica</button>
+        <button class="btn" data-pact="ancha">↔ Más ancha</button><button class="btn" data-pact="angosta">→← Más angosta</button>
+        <button class="btn" data-pact="borrar" style="color:var(--bad)">🗑 Borrar</button></div></div>`;
+  return `<div class="card" id="mapaCard" style="border:2px solid var(--green-3)"><h2>Mapa del comedor <small>editando</small></h2>
+    <div class="btns"><button class="btn" data-pact="sola">＋ Mesa sola</button><button class="btn" data-pact="doble">＋ Mesa doble (A y B)</button><button class="btn" data-pact="letrero">＋ Letrero</button></div>
+    ${planoVista(PED,true)}${herr}
+    <div class="btns" style="margin-top:12px"><button class="btn pri" data-pact="guardar">💾 Guardar</button><button class="btn" data-pact="cancelar">Cancelar</button><button class="btn" data-pact="original" style="margin-left:auto">Volver al original</button></div>
+    <p class="empty" style="margin-top:8px">Al guardar, los teléfonos de los meseros lo toman en unos segundos. Las mesas dobles se pueden usar separadas (1A, 1B) o juntas (M 1AB).</p></div>`;
+}
+function pRender(){const c=document.getElementById('mapaCard');if(c)c.outerHTML=tarjetaMapa()}
+function pLibre(){const usados=new Set(PED.mesas.map(m=>m.g));for(let n=1;n<100;n++)if(!usados.has(String(n)))return String(n);return '99'}
+document.addEventListener('click',async e=>{const t=e.target.closest('[data-pact]');if(!t)return;e.preventDefault();const a=t.dataset.pact;
+  if(a==='editar'){PED=pClone(DATA.plano);PSEL=null;return pRender()}
+  if(a==='cancelar'){PED=null;PSEL=null;return pRender()}
+  if(a==='original'){if(!confirm('¿Regresar el mapa al original? Se pierden los cambios que hayas guardado.'))return;try{const j=await api('/api/plano',{accion:'original'});DATA.plano=j.plano;PED=null;PSEL=null;pRender();toast('Mapa original')}catch(err){toast(err.message)}return}
+  if(a==='guardar'){t.disabled=true;try{const j=await api('/api/plano',{accion:'guardar',plano:PED});DATA.plano=j.plano;PED=null;PSEL=null;pRender();toast('Mapa guardado')}catch(err){t.disabled=false;toast(err.message)}return}
+  if(a==='sola'){const g=pLibre();PED.mesas.push({g,x:42,y:40,w:13,h:15,p:[g]});PSEL='m'+(PED.mesas.length-1);return pRender()}
+  if(a==='doble'){const g=pLibre();PED.mesas.push({g,x:38,y:40,w:26,h:14,p:[g+'A',g+'B']});PSEL='m'+(PED.mesas.length-1);return pRender()}
+  if(a==='letrero'){PED.etiq.push({t:'Letrero',x:40,y:45,w:18,h:9});PSEL='e'+(PED.etiq.length-1);return pRender()}
+  if(!PSEL)return;const esM=PSEL[0]==='m',k=+PSEL.slice(1),it=esM?PED.mesas[k]:PED.etiq[k];if(!it)return;
+  const tam=f=>{const cx=it.x+it.w/2,cy=it.y+it.h/2;it.w=Math.max(4,Math.min(60,+(it.w*f).toFixed(1)));it.h=Math.max(4,Math.min(60,+(it.h*f).toFixed(1)));it.x=+(cx-it.w/2).toFixed(1);it.y=+(cy-it.h/2).toFixed(1)};
+  if(a==='gizq')it.r=((it.r||0)-15)%360;if(a==='gder')it.r=((it.r||0)+15)%360;
+  if(a==='voltear'){const cx=it.x+it.w/2,cy=it.y+it.h/2,w=it.w;it.w=+(it.h*0.8).toFixed(1);it.h=+(w*1.25).toFixed(1);it.x=+(cx-it.w/2).toFixed(1);it.y=+(cy-it.h/2).toFixed(1);if(it.v)delete it.v;else it.v=1}
+  if(a==='ab')it.p=it.p.slice().reverse();
+  if(a==='mas')tam(1.12);if(a==='menos')tam(0.89);
+  if(a==='ancha')it.w=Math.min(60,+(it.w*1.12).toFixed(1));if(a==='angosta')it.w=Math.max(4,+(it.w*0.89).toFixed(1));
+  if(a==='borrar'){if(!confirm('¿Borrar '+(esM?'la mesa '+it.g:'el letrero')+'?'))return;(esM?PED.mesas:PED.etiq).splice(k,1);PSEL=null}
+  pRender()});
+document.addEventListener('change',e=>{if(!PED||!PSEL)return;const esM=PSEL[0]==='m',it=esM?PED.mesas[+PSEL.slice(1)]:PED.etiq[+PSEL.slice(1)];
+  if(e.target.id==='pNum'){const g=String(parseInt(e.target.value,10)||'');if(!g||g==='0'||+g>99){toast('Número de 1 a 99');return pRender()}
+    if(PED.mesas.some(m=>m!==it&&m.g===g)){toast('Ya hay una mesa '+g);return pRender()}
+    it.g=g;it.p=it.p.length===2?(it.p[0].endsWith('A')?[g+'A',g+'B']:[g+'B',g+'A']):[g];pRender()}
+  if(e.target.id==='pTxt'){it.t=e.target.value.trim()||'Letrero';pRender()}});
+// arrastrar con el dedo (o el ratón)
+document.addEventListener('pointerdown',e=>{const el=e.target.closest('.pl-wrap.ed [data-pi]');if(!el||!PED)return;e.preventDefault();
+  const id=el.dataset.pi,it=id[0]==='m'?PED.mesas[+id.slice(1)]:PED.etiq[+id.slice(1)],R=document.getElementById('plWrap').getBoundingClientRect();
+  if(PSEL!==id){PSEL=id;document.querySelectorAll('.pl-wrap.ed .sel').forEach(x=>x.classList.remove('sel'));el.classList.add('sel')}
+  PDRAG={el,it,R,x0:e.clientX,y0:e.clientY,ix:it.x,iy:it.y,movio:false};try{el.setPointerCapture(e.pointerId)}catch(_){}});
+document.addEventListener('pointermove',e=>{if(!PDRAG)return;const d=PDRAG,dx=(e.clientX-d.x0)/d.R.width*100,dy=(e.clientY-d.y0)/d.R.height*100;
+  if(Math.abs(dx)+Math.abs(dy)>0.6)d.movio=true;d.it.x=+Math.max(-2,Math.min(98-d.it.w*0.3,d.ix+dx)).toFixed(1);d.it.y=+Math.max(-2,Math.min(98-d.it.h*0.3,d.iy+dy)).toFixed(1);
+  d.el.style.left=d.it.x+'%';d.el.style.top=d.it.y+'%'});
+const pSuelta=()=>{if(!PDRAG)return;PDRAG=null;pRender()};
+document.addEventListener('pointerup',pSuelta);document.addEventListener('pointercancel',pSuelta);
 // ---- clientes para factura que capturó un mesero y falta dar de alta en Mr. Tienda (versión 30.7.12)
 const REG_TXT={'601':'General de Ley Personas Morales','603':'Personas Morales con Fines no Lucrativos','605':'Sueldos y Salarios','606':'Arrendamiento','608':'Demás ingresos','612':'Personas Físicas con Actividades Empresariales y Profesionales','616':'Sin obligaciones fiscales','621':'Incorporación Fiscal','622':'Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras','625':'Plataformas Tecnológicas','626':'Régimen Simplificado de Confianza'};
 function tarjetaClientesNuevos(){

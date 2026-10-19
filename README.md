@@ -232,3 +232,5 @@ Versión 30.7.40 — Reportes → Resultados: tarjeta "Ventas por tipo" (Comedor
 
 Versión 30.7.47 — Didi y Uber cuentan como venta lo que paga la plataforma: precio de menú − comisión − descuentos. La comisión es automática con el % de cada plataforma (Didi 30% + IVA; Uber en blanco hasta que Jorge lo ponga) en Reportes → Didi y Uber, o se escribe a mano en el pedido. Los descuentos se capturan en el comandero al abrir la cuenta y/o en el panel al quitarla o en "cambiar motivo o descuentos" (se guardan en cuentas_quitadas.json: liq.desc y liq.comision si es a mano). Reporte Didi y Uber: con las fechas que elija Jorge, pedidos con tarjeta (lo que debe pagar la plataforma), pedidos en efectivo aparte, y lo que pagó (plataformas_pagos.json, solo en la caja) con la diferencia.
 
+Versión 30.7.48 — panel → COMANDERO → Mapa del comedor: editor con el dedo (agregar mesa sola o doble A/B, letreros, arrastrar, girar, voltear, tamaño, número, borrar). Se guarda en plano.json en la caja y el comandero lo usa.
+

@@ -258,7 +258,7 @@ const GRUPOS = [
 ];
 // ---- mapa del comedor (del segundo dibujo de Jorge, 14-oct-2026, visto desde el comedor). x, y, w, h en % del plano; r = giro en grados.
 // Las mesas con A y B se pueden usar por separado o juntas (cuenta "M 1AB" = 1A + 1B).
-const PLANO=[
+let PLANO=[
   {g:'3',x:15,y:3,w:17,h:15,p:['3']},
   {g:'6',x:40,y:4,w:27,h:14,p:['6A','6B']},
   {g:'7',x:74,y:3,w:15,h:16,p:['7']},
@@ -268,8 +268,9 @@ const PLANO=[
   {g:'5',x:46,y:29,w:12,h:27,r:-20,p:['5A','5B'],v:1},
   {g:'8',x:76,y:25,w:13,h:29,p:['8A','8B'],v:1},
   {g:'9',x:76,y:60,w:13,h:27,p:['9A','9B'],v:1}];
-const ETIQ=[{t:'Caja',x:47,y:89,w:24,h:10},{t:'Entrada',x:91,y:25,w:8,h:30,v:1}];
-const MESAS=PLANO.flatMap(g=>g.p);
+let ETIQ=[{t:'Caja',x:47,y:89,w:24,h:10},{t:'Entrada',x:91,y:25,w:8,h:30,v:1}];
+let MESAS=PLANO.flatMap(g=>g.p);
+function usaPlano(pl){if(!pl||!Array.isArray(pl.mesas)||!pl.mesas.length)return;PLANO=pl.mesas;ETIQ=pl.etiq||[];MESAS=PLANO.flatMap(g=>g.p)}   // el que Jorge acomodó en el panel
 const mesaTxt=id=>{const m=String(id||'').match(/^(\d{1,2})(AB)$/);return m?m[1]+'A+'+m[1]+'B':String(id||'')};
 // qué mesas del plano ocupa una cuenta: "M 1A" → 1A; "M 1AB" o "M 1" (capturada en la caja sin letra) → 1A y 1B
 const ocupaDe=id=>{const m=String(id||'').match(/^(\d{1,2})(A|B|AB)?$/);if(!m)return [];const g=PLANO.find(x=>x.g===m[1]);if(!g)return [id];
@@ -294,7 +295,7 @@ async function cargar(conMenu){
   const j=await r.json().catch(()=>({ok:false,error:'Sin respuesta de la caja'}));
   if(j.sesion===false){salir(j.error);throw new Error(j.error)}
   if(!j.ok)throw new Error(j.error||'No pude leer MrTienda');
-  S.user=j.mesero;CUENTAS=j.cuentas||[];ESCRIBE=!!j.escribe;PLAT=j.plataformas||PLAT;if(j.menu)M=j.menu;S.falla='';
+  S.user=j.mesero;CUENTAS=j.cuentas||[];ESCRIBE=!!j.escribe;PLAT=j.plataformas||PLAT;if(j.menu)M=j.menu;usaPlano(j.plano);S.falla='';
 }
 async function entrar(pin){
   try{
