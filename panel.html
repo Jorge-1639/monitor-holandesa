@@ -1691,7 +1691,7 @@ function rhNomina(){
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">${inp('transfer','Transferencia')}<div class="field" style="margin-top:8px"><label>Efectivo</label><input id="re_${e.id}" readonly value="${fmt2(tot-(+v.transfer||0))}"></div></div>
       <div class="btns"><button class="btn pri" data-rh="nomguardar" data-id="${e.id}">Guardar</button><button class="btn" data-rh="nompagar" data-id="${e.id}">${v.pagada?'Quitar pagada':'Marcar pagada'}</button><a class="btn" data-rh="recibo" data-id="${e.id}" href="#">Recibo por WhatsApp</a>${c.g?`<button class="btn" data-rh="nomrecalc" data-id="${e.id}">Volver a calcular</button>`:''}</div>
       ${c.g?'<p class="empty" style="margin-top:6px">Ya está guardada: puedes cambiar cualquier cuadro y darle Guardar otra vez. "Volver a calcular" pone de nuevo lo que sale del rol, las horas y los vales (luego dale Guardar).</p>':''}</div>`}).join('');
-  return rhSemNav()+`<div class="kpis"><div class="kpi"><b class="num">${fmt2(T)}</b><span>total a pagar</span></div><div class="kpi"><b class="num">${fmt2(T-TR)}</b><span>en efectivo · ${fmt2(TR)} transferido</span></div></div>`+
+  return rhSemNav()+`<div class="card" style="padding:12px 14px"><div style="display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap"><div><b>Hoja para firmar</b><br><small style="color:var(--muted)">Excel de la semana, sin descuentos, con firma y huella</small></div><button class="btn pri" data-rh="firmaxlsx">Descargar en Excel</button></div></div>`+`<div class="kpis"><div class="kpi"><b class="num">${fmt2(T)}</b><span>total a pagar</span></div><div class="kpi"><b class="num">${fmt2(T-TR)}</b><span>en efectivo · ${fmt2(TR)} transferido</span></div></div>`+
     (cards||'<p class="empty">Captura el sueldo por día o el pago por hora de cada empleado en su expediente para calcular la nómina.</p>')+
     `<p class="empty" style="margin-top:10px">Por día: días trabajados y de vacaciones × sueldo diario, más prima dominical (25% del sueldo diario si trabajó domingo) y el incentivo proporcional a los días que trabajó. Por hora: las horas del rol × pago por hora; la comida se resta solo si marcas la casilla. Los préstamos se abonan solos con lo que digas por semana; los vales salen de los capturados aquí y de las salidas de caja de MrTienda que digan VALE y el nombre. Todo se puede corregir a mano antes de guardar.</p>`;
 }
@@ -1726,6 +1726,28 @@ function rhResumen(){
     <div class="tscroll"><table class="tk num" style="font-size:12.5px"><thead><tr><th>Empleado</th><th class="r">Nómina</th>${RS_K.map(([,l])=>`<th class="r">${l}</th>`).join('')}<th class="r">Efectivo</th></tr></thead><tbody>
     ${F.map((f,ix)=>(ix&&(F[ix-1].e.puesto||'Otro')===(f.e.puesto||'Otro')?'':`<tr><td colspan="8" style="font-weight:900;text-transform:uppercase;letter-spacing:.08em;padding-top:12px;color:#1d4ed8">${esc(RH_NOM_TIT[f.e.puesto]||f.e.puesto||'Otros')}</td></tr>`)+`<tr><td>${esc(f.e.nombre.split(' ').slice(0,2).join(' '))}${f.g?'':' <small style="color:var(--warn)">sin guardar</small>'}</td><td class="r"><b>${fmt2(f.b)}</b></td>${RS_K.map(([k])=>cel(f,k)).join('')}<td class="r"><b>${fmt2(f.ef)}</b></td></tr>`).join('')}
     <tr class="tt"><td>Total</td><td class="r">${fmt2(S('b'))}</td>${RS_K.map(([k])=>`<td class="r">${fmt2(S(k))}</td>`).join('')}<td class="r">${fmt2(S('ef'))}</td></tr></tbody></table></div></div>`;
+}
+// Hoja de nómina para firmar (Excel): sueldo, séptimo, horas extra, prima, incentivo y extras de cada quien; sin descuentos
+function rhFirmaDatos(){
+  const A=rhNomActivos(), dmy=s=>{const [y,m,d]=s.split('-');return d+'/'+m+'/'+y}, grupos=[];
+  A.forEach(e=>{const c=rhNomCalc(e,rhSem),v=c.v,tit=RH_NOM_TIT[e.puesto]||e.puesto||'Otros';
+    let g=grupos.find(x=>x.titulo===tit);if(!g){g={titulo:tit,filas:[]};grupos.push(g)}
+    g.filas.push({nombre:e.nombre,dias:c.porHora?c.t:c.diasPag,horas:+v.horas||c.hs.t||0,faltas:c.f,h_extra:v.h_extra!=null?+v.h_extra:(c.xe.ext||0),
+      salario:c.porHora?c.tar:(+e.diario||0),sueldo:+v.base||0,septimo:+v.septimo||0,extra_horas:+v.extra_horas||0,prima:+v.prima_dom||0,incentivo:+v.incentivo||0,extras:+v.extras||0})});
+  const fin=rhMas(rhSem,6), M=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'], p=rhPd(rhSem), q=rhPd(fin);
+  return {semana:dmy(rhSem),al:dmy(fin),grupos,archivo:p.getDate()+(p.getMonth()!==q.getMonth()?' '+M[p.getMonth()]:'')+' al '+q.getDate()+' '+M[q.getMonth()]+' '+q.getFullYear()};
+}
+async function rhFirmaXlsx(b){
+  const d=rhFirmaDatos(); if(!d.grupos.length){toast('No hay empleados con sueldo en esta semana.');return}
+  const txt=b.textContent;b.disabled=true;b.textContent='Armando el Excel…';
+  try{
+    const r=await fetch('/api/rh-firma',{method:'POST',headers:{'Content-Type':'application/json','X-Holandesa-Action':'1'},body:JSON.stringify(d),credentials:'same-origin'});
+    if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||('No se pudo ('+r.status+')'))}
+    const nom='Nomina para firmar '+d.archivo+'.xlsx', blob=await r.blob(), f=new File([blob],nom,{type:blob.type});
+    if(navigator.canShare&&navigator.canShare({files:[f]})&&/Android|iPhone|iPad/i.test(navigator.userAgent)){try{await navigator.share({files:[f],title:nom.replace(/\.xlsx$/,'')})}catch(e){if(e.name!=='AbortError')throw e}}
+    else{const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=nom;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000);toast('Listo: '+nom)}
+  }catch(e){toast(e.message)}
+  b.disabled=false;b.textContent=txt;
 }
 function rhMsgBerenice(){
   const F=rhNomActivos().map(e=>rhResFila(e)).filter(f=>Math.abs(f.ef)>=0.005);
@@ -1859,6 +1881,7 @@ document.addEventListener('click',async e=>{
   if(a==='comcerrar'){rhComAb=null;return render()}
   if(a==='nomrecalc'){const e_=rhEmp(d.id),c=rhNomCalc(e_,rhSem).calc;document.querySelectorAll(`.rhn[data-emp="${d.id}"]`).forEach(i=>{const k=i.dataset.k;if(k==='transfer'||k==='nota')return;if(i.type==='checkbox')i.checked=!!c[k];else if(k in c)i.value=c[k]||''});
     const i0=document.querySelector(`.rhn[data-emp="${d.id}"]`);if(i0)i0.dispatchEvent(new Event('input',{bubbles:true}));toast('Recalculado. Revisa y dale Guardar.');return}
+  if(a==='firmaxlsx'){rhFirmaXlsx(t);return}
   if(a==='resberenice'){window.open('https://wa.me/?text='+encodeURIComponent(rhMsgBerenice()),'_blank');return}
   if(a==='recibo'){const e_=rhEmp(d.id),v=rhLeeNom(d.id),tot=rhTot(v),L=[`*Nómina La Holandesa*`,`${e_.nombre}`,`Semana del ${rhCorta(rhSem)} al ${rhCorta(rhMas(rhSem,6))}`,``];
     if(e_.pago==='hora')L.push(`Horas: ${rhHtxt(+v.horas||0)} × ${fmt2(+e_.tarifa||0)}`);L.push(`Sueldo: ${fmt2(+v.base||0)}`);

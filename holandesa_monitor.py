@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 142            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.40'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 143            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.41'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -1150,6 +1150,111 @@ def entrar_huella(d, host):
     return {'ok': True}
 
 # ---------------------------------------------------------------- Excel (.xlsx) sin paquetes extra
+def xlsx_nomina_firma(d):
+    """Hoja de nómina para que firmen los trabajadores (sin descuentos). d = {semana, al, grupos:[{titulo, filas:[...]}]}"""
+    import zipfile, io
+    from xml.sax.saxutils import escape as x
+    def col(i):
+        s_ = ''; i += 1
+        while i: i, r_ = divmod(i - 1, 26); s_ = chr(65 + r_) + s_
+        return s_
+    def n(v):
+        try: return round(float(v or 0), 2)
+        except (TypeError, ValueError): return 0.0
+    C = [('Nombre del trabajador', 34), ('Días\ntrab.', 6.5), ('Horas\ntrab.', 7), ('Faltas', 6), ('Horas\nextra', 6.5), ('Salario\n(día / hora)', 9.5),
+         ('Sueldo', 11), ('Séptimo\ndía', 10), ('Horas\nextra $', 9.5), ('Prima\ndominical', 9.5), ('Incentivo', 9.5), ('Extras /\nbonos', 9),
+         ('Total\npercepciones', 12.5), ('Recibí de conformidad\n(firma)', 30), ('Huella', 11)]
+    NC = len(C); ult = col(NC - 1)
+    # estilos: 0 normal · 1 título · 2 subtítulo · 3 encabezado · 4 grupo · 5 nombre · 6 número · 7 dinero · 8 dinero en negritas
+    # 9 firma · 10 total grupo texto · 11 total grupo dinero · 12 gran total texto · 13 gran total dinero · 14 nota · 15 total grupo vacío · 16 gran total vacío
+    rows = []; merges = []; heights = {}
+    def fila(celdas, alto=None):
+        rows.append(celdas)
+        if alto: heights[len(rows)] = alto
+    fila([('RESTAURANTE LA HOLANDESA', 1)], 26); merges.append(f'A1:{ult}1')
+    fila([((d.get('direccion') or '') + '   ·   Patrón: ' + (d.get('patron') or ''), 2)]); merges.append(f'A2:{ult}2')
+    fila([('NÓMINA DE LA SEMANA DEL ' + d.get('semana', '') + ' AL ' + d.get('al', ''), 1)], 24); merges.append(f'A3:{ult}3')
+    fila([])
+    fila([(t, 3) for t, _ in C], 32)
+    tot_g = []
+    for g in d.get('grupos') or []:
+        fila([(str(g.get('titulo', '')).upper(), 4)] + [('', 4)] * (NC - 1), 20); merges.append(f'A{len(rows)}:{ult}{len(rows)}')
+        ini = len(rows) + 1
+        for f in g.get('filas') or []:
+            nums = [n(f.get(k)) for k in ('dias', 'horas', 'faltas', 'h_extra')]
+            din = [n(f.get(k)) for k in ('salario', 'sueldo', 'septimo', 'extra_horas', 'prima', 'incentivo', 'extras')]
+            r = len(rows) + 1
+            fila([(str(f.get('nombre', ''))[:60], 5)] + [(v, 6) for v in nums] + [(v, 7) for v in din] + [(f'=SUM(G{r}:L{r})', 8), ('', 9), ('', 9)], 36)
+        fin = len(rows); r = fin + 1
+        fila([('Total ' + str(g.get('titulo', '')).lower(), 10)] + [('', 15)] * 5 + [(f'=SUM({col(c)}{ini}:{col(c)}{fin})', 11) for c in range(6, 13)] + [('', 15), ('', 15)], 18)
+        tot_g.append(r)
+        fila([])
+    if tot_g:
+        r = len(rows) + 1
+        fila([('TOTAL DE LA NÓMINA', 12)] + [('', 16)] * 5 + [('=' + '+'.join(f'{col(c)}{t}' for t in tot_g), 13) for c in range(6, 13)] + [('', 16), ('', 16)], 22)
+    area = len(rows)
+    fila([])
+    fila([('Con mi firma o huella declaro que recibí de conformidad el pago de los días y horas trabajados en la semana indicada, incluido el séptimo día, y que no se me adeuda cantidad alguna por este periodo.', 14)], 28)
+    merges.append(f'A{len(rows)}:{ult}{len(rows)}')
+    sd = []
+    for ri, row in enumerate(rows, 1):
+        cs = []
+        for ci, (v, st) in enumerate(row):
+            ref = col(ci) + str(ri)
+            if isinstance(v, str) and v.startswith('='): cs.append(f'<c r="{ref}" s="{st}"><f>{x(v[1:])}</f></c>')
+            elif isinstance(v, (int, float)) and not isinstance(v, bool): cs.append(f'<c r="{ref}" s="{st}"><v>{v}</v></c>')
+            elif v not in (None, ''): cs.append(f'<c r="{ref}" s="{st}" t="inlineStr"><is><t xml:space="preserve">{x(str(v))}</t></is></c>')
+            else: cs.append(f'<c r="{ref}" s="{st}"/>')
+        h = f' ht="{heights[ri]}" customHeight="1"' if ri in heights else ''
+        sd.append(f'<row r="{ri}"{h}>{"".join(cs)}</row>')
+    cols = ''.join(f'<col min="{i+1}" max="{i+1}" width="{w}" customWidth="1"/>' for i, (_, w) in enumerate(C))
+    mg = ''.join(f'<mergeCell ref="{m}"/>' for m in merges)
+    ws = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+          '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane ySplit="5" topLeftCell="A6" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+          f'<cols>{cols}</cols><sheetData>{"".join(sd)}</sheetData><mergeCells count="{len(merges)}">{mg}</mergeCells>'
+          '<printOptions horizontalCentered="1"/><pageMargins left="0.3" right="0.3" top="0.4" bottom="0.4" header="0.2" footer="0.2"/>'
+          '<pageSetup paperSize="1" orientation="landscape" fitToWidth="1" fitToHeight="0"/>'
+          '<headerFooter><oddFooter>&amp;LLa Holandesa · Nómina&amp;RPágina &amp;P de &amp;N</oddFooter></headerFooter></worksheet>')
+    V, V2, SU = 'FF1D5C3B', 'FF2F7D52', 'FFE2EFE5'
+    b = '<border><left style="thin"><color rgb="FF9DB5A4"/></left><right style="thin"><color rgb="FF9DB5A4"/></right><top style="thin"><color rgb="FF9DB5A4"/></top><bottom style="thin"><color rgb="FF9DB5A4"/></bottom><diagonal/></border>'
+    bf = '<border><left style="thin"><color rgb="FF9DB5A4"/></left><right style="thin"><color rgb="FF9DB5A4"/></right><top style="thin"><color rgb="FF9DB5A4"/></top><bottom style="medium"><color rgb="FF000000"/></bottom><diagonal/></border>'
+    fonts = ['<font><sz val="10"/><name val="Arial"/></font>', f'<font><b/><sz val="15"/><color rgb="{V}"/><name val="Arial"/></font>', '<font><sz val="9"/><name val="Arial"/></font>',
+             '<font><b/><sz val="8"/><color rgb="FFFFFFFF"/><name val="Arial"/></font>', f'<font><b/><sz val="11"/><color rgb="{V}"/><name val="Arial"/></font>',
+             '<font><b/><sz val="9"/><name val="Arial"/></font>', '<font><sz val="9"/><name val="Arial"/></font>', f'<font><b/><sz val="9"/><color rgb="{V}"/><name val="Arial"/></font>',
+             '<font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font>', '<font><i/><sz val="8"/><color rgb="FF5D6E62"/><name val="Arial"/></font>']
+    fills = ['<fill><patternFill patternType="none"/></fill>', '<fill><patternFill patternType="gray125"/></fill>',
+             f'<fill><patternFill patternType="solid"><fgColor rgb="{V}"/></patternFill></fill>', f'<fill><patternFill patternType="solid"><fgColor rgb="{SU}"/></patternFill></fill>']
+    borders = ['<border><left/><right/><top/><bottom/><diagonal/></border>', b, bf]
+    WR = ' wrapText="1"'
+    A = lambda h, v='center', w=0: '<alignment horizontal="%s" vertical="%s"%s/>' % (h, v, WR if w else '')
+    xf = [  # (numFmt, font, fill, border, alineación)
+        (0, 0, 0, 0, ''), (0, 1, 0, 0, A('center')), (0, 2, 0, 0, A('center')), (0, 3, 2, 1, A('center', 'center', 1)),
+        (0, 4, 3, 1, A('left')), (0, 5, 0, 1, A('left', 'center', 1)), (165, 6, 0, 1, A('center')), (164, 6, 0, 1, A('right')),
+        (164, 5, 0, 1, A('right')), (0, 0, 0, 2, ''), (0, 7, 3, 1, A('left')), (164, 7, 3, 1, A('right')),
+        (0, 8, 2, 1, A('left')), (164, 8, 2, 1, A('right')), (0, 9, 0, 0, A('left', 'center', 1)), (0, 0, 3, 1, ''), (0, 0, 2, 1, '')]
+    cellxfs = ''.join('<xf numFmtId="%d" fontId="%d" fillId="%d" borderId="%d" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1"' % (a, f_, fi, bo)
+                      + (' applyAlignment="1">' + al + '</xf>' if al else '/>') for a, f_, fi, bo, al in xf)
+    styles = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+              '<numFmts count="2"><numFmt numFmtId="164" formatCode="#,##0.00;-#,##0.00;&quot;-&quot;"/><numFmt numFmtId="165" formatCode="0.##;-0.##;&quot;-&quot;"/></numFmts>'
+              f'<fonts count="{len(fonts)}">{"".join(fonts)}</fonts><fills count="{len(fills)}">{"".join(fills)}</fills><borders count="{len(borders)}">{"".join(borders)}</borders>'
+              '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+              f'<cellXfs count="{len(xf)}">{cellxfs}</cellXfs></styleSheet>')
+    hoja = 'Nómina para firmar'
+    wb = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+          '<calcPr fullCalcOnLoad="1"/>'
+          f'<sheets><sheet name="{hoja}" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm.Print_Area" localSheetId="0">\'{hoja}\'!$A$1:${ult}${area + 2}</definedName>'
+          f'<definedName name="_xlnm.Print_Titles" localSheetId="0">\'{hoja}\'!$5:$5</definedName></definedNames></workbook>')
+    wb = wb.replace('<calcPr fullCalcOnLoad="1"/>', '') .replace('</definedNames></workbook>', '</definedNames><calcPr fullCalcOnLoad="1"/></workbook>')
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+        z.writestr('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>')
+        z.writestr('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>')
+        z.writestr('xl/workbook.xml', wb)
+        z.writestr('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>')
+        z.writestr('xl/worksheets/sheet1.xml', ws)
+        z.writestr('xl/styles.xml', styles)
+    return buf.getvalue()
+
 def xlsx(rows, sheet='Hoja1', widths=None, money_cols=()):
     import zipfile, io
     from xml.sax.saxutils import escape as x
@@ -3171,6 +3276,22 @@ def make_handler(mon, cfg):
                     body = json.dumps({'ok': False, 'error': str(e), 'sesion': not isinstance(e, PermissionError)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(409); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
             if not self._auth(caja_ok=(self.path in ('/api/compra', '/api/leer-ticket'))): return
+            if self.path == '/api/rh-firma':   # hoja de nómina para firmar en Excel (la arma el panel con lo que calcula)
+                if self.headers.get('X-Holandesa-Action') != '1': self.send_response(403); self.end_headers(); return
+                try:
+                    import urllib.parse
+                    n = min(int(self.headers.get('Content-Length', '0') or 0), 262144)
+                    d = json.loads(self.rfile.read(n).decode('utf-8'))
+                    d.setdefault('direccion', cfg.get('direccion_nomina') or 'Avenida San Francisco 1366, Ensenada, Baja California')
+                    d.setdefault('patron', cfg.get('patron_nomina') or 'JOSÉ JORGE SÁNCHEZ GUEVARA')
+                    body = xlsx_nomina_firma(d)
+                    nom = 'Nomina para firmar ' + re.sub(r'[^0-9A-Za-z -]', '-', str(d.get('archivo') or 'semana')) + '.xlsx'
+                    self.send_response(200); self.send_header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); self.send_header('Cache-Control', 'no-store')
+                    self.send_header('Content-Disposition', "attachment; filename=\"nomina.xlsx\"; filename*=UTF-8''" + urllib.parse.quote(nom))
+                    self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
+                except Exception as e:
+                    log('Hoja de nómina para firmar: ' + traceback.format_exc())
+                    return self._json({'ok': False, 'error': 'No pude armar el Excel: ' + str(e)}, 409)
             if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/log-cliente', '/api/clientes-nuevos', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia', '/api/github'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return
