@@ -1617,7 +1617,9 @@ function rhRol(){
     <p class="empty" style="margin-top:10px">${Object.entries(RH_EST).map(([k,v])=>`<b style="color:${v[1]}">${k}</b> ${v[0]}`).join(' · ')}</p>
     <div class="btns"><button class="btn${rhAud?' pri':''}" data-rh="auditar">🔍 ${rhAud?'Quitar auditoría':'Auditoría'}</button><button class="btn" data-rh="copiar">Copiar la semana anterior</button></div>
     ${AU?`<div class="note" id="rhAudRes" style="background:var(--surface-2);color:var(--ink);margin-top:10px"><b style="display:block;margin-bottom:6px">Auditoría del rol · semana del ${rhCorta(rhSem)}</b>${audHtml(AU,i=>rhPd(rhMas(rhSem,i)).getDate(),true)}${rhAudAceptadas()}<p class="empty" style="margin-top:8px">Los cuadros con contorno rojo son los que hay que revisar. Se vuelve a revisar sola cada vez que cambias un día.</p></div>`:''}
-    <p class="empty" style="margin-top:10px">Si no has guardado la semana, se propone según el día de descanso de cada empleado. Con el candado del rol encendido (pestaña COMANDERO), quien descanse, falte o esté de vacaciones no puede usar el comandero ese día.</p></div>`+rhAccesoRol();
+    <p class="empty" style="margin-top:10px">Si no has guardado la semana, se propone según el día de descanso de cada empleado. Con el candado del rol encendido (pestaña COMANDERO), quien descanse, falte o esté de vacaciones no puede usar el comandero ese día.</p></div>`+
+    `<div class="card" style="padding:12px 14px"><b>Concentrado de descansos</b><br><small style="color:var(--muted)">Para imprimirlo y pegarlo en el restaurante</small>
+    <div class="btns" style="margin-top:8px"><button class="btn pri" data-rh="exportar" data-tipo="descansos" data-fmt="pdf">Compartir en PDF</button><button class="btn" data-rh="exportar" data-tipo="descansos" data-fmt="xlsx">Compartir en Excel</button></div></div>`+rhAccesoRol();
 }
 function rhEditorDia(){
   if(!rhDia)return '';const e=rhEmp(rhDia.id);if(!e){rhDia=null;return ''}const r=rhRolDe(e,rhSem),i=rhDia.i,c=r.d[i],h=r.h[i]||['',''];
@@ -1691,7 +1693,7 @@ function rhNomina(){
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">${inp('transfer','Transferencia')}<div class="field" style="margin-top:8px"><label>Efectivo</label><input id="re_${e.id}" readonly value="${fmt2(tot-(+v.transfer||0))}"></div></div>
       <div class="btns"><button class="btn pri" data-rh="nomguardar" data-id="${e.id}">Guardar</button><button class="btn" data-rh="nompagar" data-id="${e.id}">${v.pagada?'Quitar pagada':'Marcar pagada'}</button><a class="btn" data-rh="recibo" data-id="${e.id}" href="#">Recibo por WhatsApp</a>${c.g?`<button class="btn" data-rh="nomrecalc" data-id="${e.id}">Volver a calcular</button>`:''}</div>
       ${c.g?'<p class="empty" style="margin-top:6px">Ya está guardada: puedes cambiar cualquier cuadro y darle Guardar otra vez. "Volver a calcular" pone de nuevo lo que sale del rol, las horas y los vales (luego dale Guardar).</p>':''}</div>`}).join('');
-  return rhSemNav()+`<div class="card" style="padding:12px 14px"><div style="display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap"><div><b>Hoja para firmar</b><br><small style="color:var(--muted)">Excel de la semana, sin descuentos, con firma y huella</small></div><button class="btn pri" data-rh="firmaxlsx">Descargar en Excel</button></div></div>`+`<div class="kpis"><div class="kpi"><b class="num">${fmt2(T)}</b><span>total a pagar</span></div><div class="kpi"><b class="num">${fmt2(T-TR)}</b><span>en efectivo · ${fmt2(TR)} transferido</span></div></div>`+
+  return rhSemNav()+rhExportCard()+`<div class="kpis"><div class="kpi"><b class="num">${fmt2(T)}</b><span>total a pagar</span></div><div class="kpi"><b class="num">${fmt2(T-TR)}</b><span>en efectivo · ${fmt2(TR)} transferido</span></div></div>`+
     (cards||'<p class="empty">Captura el sueldo por día o el pago por hora de cada empleado en su expediente para calcular la nómina.</p>')+
     `<p class="empty" style="margin-top:10px">Por día: días trabajados y de vacaciones × sueldo diario, más prima dominical (25% del sueldo diario si trabajó domingo) y el incentivo proporcional a los días que trabajó. Por hora: las horas del rol × pago por hora; la comida se resta solo si marcas la casilla. Los préstamos se abonan solos con lo que digas por semana; los vales salen de los capturados aquí y de las salidas de caja de MrTienda que digan VALE y el nombre. Todo se puede corregir a mano antes de guardar.</p>`;
 }
@@ -1713,7 +1715,7 @@ function rhResumen(){
   const sinD=(RH.comidas||[]).filter(c=>en(c)&&rhComidaEmp(c)&&rhDC(c).monto==null), sinQ=[...(RH.comidas||[]).filter(c=>en(c)&&!rhComidaEmp(c)).map(c=>'comida de '+(c.persona||'sin nombre')),...(RH.vales_caja||[]).filter(v=>en(v)&&!rhQuien(v.ref)).map(v=>v.ref+' '+fmt2(+v.monto||0))];
   const avisos=(sinD.length?`<p class="note" style="margin-bottom:12px"><b>${sinD.length===1?'1 comida de empleado no tiene':sinD.length+' comidas de empleados no tienen'} descuento</b> (${sinD.map(c=>esc(rhComidaEmp(c).nombre.split(' ')[0])+' '+fmt2(+c.total||0)).join(', ')}), así que no se descuenta${sinD.length===1?'':'n'}. Ponle el descuento en <a href="#" data-rhtab="vp">Préstamos y vales</a> → Vales de comida.</p>`:'')+
     (sinQ.length?`<p class="note" style="margin-bottom:12px"><b>No sé de quién es:</b> ${sinQ.map(esc).join(', ')}. No se descuenta${sinQ.length===1?'':'n'} hasta que se identifique${sinQ.length===1?'':'n'}.</p>`:'');
-  return rhSemNav()+avisos+(sin?`<p class="note" style="margin-bottom:12px">${sin===1?'Falta guardar la nómina de 1 empleado':'Falta guardar la nómina de '+sin+' empleados'}; aquí se usa lo calculado. Guárdala en la pestaña Nómina.</p>`:'')+
+  return rhSemNav()+rhExportCard()+avisos+(sin?`<p class="note" style="margin-bottom:12px">${sin===1?'Falta guardar la nómina de 1 empleado':'Falta guardar la nómina de '+sin+' empleados'}; aquí se usa lo calculado. Guárdala en la pestaña Nómina.</p>`:'')+
   `<div class="card"><h2>Resumen de la semana</h2><table class="ledger num"><tbody>
     ${fila('Total de la nómina',S('b'),false,true)}
     ${fila('Préstamos',S('abono'),true)}${fila('Vales de comida',S('comida'),true)}${fila('Vales de dinero',S('vales'),true)}${S('otros')?fila('Otros descuentos',S('otros'),true):''}
@@ -1737,15 +1739,34 @@ function rhFirmaDatos(){
   const fin=rhMas(rhSem,6), M=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'], p=rhPd(rhSem), q=rhPd(fin);
   return {semana:dmy(rhSem),al:dmy(fin),grupos,archivo:p.getDate()+(p.getMonth()!==q.getMonth()?' '+M[p.getMonth()]:'')+' al '+q.getDate()+' '+M[q.getMonth()]+' '+q.getFullYear()};
 }
-async function rhFirmaXlsx(b){
-  const d=rhFirmaDatos(); if(!d.grupos.length){toast('No hay empleados con sueldo en esta semana.');return}
-  const txt=b.textContent;b.disabled=true;b.textContent='Armando el Excel…';
+// Pago: descuentos y forma de pago de cada quien (lo mismo que el Resumen de nómina)
+function rhPagoDatos(){
+  const grupos=[];
+  rhNomActivos().forEach(e=>{const f=rhResFila(e),tit=RH_NOM_TIT[e.puesto]||e.puesto||'Otros',pr=rhPrest(e.id),aj=((RH.res_aj||{})[rhSem]||{})[e.id]||{},ya='abono' in aj?+aj.abono:+(((RH.nominas[rhSem]||{})[e.id]||{}).abono||0);
+    let g=grupos.find(x=>x.titulo===tit);if(!g){g={titulo:tit,filas:[]};grupos.push(g)}
+    g.filas.push({nombre:e.nombre,nomina:f.b,prestamo:f.abono,comida:f.comida,vales:f.vales,otros:f.otros,transfer:f.transfer,saldo:Math.max(0,Math.round(((pr.saldo||0)-(f.abono-ya))*100)/100)})});
+  return grupos;
+}
+// Tarjeta para compartir: nómina completa (firma + pago + descansos) o una sola hoja, en Excel o PDF
+function rhExportCard(){
+  return `<div class="card" style="padding:12px 14px"><b>Compartir la nómina de la semana</b>
+    <div class="field" style="margin-top:8px"><select id="rhExpTipo"><option value="completa">Nómina completa (para firmar + pago + descansos)</option><option value="firma">Solo la hoja para firmar (sin descuentos)</option><option value="pago">Solo pago (descuentos, transferencia y efectivo)</option><option value="descansos">Solo el concentrado de descansos</option></select></div>
+    <div class="btns" style="margin-top:8px"><button class="btn pri" data-rh="exportar" data-fmt="xlsx">Compartir en Excel</button><button class="btn pri" data-rh="exportar" data-fmt="pdf">Compartir en PDF</button></div></div>`;
+}
+async function rhCompartirArchivo(blob,nom){
+  const f=new File([blob],nom,{type:blob.type});
+  if(navigator.canShare&&navigator.canShare({files:[f]})&&/Android|iPhone|iPad|Macintosh.*Mobile/i.test(navigator.userAgent)){try{await navigator.share({files:[f],title:nom.replace(/\.(xlsx|pdf)$/,'')})}catch(e){if(e.name!=='AbortError')throw e}return}
+  const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=nom;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000);toast('Listo: '+nom);
+}
+async function rhExportar(b,tipo,fmt){
+  const fd=rhFirmaDatos(); if(tipo!=='descansos'&&!fd.grupos.length){toast('No hay empleados con sueldo en esta semana.');return}
+  const txt=b.textContent;b.disabled=true;b.textContent='Armando…';
   try{
-    const r=await fetch('/api/rh-firma',{method:'POST',headers:{'Content-Type':'application/json','X-Holandesa-Action':'1'},body:JSON.stringify(d),credentials:'same-origin'});
+    const body={tipo,formato:fmt,semana_iso:rhSem,archivo:fd.archivo,firma:fd,pago:{semana:fd.semana,al:fd.al,grupos:rhPagoDatos()}};
+    const r=await fetch('/api/rh-export',{method:'POST',headers:{'Content-Type':'application/json','X-Holandesa-Action':'1'},body:JSON.stringify(body),credentials:'same-origin'});
     if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||('No se pudo ('+r.status+')'))}
-    const nom='Nomina para firmar '+d.archivo+'.xlsx', blob=await r.blob(), f=new File([blob],nom,{type:blob.type});
-    if(navigator.canShare&&navigator.canShare({files:[f]})&&/Android|iPhone|iPad/i.test(navigator.userAgent)){try{await navigator.share({files:[f],title:nom.replace(/\.xlsx$/,'')})}catch(e){if(e.name!=='AbortError')throw e}}
-    else{const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=nom;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000);toast('Listo: '+nom)}
+    const n={completa:'Nomina completa',firma:'Nomina para firmar',pago:'Pago de nomina',descansos:'Descansos'}[tipo]+' '+fd.archivo+(fmt==='pdf'?'.pdf':'.xlsx');
+    await rhCompartirArchivo(await r.blob(),n);
   }catch(e){toast(e.message)}
   b.disabled=false;b.textContent=txt;
 }
@@ -1881,7 +1902,7 @@ document.addEventListener('click',async e=>{
   if(a==='comcerrar'){rhComAb=null;return render()}
   if(a==='nomrecalc'){const e_=rhEmp(d.id),c=rhNomCalc(e_,rhSem).calc;document.querySelectorAll(`.rhn[data-emp="${d.id}"]`).forEach(i=>{const k=i.dataset.k;if(k==='transfer'||k==='nota')return;if(i.type==='checkbox')i.checked=!!c[k];else if(k in c)i.value=c[k]||''});
     const i0=document.querySelector(`.rhn[data-emp="${d.id}"]`);if(i0)i0.dispatchEvent(new Event('input',{bubbles:true}));toast('Recalculado. Revisa y dale Guardar.');return}
-  if(a==='firmaxlsx'){rhFirmaXlsx(t);return}
+  if(a==='exportar'){rhExportar(t,d.tipo||($('#rhExpTipo')||{}).value||'completa',d.fmt);return}
   if(a==='resberenice'){window.open('https://wa.me/?text='+encodeURIComponent(rhMsgBerenice()),'_blank');return}
   if(a==='recibo'){const e_=rhEmp(d.id),v=rhLeeNom(d.id),tot=rhTot(v),L=[`*Nómina La Holandesa*`,`${e_.nombre}`,`Semana del ${rhCorta(rhSem)} al ${rhCorta(rhMas(rhSem,6))}`,``];
     if(e_.pago==='hora')L.push(`Horas: ${rhHtxt(+v.horas||0)} × ${fmt2(+e_.tarifa||0)}`);L.push(`Sueldo: ${fmt2(+v.base||0)}`);

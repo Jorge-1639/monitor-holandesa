@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 143            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.41'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 144            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.42'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -1150,110 +1150,321 @@ def entrar_huella(d, host):
     return {'ok': True}
 
 # ---------------------------------------------------------------- Excel (.xlsx) sin paquetes extra
-def xlsx_nomina_firma(d):
-    """Hoja de nómina para que firmen los trabajadores (sin descuentos). d = {semana, al, grupos:[{titulo, filas:[...]}]}"""
+# ---------------------------------------------------------------- hojas imprimibles de Recursos Humanos (Excel y PDF, sin librerías)
+# Cada hoja es un dict: nombre, titulo, apaisado, cols [(título, ancho, tipo)], grupos [{titulo, filas: [[valores]]}], totales, nota, alto
+# tipos de columna: 'nom' nombre · 'n' número · 'd' dinero · 'f:<plantilla>' dinero calculado, ej. 'f:{G}+{H}' (letras = columnas del mismo renglón)
+#                   'firma' raya para firmar · 'dia' horario del día (si no trae número, se resalta: DESCANSO, FALTA…)
+RH_EXPORT_DIR = 'Avenida San Francisco 1366, Ensenada, Baja California'
+RH_EXPORT_PATRON = 'JOSÉ JORGE SÁNCHEZ GUEVARA'
+
+def _xcol(i):
+    s_ = ''; i += 1
+    while i: i, r_ = divmod(i - 1, 26); s_ = chr(65 + r_) + s_
+    return s_
+
+def _rh_num(v):
+    try: return round(float(v or 0), 2)
+    except (TypeError, ValueError): return 0.0
+
+def _rh_eval(tpl, fila):
+    # valor de una columna calculada: solo sumas y restas de otras columnas del renglón
+    tot = 0.0
+    for signo, letra in re.findall(r'([+-]?)\{([A-Z]+)\}', tpl):
+        i = 0
+        for ch in letra: i = i * 26 + ord(ch) - 64
+        v = _rh_num(fila[i - 1]) if i - 1 < len(fila) else 0.0
+        tot += -v if signo == '-' else v
+    return round(tot, 2)
+
+def _rh_completa(h):
+    # llena los valores de las columnas calculadas (para el PDF y para los totales)
+    for g in h.get('grupos') or []:
+        for f in g['filas']:
+            while len(f) < len(h['cols']): f.append('')
+            for ci, (_, _, t) in enumerate(h['cols']):
+                if t.startswith('f:'): f[ci] = _rh_eval(t[2:], f)
+    return h
+
+def _rh_dinero(t): return t == 'd' or t.startswith('f:')
+def _rh_resalta(v): return str(v or '') in ('DESCANSO', 'FALTA', 'VACACIONES', 'INCAPACIDAD')
+
+def rh_hoja_firma(d):
+    C = [('Nombre del trabajador', 38, 'nom'), ('Días\ntrab.', 6.5, 'n'), ('Horas\ntrab.', 7, 'n'), ('Faltas', 6, 'n'), ('Horas\nextra', 6.5, 'n'), ('Salario\n(día / hora)', 9.5, 'd'),
+         ('Sueldo', 11, 'd'), ('Séptimo\ndía', 10, 'd'), ('Horas\nextra $', 9.5, 'd'), ('Prima\ndominical', 9.5, 'd'), ('Incentivo', 9.5, 'd'), ('Extras /\nbonos', 9, 'd'),
+         ('Total\npercepciones', 12.5, 'f:{G}+{H}+{I}+{J}+{K}+{L}'), ('Recibí de conformidad\n(firma)', 30, 'firma'), ('Huella', 11, 'firma')]
+    G = [{'titulo': g.get('titulo', ''), 'filas': [[str(f.get('nombre', ''))[:60]] + [_rh_num(f.get(k)) for k in ('dias', 'horas', 'faltas', 'h_extra', 'salario', 'sueldo', 'septimo', 'extra_horas', 'prima', 'incentivo', 'extras')] + ['', '', '']
+                                                for f in g.get('filas') or []]} for g in d.get('grupos') or []]
+    return _rh_completa({'nombre': 'Para firmar', 'titulo': 'NÓMINA DE LA SEMANA DEL %s AL %s' % (d.get('semana', ''), d.get('al', '')), 'apaisado': True, 'cols': C, 'grupos': G, 'totales': True, 'alto': 36, 'sin_total': {5},
+            'nota': 'Con mi firma o huella declaro que recibí de conformidad el pago de los días y horas trabajados en la semana indicada, incluido el séptimo día, y que no se me adeuda cantidad alguna por este periodo.'})
+
+def rh_hoja_pago(d):
+    C = [('Nombre del trabajador', 34, 'nom'), ('Nómina\n(percepciones)', 13, 'd'), ('Préstamo', 11, 'd'), ('Vales de\ncomida', 11, 'd'), ('Vales de\ndinero', 11, 'd'), ('Otros\ndescuentos', 11, 'd'),
+         ('Total\na pagar', 13, 'f:{B}-{C}-{D}-{E}-{F}'), ('Transfe-\nrencia', 12, 'd'), ('Efectivo', 13, 'f:{G}-{H}'), ('Saldo del\npréstamo', 11, 'd')]
+    G = [{'titulo': g.get('titulo', ''), 'filas': [[str(f.get('nombre', ''))[:60]] + [_rh_num(f.get(k)) for k in ('nomina', 'prestamo', 'comida', 'vales', 'otros')] + ['', _rh_num(f.get('transfer')), '', _rh_num(f.get('saldo'))]
+                                                for f in g.get('filas') or []]} for g in d.get('grupos') or []]
+    return _rh_completa({'nombre': 'Pago', 'titulo': 'PAGO DE LA NÓMINA · SEMANA DEL %s AL %s' % (d.get('semana', ''), d.get('al', '')), 'apaisado': True, 'cols': C, 'grupos': G, 'totales': True, 'alto': 20,
+            'sin_total': {9}, 'nota': 'Descuentos y forma de pago. Total a pagar = nómina − préstamo − vales de comida − vales de dinero − otros. Efectivo = total a pagar − transferencia. Saldo del préstamo: lo que queda después del abono de esta semana.'})
+
+RH_TIT_PUESTO = {'Cocinero': 'Cocineros', 'Ayudante de cocina': 'Ayudantes de cocina', 'Mesero': 'Meseros', 'Cajero': 'Cajeros', 'Encargada': 'Encargada',
+                 'Ayudante general': 'Ayudantes generales', 'Repartidor': 'Repartidores', 'Lavaloza': 'Lavaloza', 'Otro': 'Otros'}
+
+def rh_hoja_descansos(rh, sem):
+    # concentrado de descansos de la semana (martes a lunes): horario de cada día o DESCANSO / FALTA / VACACIONES / INCAPACIDAD
+    def h12(v):
+        m = re.fullmatch(r'(\d{1,2}):(\d{2})', str(v or ''))
+        if not m: return ''
+        H = int(m.group(1)); return '%d:%s %s' % (H % 12 or 12, m.group(2), 'am' if H < 12 else 'pm')
+    ini = inicio_sem(datetime.date.fromisoformat(sem)); dias = [ini + datetime.timedelta(days=i) for i in range(7)]
+    nd = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+    C = [('Nombre', 30, 'nom')] + [('%s\n%d' % (nd[f.weekday()], f.day), 13, 'dia') for f in dias]
+    txt = {'D': 'DESCANSO', 'F': 'FALTA', 'V': 'VACACIONES', 'I': 'INCAPACIDAD'}
+    emps = sorted([e for e in rh.get('empleados', []) if e.get('activo', True)], key=lambda e: (ORDEN_ROL.index(e['puesto']) if e.get('puesto') in ORDEN_ROL else 99, e.get('nombre', '')))
+    G = []
+    for e in emps:
+        fila = [str(e.get('nombre', ''))[:60]]
+        for f in dias:
+            c, h = rh_dia(rh, e, f)
+            fila.append(txt.get(c) or ((h12(h[0]) + '\n' + h12(h[1])) if h and h[0] and h[1] else 'Trabaja'))
+        t = RH_TIT_PUESTO.get(e.get('puesto'), e.get('puesto') or 'Otros')
+        if not G or G[-1]['titulo'] != t: G.append({'titulo': t, 'filas': []})
+        G[-1]['filas'].append(fila)
+    al = dias[6]
+    return {'nombre': 'Descansos', 'titulo': 'RELACIÓN DE DESCANSOS · SEMANA DEL %s AL %s' % (ini.strftime('%d/%m/%Y'), al.strftime('%d/%m/%Y')), 'apaisado': True,
+            'cols': C, 'grupos': G, 'totales': False, 'alto': 30, 'sin_patron': True, 'nota': 'Arriba la hora de entrada y abajo la de salida.'}
+
+def xlsx_libro(hojas, direccion=RH_EXPORT_DIR, patron=RH_EXPORT_PATRON):
     import zipfile, io
     from xml.sax.saxutils import escape as x
-    def col(i):
-        s_ = ''; i += 1
-        while i: i, r_ = divmod(i - 1, 26); s_ = chr(65 + r_) + s_
-        return s_
-    def n(v):
-        try: return round(float(v or 0), 2)
-        except (TypeError, ValueError): return 0.0
-    C = [('Nombre del trabajador', 34), ('Días\ntrab.', 6.5), ('Horas\ntrab.', 7), ('Faltas', 6), ('Horas\nextra', 6.5), ('Salario\n(día / hora)', 9.5),
-         ('Sueldo', 11), ('Séptimo\ndía', 10), ('Horas\nextra $', 9.5), ('Prima\ndominical', 9.5), ('Incentivo', 9.5), ('Extras /\nbonos', 9),
-         ('Total\npercepciones', 12.5), ('Recibí de conformidad\n(firma)', 30), ('Huella', 11)]
-    NC = len(C); ult = col(NC - 1)
-    # estilos: 0 normal · 1 título · 2 subtítulo · 3 encabezado · 4 grupo · 5 nombre · 6 número · 7 dinero · 8 dinero en negritas
-    # 9 firma · 10 total grupo texto · 11 total grupo dinero · 12 gran total texto · 13 gran total dinero · 14 nota · 15 total grupo vacío · 16 gran total vacío
-    rows = []; merges = []; heights = {}
-    def fila(celdas, alto=None):
-        rows.append(celdas)
-        if alto: heights[len(rows)] = alto
-    fila([('RESTAURANTE LA HOLANDESA', 1)], 26); merges.append(f'A1:{ult}1')
-    fila([((d.get('direccion') or '') + '   ·   Patrón: ' + (d.get('patron') or ''), 2)]); merges.append(f'A2:{ult}2')
-    fila([('NÓMINA DE LA SEMANA DEL ' + d.get('semana', '') + ' AL ' + d.get('al', ''), 1)], 24); merges.append(f'A3:{ult}3')
-    fila([])
-    fila([(t, 3) for t, _ in C], 32)
-    tot_g = []
-    for g in d.get('grupos') or []:
-        fila([(str(g.get('titulo', '')).upper(), 4)] + [('', 4)] * (NC - 1), 20); merges.append(f'A{len(rows)}:{ult}{len(rows)}')
-        ini = len(rows) + 1
-        for f in g.get('filas') or []:
-            nums = [n(f.get(k)) for k in ('dias', 'horas', 'faltas', 'h_extra')]
-            din = [n(f.get(k)) for k in ('salario', 'sueldo', 'septimo', 'extra_horas', 'prima', 'incentivo', 'extras')]
-            r = len(rows) + 1
-            fila([(str(f.get('nombre', ''))[:60], 5)] + [(v, 6) for v in nums] + [(v, 7) for v in din] + [(f'=SUM(G{r}:L{r})', 8), ('', 9), ('', 9)], 36)
-        fin = len(rows); r = fin + 1
-        fila([('Total ' + str(g.get('titulo', '')).lower(), 10)] + [('', 15)] * 5 + [(f'=SUM({col(c)}{ini}:{col(c)}{fin})', 11) for c in range(6, 13)] + [('', 15), ('', 15)], 18)
-        tot_g.append(r)
-        fila([])
-    if tot_g:
-        r = len(rows) + 1
-        fila([('TOTAL DE LA NÓMINA', 12)] + [('', 16)] * 5 + [('=' + '+'.join(f'{col(c)}{t}' for t in tot_g), 13) for c in range(6, 13)] + [('', 16), ('', 16)], 22)
-    area = len(rows)
-    fila([])
-    fila([('Con mi firma o huella declaro que recibí de conformidad el pago de los días y horas trabajados en la semana indicada, incluido el séptimo día, y que no se me adeuda cantidad alguna por este periodo.', 14)], 28)
-    merges.append(f'A{len(rows)}:{ult}{len(rows)}')
-    sd = []
-    for ri, row in enumerate(rows, 1):
-        cs = []
-        for ci, (v, st) in enumerate(row):
-            ref = col(ci) + str(ri)
-            if isinstance(v, str) and v.startswith('='): cs.append(f'<c r="{ref}" s="{st}"><f>{x(v[1:])}</f></c>')
-            elif isinstance(v, (int, float)) and not isinstance(v, bool): cs.append(f'<c r="{ref}" s="{st}"><v>{v}</v></c>')
-            elif v not in (None, ''): cs.append(f'<c r="{ref}" s="{st}" t="inlineStr"><is><t xml:space="preserve">{x(str(v))}</t></is></c>')
-            else: cs.append(f'<c r="{ref}" s="{st}"/>')
-        h = f' ht="{heights[ri]}" customHeight="1"' if ri in heights else ''
-        sd.append(f'<row r="{ri}"{h}>{"".join(cs)}</row>')
-    cols = ''.join(f'<col min="{i+1}" max="{i+1}" width="{w}" customWidth="1"/>' for i, (_, w) in enumerate(C))
-    mg = ''.join(f'<mergeCell ref="{m}"/>' for m in merges)
-    ws = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-          '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane ySplit="5" topLeftCell="A6" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
-          f'<cols>{cols}</cols><sheetData>{"".join(sd)}</sheetData><mergeCells count="{len(merges)}">{mg}</mergeCells>'
-          '<printOptions horizontalCentered="1"/><pageMargins left="0.3" right="0.3" top="0.4" bottom="0.4" header="0.2" footer="0.2"/>'
-          '<pageSetup paperSize="1" orientation="landscape" fitToWidth="1" fitToHeight="0"/>'
-          '<headerFooter><oddFooter>&amp;LLa Holandesa · Nómina&amp;RPágina &amp;P de &amp;N</oddFooter></headerFooter></worksheet>')
-    V, V2, SU = 'FF1D5C3B', 'FF2F7D52', 'FFE2EFE5'
-    b = '<border><left style="thin"><color rgb="FF9DB5A4"/></left><right style="thin"><color rgb="FF9DB5A4"/></right><top style="thin"><color rgb="FF9DB5A4"/></top><bottom style="thin"><color rgb="FF9DB5A4"/></bottom><diagonal/></border>'
-    bf = '<border><left style="thin"><color rgb="FF9DB5A4"/></left><right style="thin"><color rgb="FF9DB5A4"/></right><top style="thin"><color rgb="FF9DB5A4"/></top><bottom style="medium"><color rgb="FF000000"/></bottom><diagonal/></border>'
-    fonts = ['<font><sz val="10"/><name val="Arial"/></font>', f'<font><b/><sz val="15"/><color rgb="{V}"/><name val="Arial"/></font>', '<font><sz val="9"/><name val="Arial"/></font>',
-             '<font><b/><sz val="8"/><color rgb="FFFFFFFF"/><name val="Arial"/></font>', f'<font><b/><sz val="11"/><color rgb="{V}"/><name val="Arial"/></font>',
-             '<font><b/><sz val="9"/><name val="Arial"/></font>', '<font><sz val="9"/><name val="Arial"/></font>', f'<font><b/><sz val="9"/><color rgb="{V}"/><name val="Arial"/></font>',
-             '<font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font>', '<font><i/><sz val="8"/><color rgb="FF5D6E62"/><name val="Arial"/></font>']
-    fills = ['<fill><patternFill patternType="none"/></fill>', '<fill><patternFill patternType="gray125"/></fill>',
-             f'<fill><patternFill patternType="solid"><fgColor rgb="{V}"/></patternFill></fill>', f'<fill><patternFill patternType="solid"><fgColor rgb="{SU}"/></patternFill></fill>']
-    borders = ['<border><left/><right/><top/><bottom/><diagonal/></border>', b, bf]
+    V, SU, DS = 'FF1D5C3B', 'FFE2EFE5', 'FFFDEBD0'
+    # estilos: 0 normal · 1 título · 2 subtítulo · 3 encabezado · 4 grupo · 5 nombre · 6 número · 7 dinero · 8 dinero negritas · 9 firma
+    # 10 total grupo texto · 11 total grupo dinero · 12 gran total texto · 13 gran total dinero · 14 nota · 15 total grupo vacío · 16 gran total vacío
+    # 17 día (horario) · 18 día resaltado (DESCANSO…)
     WR = ' wrapText="1"'
     A = lambda h, v='center', w=0: '<alignment horizontal="%s" vertical="%s"%s/>' % (h, v, WR if w else '')
-    xf = [  # (numFmt, font, fill, border, alineación)
-        (0, 0, 0, 0, ''), (0, 1, 0, 0, A('center')), (0, 2, 0, 0, A('center')), (0, 3, 2, 1, A('center', 'center', 1)),
-        (0, 4, 3, 1, A('left')), (0, 5, 0, 1, A('left', 'center', 1)), (165, 6, 0, 1, A('center')), (164, 6, 0, 1, A('right')),
-        (164, 5, 0, 1, A('right')), (0, 0, 0, 2, ''), (0, 7, 3, 1, A('left')), (164, 7, 3, 1, A('right')),
-        (0, 8, 2, 1, A('left')), (164, 8, 2, 1, A('right')), (0, 9, 0, 0, A('left', 'center', 1)), (0, 0, 3, 1, ''), (0, 0, 2, 1, '')]
+    b = '<border><left style="thin"><color rgb="FF9DB5A4"/></left><right style="thin"><color rgb="FF9DB5A4"/></right><top style="thin"><color rgb="FF9DB5A4"/></top><bottom style="thin"><color rgb="FF9DB5A4"/></bottom><diagonal/></border>'
+    bf = '<border><left style="thin"><color rgb="FF9DB5A4"/></left><right style="thin"><color rgb="FF9DB5A4"/></right><top style="thin"><color rgb="FF9DB5A4"/></top><bottom style="medium"><color rgb="FF000000"/></bottom><diagonal/></border>'
+    fonts = ['<font><sz val="10"/><name val="Arial"/></font>', '<font><b/><sz val="15"/><color rgb="%s"/><name val="Arial"/></font>' % V, '<font><sz val="9"/><name val="Arial"/></font>',
+             '<font><b/><sz val="8"/><color rgb="FFFFFFFF"/><name val="Arial"/></font>', '<font><b/><sz val="11"/><color rgb="%s"/><name val="Arial"/></font>' % V,
+             '<font><b/><sz val="9"/><name val="Arial"/></font>', '<font><sz val="9"/><name val="Arial"/></font>', '<font><b/><sz val="9"/><color rgb="%s"/><name val="Arial"/></font>' % V,
+             '<font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font>', '<font><i/><sz val="8"/><color rgb="FF5D6E62"/><name val="Arial"/></font>',
+             '<font><b/><sz val="8"/><color rgb="FF9A4A00"/><name val="Arial"/></font>']
+    fills = ['<fill><patternFill patternType="none"/></fill>', '<fill><patternFill patternType="gray125"/></fill>',
+             '<fill><patternFill patternType="solid"><fgColor rgb="%s"/></patternFill></fill>' % V, '<fill><patternFill patternType="solid"><fgColor rgb="%s"/></patternFill></fill>' % SU,
+             '<fill><patternFill patternType="solid"><fgColor rgb="%s"/></patternFill></fill>' % DS]
+    borders = ['<border><left/><right/><top/><bottom/><diagonal/></border>', b, bf]
+    xf = [(0, 0, 0, 0, ''), (0, 1, 0, 0, A('center')), (0, 2, 0, 0, A('center')), (0, 3, 2, 1, A('center', 'center', 1)),
+          (0, 4, 3, 1, A('left')), (0, 5, 0, 1, A('left', 'center', 1)), (165, 6, 0, 1, A('center')), (164, 6, 0, 1, A('right')),
+          (164, 5, 0, 1, A('right')), (0, 0, 0, 2, ''), (0, 7, 3, 1, A('left')), (164, 7, 3, 1, A('right')),
+          (0, 8, 2, 1, A('left')), (164, 8, 2, 1, A('right')), (0, 9, 0, 0, A('left', 'center', 1)), (0, 0, 3, 1, ''), (0, 0, 2, 1, ''),
+          (0, 6, 0, 1, A('center', 'center', 1)), (0, 10, 4, 1, A('center', 'center', 1))]
     cellxfs = ''.join('<xf numFmtId="%d" fontId="%d" fillId="%d" borderId="%d" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1"' % (a, f_, fi, bo)
                       + (' applyAlignment="1">' + al + '</xf>' if al else '/>') for a, f_, fi, bo, al in xf)
     styles = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
               '<numFmts count="2"><numFmt numFmtId="164" formatCode="#,##0.00;-#,##0.00;&quot;-&quot;"/><numFmt numFmtId="165" formatCode="0.##;-0.##;&quot;-&quot;"/></numFmts>'
-              f'<fonts count="{len(fonts)}">{"".join(fonts)}</fonts><fills count="{len(fills)}">{"".join(fills)}</fills><borders count="{len(borders)}">{"".join(borders)}</borders>'
+              '<fonts count="%d">%s</fonts><fills count="%d">%s</fills><borders count="%d">%s</borders>' % (len(fonts), ''.join(fonts), len(fills), ''.join(fills), len(borders), ''.join(borders)) +
               '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
-              f'<cellXfs count="{len(xf)}">{cellxfs}</cellXfs></styleSheet>')
-    hoja = 'Nómina para firmar'
+              '<cellXfs count="%d">%s</cellXfs></styleSheet>' % (len(xf), cellxfs))
+    hojas_xml, nombres, defs = [], [], []
+    for hi, h in enumerate(hojas):
+        C = h['cols']; NC = len(C); ult = _xcol(NC - 1); rows = []; merges = []; heights = {}
+        def fila(celdas, alto=None):
+            rows.append(celdas)
+            if alto: heights[len(rows)] = alto
+        fila([('RESTAURANTE LA HOLANDESA', 1)], 26); merges.append('A1:%s1' % ult)
+        fila([(direccion + ('' if h.get('sin_patron') else '   ·   Patrón: ' + patron), 2)]); merges.append('A2:%s2' % ult)
+        fila([(h.get('titulo', ''), 1)], 24); merges.append('A3:%s3' % ult)
+        fila([])
+        fila([(t, 3) for t, _, _ in C], 32)
+        sumables = [ci for ci, (_, _, t) in enumerate(C) if _rh_dinero(t) and ci not in (h.get('sin_total') or set())]
+        tot_g = []
+        for g in h.get('grupos') or []:
+            fila([(str(g.get('titulo', '')).upper(), 4)] + [('', 4)] * (NC - 1), 20); merges.append('A%d:%s%d' % (len(rows), ult, len(rows)))
+            ini = len(rows) + 1
+            for f in g['filas']:
+                r = len(rows) + 1; cel = []
+                for ci, (_, _, t) in enumerate(C):
+                    v = f[ci] if ci < len(f) else ''
+                    if t == 'nom': cel.append((v, 5))
+                    elif t == 'n': cel.append((_rh_num(v), 6))
+                    elif t == 'd': cel.append((_rh_num(v), 7))
+                    elif t.startswith('f:'): cel.append(('=' + re.sub(r'\{([A-Z]+)\}', lambda m: m.group(1) + str(r), t[2:]), 8))
+                    elif t == 'firma': cel.append(('', 9))
+                    elif t == 'dia': cel.append((v, 18 if _rh_resalta(v) else 17))
+                    else: cel.append((v, 5))
+                fila(cel, h.get('alto') or 20)
+            fin = len(rows)
+            if h.get('totales') and fin >= ini:
+                r = fin + 1
+                fila([('Total ' + str(g.get('titulo', '')).lower(), 10)] + [(('=SUM(%s%d:%s%d)' % (_xcol(ci), ini, _xcol(ci), fin), 11) if ci in sumables else ('', 15)) for ci in range(1, NC)], 18)
+                tot_g.append(r)
+            fila([])
+        if h.get('totales') and tot_g:
+            fila([('TOTAL', 12)] + [(('=' + '+'.join('%s%d' % (_xcol(ci), t) for t in tot_g), 13) if ci in sumables else ('', 16)) for ci in range(1, NC)], 22)
+        area = len(rows)
+        if h.get('nota'):
+            fila([]); fila([(h['nota'], 14)], 28); merges.append('A%d:%s%d' % (len(rows), ult, len(rows)))
+        sd = []
+        for ri, row in enumerate(rows, 1):
+            cs = []
+            for ci, (v, st) in enumerate(row):
+                ref = _xcol(ci) + str(ri)
+                if isinstance(v, str) and v.startswith('='): cs.append('<c r="%s" s="%d"><f>%s</f></c>' % (ref, st, x(v[1:])))
+                elif isinstance(v, (int, float)) and not isinstance(v, bool): cs.append('<c r="%s" s="%d"><v>%s</v></c>' % (ref, st, v))
+                elif v not in (None, ''): cs.append('<c r="%s" s="%d" t="inlineStr"><is><t xml:space="preserve">%s</t></is></c>' % (ref, st, x(str(v))))
+                else: cs.append('<c r="%s" s="%d"/>' % (ref, st))
+            hh = ' ht="%s" customHeight="1"' % heights[ri] if ri in heights else ''
+            sd.append('<row r="%d"%s>%s</row>' % (ri, hh, ''.join(cs)))
+        cols = ''.join('<col min="%d" max="%d" width="%s" customWidth="1"/>' % (i + 1, i + 1, w) for i, (_, w, _) in enumerate(C))
+        mg = ''.join('<mergeCell ref="%s"/>' % m for m in merges)
+        hojas_xml.append('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+              '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><sheetViews><sheetView workbookViewId="0" showGridLines="0"%s><pane ySplit="5" topLeftCell="A6" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' % (' tabSelected="1"' if hi == 0 else '') +
+              '<cols>%s</cols><sheetData>%s</sheetData><mergeCells count="%d">%s</mergeCells>' % (cols, ''.join(sd), len(merges), mg) +
+              '<printOptions horizontalCentered="1"/><pageMargins left="0.3" right="0.3" top="0.4" bottom="0.4" header="0.2" footer="0.2"/>'
+              '<pageSetup paperSize="1" orientation="%s" fitToWidth="1" fitToHeight="0"/>' % ('landscape' if h.get('apaisado') else 'portrait') +
+              '<headerFooter><oddFooter>&amp;LLa Holandesa · %s&amp;RPágina &amp;P de &amp;N</oddFooter></headerFooter></worksheet>' % x(h.get('nombre', '')))
+        nom = re.sub(r'[\[\]\*\?/\\:]', '', h.get('nombre') or 'Hoja%d' % (hi + 1))[:31]
+        nombres.append(nom)
+        defs.append('<definedName name="_xlnm.Print_Area" localSheetId="%d">\'%s\'!$A$1:$%s$%d</definedName>' % (hi, nom, ult, area))
+        defs.append('<definedName name="_xlnm.Print_Titles" localSheetId="%d">\'%s\'!$5:$5</definedName>' % (hi, nom))
     wb = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-          '<calcPr fullCalcOnLoad="1"/>'
-          f'<sheets><sheet name="{hoja}" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm.Print_Area" localSheetId="0">\'{hoja}\'!$A$1:${ult}${area + 2}</definedName>'
-          f'<definedName name="_xlnm.Print_Titles" localSheetId="0">\'{hoja}\'!$5:$5</definedName></definedNames></workbook>')
-    wb = wb.replace('<calcPr fullCalcOnLoad="1"/>', '') .replace('</definedNames></workbook>', '</definedNames><calcPr fullCalcOnLoad="1"/></workbook>')
+          '<sheets>%s</sheets><definedNames>%s</definedNames><calcPr fullCalcOnLoad="1"/></workbook>' % (''.join('<sheet name="%s" sheetId="%d" r:id="rId%d"/>' % (x(n), i + 1, i + 1) for i, n in enumerate(nombres)), ''.join(defs)))
+    rels = ''.join('<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet%d.xml"/>' % (i + 1, i + 1) for i in range(len(hojas)))
+    rels += '<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' % (len(hojas) + 1)
+    over = ''.join('<Override PartName="/xl/worksheets/sheet%d.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' % (i + 1) for i in range(len(hojas)))
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
-        z.writestr('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>')
+        z.writestr('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>%s<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>' % over)
         z.writestr('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>')
         z.writestr('xl/workbook.xml', wb)
-        z.writestr('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>')
-        z.writestr('xl/worksheets/sheet1.xml', ws)
+        z.writestr('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">%s</Relationships>' % rels)
+        for i, s_ in enumerate(hojas_xml): z.writestr('xl/worksheets/sheet%d.xml' % (i + 1), s_)
         z.writestr('xl/styles.xml', styles)
     return buf.getvalue()
+
+# anchos de Helvetica (milésimas del tamaño) para alinear y recortar texto en el PDF
+_HW = {' ': 278, '-': 333, '.': 278, ',': 278, ':': 278, '/': 278, '(': 333, ')': 333, '$': 556, '%': 889, '·': 278, 'I': 278, 'J': 500, 'M': 833, 'W': 944, 'i': 222, 'j': 222, 'l': 222, 'f': 278, 't': 278, 'r': 333, 'm': 833, 'w': 722}
+def _pdf_ancho(t, tam, negrita=False):
+    s_ = 0
+    for ch in str(t):
+        if ch in _HW: s_ += _HW[ch]
+        elif ch.isdigit(): s_ += 556
+        elif ch.isupper(): s_ += 722 if negrita else 680
+        else: s_ += 556 if negrita else 520
+    return s_ * tam / 1000.0
+
+def _pdf_corta(t, tam, ancho, negrita=False):
+    t = str(t)
+    if _pdf_ancho(t, tam, negrita) <= ancho: return t
+    while t and _pdf_ancho(t + '…', tam, negrita) > ancho: t = t[:-1]
+    return t + '…'
+
+def _pdf_dinero(v):
+    v = _rh_num(v)
+    return '-' if abs(v) < 0.005 else '{:,.2f}'.format(v)
+
+def pdf_libro(hojas, direccion=RH_EXPORT_DIR, patron=RH_EXPORT_PATRON, titulo='Nómina La Holandesa'):
+    paginas = []   # contenido (bytes) y tamaño de cada página
+    VERDE, SUAVE, RES = (0.114, 0.361, 0.231), (0.886, 0.937, 0.898), (0.992, 0.922, 0.816)
+    for h in hojas:
+        W, H = (792, 612) if h.get('apaisado') else (612, 792)
+        M = 24; C = h['cols']; tot_w = sum(w for _, w, _ in C); esc_ = (W - 2 * M) / float(tot_w); anchos = [w * esc_ for _, w, _ in C]
+        xs = [M]
+        for a in anchos: xs.append(xs[-1] + a)
+        alto = max(15, min(30, (h.get('alto') or 20) * 0.8)); tb = 7.5 if len(C) > 10 else 8.5
+        sumables = [ci for ci, (_, _, t) in enumerate(C) if _rh_dinero(t) and ci not in (h.get('sin_total') or set())]
+        pags = []; ops = []; y = [0]
+        def txt(x0, y0, t, tam, neg=False, col=(0, 0, 0)):
+            t = str(t).replace('−', '-')
+            ops.append(b'BT /%s %.1f Tf %.3f %.3f %.3f rg %.2f %.2f Td (' % (b'F2' if neg else b'F1', tam, col[0], col[1], col[2], x0, y0) + _pdf_txt(t) + b') Tj ET')
+        def rect(x0, y0, w, hh, fill=None, linea=True):
+            if fill: ops.append(b'%.3f %.3f %.3f rg %.2f %.2f %.2f %.2f re f' % (fill[0], fill[1], fill[2], x0, y0, w, hh))
+            if linea: ops.append(b'0.6 0.7 0.64 RG 0.5 w %.2f %.2f %.2f %.2f re S' % (x0, y0, w, hh))
+        def celda(ci, y0, hh, v, neg=False, col=(0, 0, 0), tam=None):
+            tam = tam or tb; t = C[ci][2]; x0, w = xs[ci], anchos[ci]
+            lineas = str(v).split('\n') if v not in (None, '') else []
+            if t in ('n',): lineas = [('%g' % _rh_num(v)) if _rh_num(v) else '-']
+            if _rh_dinero(t): lineas = [_pdf_dinero(v)]
+            if t == 'nom' and len(lineas) == 1 and _pdf_ancho(lineas[0], tam, neg) > w - 5 and hh >= 2 * tam + 4:   # nombre largo: en dos renglones
+                ps = lineas[0].split(); k = len(ps)
+                while k > 1 and _pdf_ancho(' '.join(ps[:k]), tam, neg) > w - 5: k -= 1
+                lineas = [' '.join(ps[:k]), ' '.join(ps[k:])]
+            n = len(lineas); base = y0 + hh / 2 + (n - 1) * (tam + 1) / 2 - tam * 0.35
+            for k, l in enumerate(lineas):
+                l = _pdf_corta(l, tam, w - 5, neg); aw = _pdf_ancho(l, tam, neg)
+                xx = x0 + 3 if t == 'nom' else (x0 + w - 3 - aw if _rh_dinero(t) else x0 + (w - aw) / 2)
+                txt(xx, base - k * (tam + 1), l, tam, neg, col)
+        def nueva():
+            if ops: pags.append(b'\n'.join(ops))
+            del ops[:]; y[0] = H - M
+            txt(M, y[0] - 14, 'RESTAURANTE LA HOLANDESA', 14, True, VERDE)
+            d_ = direccion + ('' if h.get('sin_patron') else '   ·   Patrón: ' + patron)
+            txt(W - M - _pdf_ancho(d_, 8), y[0] - 12, d_, 8)
+            txt(M, y[0] - 32, h.get('titulo', ''), 11, True, VERDE)
+            y[0] -= 42
+            hh = 24; y[0] -= hh
+            for ci, (t, _, _) in enumerate(C):
+                rect(xs[ci], y[0], anchos[ci], hh, VERDE)
+                ls = t.split('\n'); b0 = y[0] + hh / 2 + (len(ls) - 1) * 4 - 2.4
+                for k, l in enumerate(ls):
+                    l = _pdf_corta(l, 7, anchos[ci] - 3, True); txt(xs[ci] + (anchos[ci] - _pdf_ancho(l, 7, True)) / 2, b0 - k * 8, l, 7, True, (1, 1, 1))
+        def espacio(hh):
+            if y[0] - hh < M + 18: nueva()
+        nueva()
+        gran = [0.0] * len(C)
+        for g in h.get('grupos') or []:
+            espacio(14 + alto * min(2, len(g['filas'])))
+            y[0] -= 14; rect(M, y[0], W - 2 * M, 14, SUAVE); txt(M + 3, y[0] + 4, str(g.get('titulo', '')).upper(), 8.5, True, VERDE)
+            sub = [0.0] * len(C)
+            for f in g['filas']:
+                espacio(alto); y[0] -= alto
+                for ci, (_, _, t) in enumerate(C):
+                    v = f[ci] if ci < len(f) else ''
+                    res = t == 'dia' and _rh_resalta(v)
+                    rect(xs[ci], y[0], anchos[ci], alto, RES if res else None)
+                    if t == 'firma': ops.append(b'0 0 0 RG 0.8 w %.2f %.2f m %.2f %.2f l S' % (xs[ci] + 4, y[0] + 5, xs[ci] + anchos[ci] - 4, y[0] + 5)); continue
+                    celda(ci, y[0], alto, v, t == 'nom' or t.startswith('f:') or res, (0.6, 0.29, 0) if res else (0, 0, 0), 7 if res else None)
+                    if ci in sumables: sub[ci] += _rh_num(v)
+            if h.get('totales') and g['filas']:
+                espacio(14); y[0] -= 14
+                for ci in range(len(C)):
+                    rect(xs[ci], y[0], anchos[ci], 14, SUAVE)
+                    if ci == 0: celda(0, y[0], 14, 'Total ' + str(g.get('titulo', '')).lower(), True, VERDE, 7.5)
+                    elif ci in sumables: celda(ci, y[0], 14, sub[ci], True, VERDE, 7.5); gran[ci] += sub[ci]
+            y[0] -= 6
+        if h.get('totales'):
+            espacio(18); y[0] -= 18
+            for ci in range(len(C)):
+                rect(xs[ci], y[0], anchos[ci], 18, VERDE)
+                if ci == 0: celda(0, y[0], 18, 'TOTAL', True, (1, 1, 1), 9)
+                elif ci in sumables: celda(ci, y[0], 18, gran[ci], True, (1, 1, 1), 8)
+        if h.get('nota'):
+            palabras = h['nota'].split(); lineas = ['']
+            for p in palabras:
+                if _pdf_ancho(lineas[-1] + ' ' + p, 7) > W - 2 * M: lineas.append(p)
+                else: lineas[-1] = (lineas[-1] + ' ' + p).strip()
+            espacio(10 * len(lineas) + 8); y[0] -= 8
+            for l in lineas: y[0] -= 10; txt(M, y[0], l, 7, False, (0.36, 0.43, 0.38))
+        pags.append(b'\n'.join(ops))
+        for p in pags: paginas.append((p, W, H, h.get('nombre', '')))
+    objs = []
+    def obj(b_): objs.append(b_); return len(objs)
+    cat = obj(b''); pg = obj(b'')
+    f1 = obj(b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>')
+    f2 = obj(b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>')
+    kids = []
+    for n, (cont, W, H, nom) in enumerate(paginas, 1):
+        pie = b'BT /F1 7 Tf 0.36 0.43 0.38 rg 24 12 Td (' + _pdf_txt('La Holandesa · ' + nom) + b') Tj ET BT /F1 7 Tf %.2f 12 Td (' % (W - 70) + _pdf_txt('Página %d de %d' % (n, len(paginas))) + b') Tj ET'
+        c = cont + b'\n' + pie
+        co = obj(b'<< /Length %d >>\nstream\n' % len(c) + c + b'\nendstream')
+        kids.append(obj(b'<< /Type /Page /Parent %d 0 R /MediaBox [0 0 %d %d] /Resources << /Font << /F1 %d 0 R /F2 %d 0 R >> >> /Contents %d 0 R >>' % (pg, W, H, f1, f2, co)))
+    objs[cat - 1] = b'<< /Type /Catalog /Pages %d 0 R >>' % pg
+    objs[pg - 1] = b'<< /Type /Pages /Kids [%s] /Count %d >>' % (b' '.join(b'%d 0 R' % k for k in kids), len(kids))
+    out = b'%PDF-1.4\n'; pos = []
+    for k, b_ in enumerate(objs, 1): pos.append(len(out)); out += b'%d 0 obj\n' % k + b_ + b'\nendobj\n'
+    xr = len(out)
+    out += b'xref\n0 %d\n0000000000 65535 f \n' % (len(objs) + 1) + b''.join(b'%010d 00000 n \n' % p for p in pos)
+    out += b'trailer\n<< /Size %d /Root %d 0 R /Info << /Title (' % (len(objs) + 1, cat) + _pdf_txt(titulo) + b') >> >>\nstartxref\n%d\n%%%%EOF\n' % xr
+    return out
 
 def xlsx(rows, sheet='Hoja1', widths=None, money_cols=()):
     import zipfile, io
@@ -3147,6 +3358,15 @@ def make_handler(mon, cfg):
                 return False
             self._json({'ok': False, 'error': 'Tu sesión terminó. Vuelve a entrar.', 'login': True}, 401)
             return False
+        def _rh_mandar(self, hojas, formato, nombre):
+            import urllib.parse
+            dr = cfg.get('direccion_nomina') or RH_EXPORT_DIR; pt = cfg.get('patron_nomina') or RH_EXPORT_PATRON
+            nom = re.sub(r'[^0-9A-Za-z -]', '-', nombre).strip()
+            if formato == 'pdf': body = pdf_libro(hojas, dr, pt, nombre); ct = 'application/pdf'; nom += '.pdf'
+            else: body = xlsx_libro(hojas, dr, pt); ct = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'; nom += '.xlsx'
+            self.send_response(200); self.send_header('Content-Type', ct); self.send_header('Cache-Control', 'no-store')
+            self.send_header('Content-Disposition', "attachment; filename=\"archivo%s\"; filename*=UTF-8''%s" % (nom[-5:] if nom.endswith('.xlsx') else '.pdf', urllib.parse.quote(nom)))
+            self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
         def _send(self, body, ctype, gz=False):
             self.send_response(200); self.send_header('Content-Type', ctype); self.send_header('Cache-Control', 'no-store')
             if gz: self.send_header('Content-Encoding', 'gzip')
@@ -3211,6 +3431,15 @@ def make_handler(mon, cfg):
                 except Exception as e:
                     body = json.dumps({'ok': False, 'error': str(e)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(403); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
+            if self.path == '/api/rol-export':   # la encargada comparte o imprime el concentrado de descansos (sin dinero)
+                try:
+                    if not mon.rol_de(self.headers.get('X-Rol-Token')): raise PermissionError('Tu sesión terminó. Vuelve a entrar con tu clave.')
+                    n = min(int(self.headers.get('Content-Length', '0') or 0), 4096)
+                    d = json.loads(self.rfile.read(n).decode('utf-8'))
+                    return self._rh_mandar([rh_hoja_descansos(mon.rh(), d.get('semana_iso') or datetime.date.today().isoformat())], d.get('formato'), 'Descansos ' + str(d.get('archivo') or ''))
+                except Exception as e:
+                    if not isinstance(e, PermissionError): log('Exportar descansos: ' + traceback.format_exc())
+                    return self._json({'ok': False, 'error': str(e), 'sesion': not isinstance(e, PermissionError)}, 409)
             if self.path in ('/api/rol-login', '/api/rol'):
                 try:
                     n = min(int(self.headers.get('Content-Length', '0') or 0), 8192)
@@ -3276,22 +3505,19 @@ def make_handler(mon, cfg):
                     body = json.dumps({'ok': False, 'error': str(e), 'sesion': not isinstance(e, PermissionError)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(409); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
             if not self._auth(caja_ok=(self.path in ('/api/compra', '/api/leer-ticket'))): return
-            if self.path == '/api/rh-firma':   # hoja de nómina para firmar en Excel (la arma el panel con lo que calcula)
+            if self.path in ('/api/rh-export', '/api/rh-firma'):   # nómina completa, hoja para firmar, pago o descansos, en Excel o PDF
                 if self.headers.get('X-Holandesa-Action') != '1': self.send_response(403); self.end_headers(); return
                 try:
-                    import urllib.parse
-                    n = min(int(self.headers.get('Content-Length', '0') or 0), 262144)
+                    n = min(int(self.headers.get('Content-Length', '0') or 0), 524288)
                     d = json.loads(self.rfile.read(n).decode('utf-8'))
-                    d.setdefault('direccion', cfg.get('direccion_nomina') or 'Avenida San Francisco 1366, Ensenada, Baja California')
-                    d.setdefault('patron', cfg.get('patron_nomina') or 'JOSÉ JORGE SÁNCHEZ GUEVARA')
-                    body = xlsx_nomina_firma(d)
-                    nom = 'Nomina para firmar ' + re.sub(r'[^0-9A-Za-z -]', '-', str(d.get('archivo') or 'semana')) + '.xlsx'
-                    self.send_response(200); self.send_header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); self.send_header('Cache-Control', 'no-store')
-                    self.send_header('Content-Disposition', "attachment; filename=\"nomina.xlsx\"; filename*=UTF-8''" + urllib.parse.quote(nom))
-                    self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
+                    tipo = d.get('tipo') or 'firma'; hojas = []
+                    if tipo in ('completa', 'firma'): hojas.append(rh_hoja_firma(d.get('firma') or d))
+                    if tipo in ('completa', 'pago'): hojas.append(rh_hoja_pago(d.get('pago') or {}))
+                    if tipo in ('completa', 'descansos'): hojas.append(rh_hoja_descansos(mon.rh(), d.get('semana_iso') or datetime.date.today().isoformat()))
+                    return self._rh_mandar(hojas, d.get('formato'), {'completa': 'Nomina completa', 'firma': 'Nomina para firmar', 'pago': 'Pago de nomina', 'descansos': 'Descansos'}.get(tipo, 'Nomina') + ' ' + str(d.get('archivo') or ''))
                 except Exception as e:
-                    log('Hoja de nómina para firmar: ' + traceback.format_exc())
-                    return self._json({'ok': False, 'error': 'No pude armar el Excel: ' + str(e)}, 409)
+                    log('Exportar nómina: ' + traceback.format_exc())
+                    return self._json({'ok': False, 'error': 'No pude armar el archivo: ' + str(e)}, 409)
             if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/log-cliente', '/api/clientes-nuevos', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia', '/api/github'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return

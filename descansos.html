@@ -251,15 +251,30 @@ function pintar(){
     ${AU?`<div class="edit" id="audRes" style="background:var(--surface)"><b style="display:block;margin-bottom:6px">Auditoría · semana del ${corta(SEM)}</b>${audHtml(AU,i=>pd(mas(SEM,i)).getDate())}<p class="nota" style="margin-top:8px">Los cuadros con contorno rojo son los que hay que revisar.</p></div>`:''}
     ${INFO.anterior_tiene?'<button class="btn" data-copiar="1">Copiar la semana anterior</button>':''}
     ${falta?`<button class="btn pri" data-confirmar="1">${falta===1?'Guardar el que falta como está':'Guardar los '+falta+' que faltan como están'}</button>`:E.length?'<p class="nota" style="text-align:center;font-weight:600;color:var(--good)">✓ Toda la semana está capturada</p>':''}
+    <div class="edit" style="background:var(--surface);margin-top:12px"><b style="display:block">Concentrado de descansos</b><span class="nota" style="margin:2px 0 0;display:block">Para imprimirlo y pegarlo, o mandarlo por WhatsApp.</span>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><button class="btn pri" data-exportar="pdf">Compartir en PDF</button><button class="btn" data-exportar="xlsx">Compartir en Excel</button></div></div>
     <p class="nota">Lo que captures aquí le llega a Jorge en Recursos Humanos. Él lo revisa y lo puede corregir.</p>`;
 }
 
+async function exportar(b,fmt){
+  const txt=b.textContent;b.disabled=true;b.textContent='Armando…';
+  try{
+    const p=pd(SEM),q=pd(mas(SEM,6)),arch=p.getDate()+(p.getMonth()!==q.getMonth()?' '+MES[p.getMonth()]:'')+' al '+q.getDate()+' '+MES[q.getMonth()]+' '+q.getFullYear();
+    const r=await fetch('/api/rol-export',{method:'POST',headers:{'Content-Type':'application/json','X-Rol-Token':tok()},body:JSON.stringify({formato:fmt,semana_iso:SEM,archivo:arch})});
+    if(!r.ok){const j=await r.json().catch(()=>({}));if(j.sesion===false){setTok('');pintarLogin(j.error);return}throw new Error(j.error||('No se pudo ('+r.status+')'))}
+    const blob=await r.blob(),nom='Descansos '+arch+(fmt==='pdf'?'.pdf':'.xlsx'),f=new File([blob],nom,{type:blob.type});
+    if(navigator.canShare&&navigator.canShare({files:[f]})){try{await navigator.share({files:[f],title:nom.replace(/\.(xlsx|pdf)$/,'')})}catch(e){if(e.name!=='AbortError')throw e}}
+    else{const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=nom;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000);toast('Listo: '+nom)}
+  }catch(e){toast(e.message)}
+  b.disabled=false;b.textContent=txt;
+}
 document.addEventListener('keydown',ev=>{if(!ED||!document.querySelector('.modal'))return;if(ev.key==='Enter'){ev.preventDefault();document.querySelector('.modal [data-guardar]')?.click()}else if(ev.key==='Escape'){ED=null;pintar()}});
 document.addEventListener('click',async ev=>{
   const t=ev.target.closest('button');if(!t)return;const d=t.dataset;
   if(d.n!==undefined)return tecla(d.n);
   if(d.salir){setTok('');INFO=null;return pintarLogin()}
   if(d.sem){return cargar(mas(SEM,+d.sem))}
+  if(d.exportar){return exportar(t,d.exportar)}
   if(d.auditar){AUD=!AUD;pintar();if(AUD)setTimeout(()=>document.getElementById('audRes')?.scrollIntoView({behavior:'smooth',block:'nearest'}),50);return}
   if(OCUPADO)return;OCUPADO=true;
   try{
