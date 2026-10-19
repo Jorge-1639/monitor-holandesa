@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 144            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.42'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 145            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.43'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -2843,6 +2843,13 @@ class Monitor:
             x = next((x for x in d['empleados'] if x['id'] == e.get('id')), None) if e.get('id') else None
             if x: x.update(reg)   # 'archivos' (contratos subidos) no se toca aquí
             else: reg.update({'id': secrets.token_hex(4), 'activo': True, 'alta': datetime.datetime.now().isoformat(timespec='seconds')}); d['empleados'].append(reg)
+        elif acc == 'emp_nombres':   # solo cambia el nombre (para completar apellidos) sin tocar lo demás del expediente
+            n_ = 0
+            for c_ in (a.get('cambios') or [])[:100]:
+                nom = txt((c_ or {}).get('nombre'), 80).upper()
+                x = next((x for x in d['empleados'] if x['id'] == (c_ or {}).get('id')), None)
+                if x and nom and nom != x.get('nombre'): x['nombre'] = nom; n_ += 1
+            if not n_: raise ValueError('No hubo nombres que cambiar.')
         elif acc == 'emp_baja':
             for x in d['empleados']:
                 if x['id'] == a.get('id'): x['activo'] = bool(a.get('reactivar')); x['fecha_baja'] = '' if a.get('reactivar') else datetime.date.today().isoformat()

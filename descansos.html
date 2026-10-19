@@ -263,8 +263,10 @@ async function exportar(b,fmt){
     const r=await fetch('/api/rol-export',{method:'POST',headers:{'Content-Type':'application/json','X-Rol-Token':tok()},body:JSON.stringify({formato:fmt,semana_iso:SEM,archivo:arch})});
     if(!r.ok){const j=await r.json().catch(()=>({}));if(j.sesion===false){setTok('');pintarLogin(j.error);return}throw new Error(j.error||('No se pudo ('+r.status+')'))}
     const blob=await r.blob(),nom='Descansos '+arch+(fmt==='pdf'?'.pdf':'.xlsx'),f=new File([blob],nom,{type:blob.type});
-    if(navigator.canShare&&navigator.canShare({files:[f]})){try{await navigator.share({files:[f],title:nom.replace(/\.(xlsx|pdf)$/,'')})}catch(e){if(e.name!=='AbortError')throw e}}
-    else{const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=nom;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000);toast('Listo: '+nom)}
+    let ok=false;try{ok=!!(navigator.canShare&&navigator.canShare({files:[f]}))}catch(e){}
+    if(ok){try{await navigator.share({files:[f],title:nom.replace(/\.(xlsx|pdf)$/,'')});b.disabled=false;b.textContent=txt;return}catch(e){if(e.name==='AbortError'){b.disabled=false;b.textContent=txt;return}}}
+    const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=nom;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),8000);
+    if(fmt==='xlsx')alert('El Excel se guardó en la carpeta Descargas con el nombre "'+nom+'".\n\nPara mandarlo por WhatsApp: abre el chat, toca el clip 📎, luego Documento, y escoge el archivo (sale hasta arriba).');else toast('Listo: '+nom);
   }catch(e){toast(e.message)}
   b.disabled=false;b.textContent=txt;
 }

@@ -1403,9 +1403,28 @@ function rhEmpleados(){
   let h=`<div class="kpis"><div class="kpi"><b class="num">${A.length}</b><span>empleados activos</span></div><div class="kpi"><b class="num" style="color:${pend?'var(--warn)':'var(--good)'}">${pend}</b><span>contratos pendientes</span></div></div>`;
   if(rhEdit)h+=rhForm(rhEdit==='nuevo'?{contrato:{}}:rhEmp(rhEdit));
   else h+=`<div class="btns"><button class="btn pri" data-rh="nuevo">+ Agregar empleado</button></div>`;
+  h+=rhNombresCard(A);
   h+=`<div class="card"><h2>Catálogo de empleados <small>${A.length}</small></h2>${A.length?`<div class="list">${A.map(e=>{const an=rhAntig(e.ingreso),c=e.contrato||{};return `<div class="item"><span><b>${esc(e.nombre)}</b> <span class="pill ${c.estado==='firmado'?'good':'warn'}">${c.estado==='firmado'?'Contrato firmado':'Contrato pendiente'}</span></span><span><a href="#" data-rh="editar" data-id="${e.id}" style="color:var(--green-2);font-size:13px">Expediente</a></span><span class="meta">${esc(e.puesto)}${e.pago==='hora'&&+e.tarifa?' · '+fmt2(+e.tarifa)+' por hora':e.diario?' · '+fmt2(+e.diario)+' por día':e.sueldo?' · '+fmt2(e.sueldo)+' por semana':''}${an?' · '+an.txt:' · sin fecha de ingreso'}${rhHorarioTxt(e)?'<br>'+esc(rhHorarioTxt(e)):''}${rhDeudaTxt(e)}</span></div>`}).join('')}</div>`:'<p class="empty">Todavía no hay empleados. Toca "Agregar empleado".</p>'}</div>`;
   if(B.length)h+=`<div class="card"><h2>Dados de baja <small><a href="#" data-rh="bajas" style="color:var(--green-2)">${rhBajas?'Ocultar':'Ver '+B.length}</a></small></h2>${rhBajas?`<div class="list">${B.map(e=>`<div class="item"><span>${esc(e.nombre)}</span><span><a href="#" data-rh="reactivar" data-id="${e.id}" style="color:var(--green-2);font-size:13px">Reactivar</a></span><span class="meta">${esc(e.puesto)} · baja ${e.fecha_baja?rhCorta(e.fecha_baja):''}</span></div>`).join('')}</div>`:''}</div>`;
   return h;
+}
+// Nombres completos (de la hoja de nómina en Excel de Jorge, 06 al 12 de octubre de 2026): se proponen para completar el catálogo; Jorge confirma
+const RH_NOMBRES_EXCEL=['LUIS MANUEL FITCH ESCAMILLA','GERARDO ABACU REYES GOYTIA','MOISES ARROYO HURTADO','ANGEL IVAN HERNANDEZ BERNARDINO','CAROLINA SALDIVAR','SOFIA ALEJANDRA ESPINOZA SALGADO','BERENISSE MARTINEZ MARTINEZ','BERENICE MONSERRAT GARCIA MARTINEZ','DIANA PAOLA LOPEZ ZUÑIGA','RENE ANTUAN CORDOBA NUÑEZ','DANIEL MARTINEZ RAMIREZ','MARTIN RODRIGUEZ'];
+function rhCandidatos(e){
+  const lev=(a,b)=>{const d=[...Array(b.length+1).keys()];for(let i=1;i<=a.length;i++){let p=d[0];d[0]=i;for(let j=1;j<=b.length;j++){const t=d[j];d[j]=Math.min(d[j]+1,d[j-1]+1,p+(a[i-1]===b[j-1]?0:1));p=t}}return d[b.length]};
+  const w=rhNorm(e.nombre).split(' ').filter(Boolean), pa=(a,b)=>{if(a===b)return true;const m=Math.min(a.length,b.length);return m>=5&&lev(a,b)<=(m>=8?2:1)};   // BERENICE ≈ BERENISSE, MONTSERRAT ≈ MONSERRAT
+  return RH_NOMBRES_EXCEL.map(n=>{const c=rhNorm(n).split(' ');const k=w.filter(x=>c.some(y=>pa(x,y))).length;return {n,k,todo:k===w.length,pri:pa(w[0]||'',c[0])||(c.length>=4&&pa(w[0]||'',c[1]))}})
+    .filter(x=>x.todo&&x.pri&&rhNorm(x.n)!==rhNorm(e.nombre)).sort((a,b)=>b.k-a.k||a.n.localeCompare(b.n));
+}
+function rhNombresCard(A){
+  if(st.rhNomOcultar)return '';
+  const L=A.map(e=>({e,c:rhCandidatos(e)})).filter(x=>x.c.length&&rhNorm(x.e.nombre).split(' ').length<4);
+  if(!L.length)return '';
+  return `<div class="card"><h2>Completar nombres <small>${L.length}</small></h2>
+    <p class="empty" style="margin-top:0">Estos nombres están cortos en el catálogo. Te propongo el nombre completo como venía en tu Excel de nómina. Revisa cada uno y toca <b>Guardar nombres</b>; solo cambia el nombre, lo demás del expediente queda igual.</p>
+    ${L.map(({e,c})=>`<div class="field" style="margin-top:10px"><label>${esc(e.nombre)} <small style="color:var(--muted)">${esc(e.puesto)}</small></label><select class="rhnomsel" data-id="${e.id}"><option value="">— Dejar como está —</option>${c.map((x,i)=>`<option value="${esc(x.n)}" ${i===0&&(c.length===1||c[0].k>c[1].k)?'selected':''}>${esc(x.n)}</option>`).join('')}</select></div>`).join('')}
+    <div class="btns" style="margin-top:10px"><button class="btn pri" data-rh="nomguardarnombres">Guardar nombres</button><button class="btn" data-rh="nomocultar">Ya no mostrar</button></div>
+    <p class="empty" style="margin-top:6px">Si alguno no está bien (por ejemplo el apellido), déjalo como está y corrígelo en su <b>Expediente</b>.</p></div>`;
 }
 function rhHorarioTxt(e){const b=rhBase(e),c=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'],p=[];let i=0;
   while(i<7){let j=i;while(j<6&&JSON.stringify(b[j+1])===JSON.stringify(b[i]))j++;if(b[i]&&b[i][0])p.push((i===j?c[i]:c[i]+(j===i+1?' y ':' a ')+c[j])+' '+rhH12(b[i][0])+'–'+rhH12(b[i][1]));i=j+1}
@@ -1753,10 +1772,25 @@ function rhExportCard(){
     <div class="field" style="margin-top:8px"><select id="rhExpTipo"><option value="completa">Nómina completa (para firmar + pago + descansos)</option><option value="firma">Solo la hoja para firmar (sin descuentos)</option><option value="pago">Solo pago (descuentos, transferencia y efectivo)</option><option value="descansos">Solo el concentrado de descansos</option></select></div>
     <div class="btns" style="margin-top:8px"><button class="btn pri" data-rh="exportar" data-fmt="xlsx">Compartir en Excel</button><button class="btn pri" data-rh="exportar" data-fmt="pdf">Compartir en PDF</button></div></div>`;
 }
+// Compartir un archivo: PDF por el menú de compartir; Excel en Android no se puede compartir así (Chrome no lo permite), se descarga y se explica cómo mandarlo
+function rhDescargar(blob,nom){const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=nom;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),8000)}
+function rhAvisoDescarga(nom){
+  const o=document.createElement('div');o.className='rhmodal';
+  o.innerHTML=`<div class="rhmodal-in" role="dialog" aria-modal="true"><b style="font-size:17px">El Excel se guardó en tu tablet</b>
+    <p style="margin:8px 0 4px">Se llama <b>${esc(nom)}</b> y quedó en la carpeta <b>Descargas</b>.</p>
+    <p style="margin:4px 0"><b>Para mandarlo por WhatsApp:</b></p>
+    <ol style="margin:4px 0 8px;padding-left:20px;line-height:1.5"><li>Abre el chat en WhatsApp.</li><li>Toca el <b>clip 📎</b> y luego <b>Documento</b>.</li><li>Busca <b>${esc(nom)}</b> (sale hasta arriba, es el más reciente) y tócalo.</li></ol>
+    <p class="empty" style="margin:0 0 10px">Para abrirlo o imprimirlo: baja la barra de notificaciones de la tablet y toca la descarga.</p>
+    <div class="btns"><button class="btn pri" data-cerrar="1">Entendido</button></div></div>`;
+  o.addEventListener('click',e=>{if(e.target===o||e.target.closest('[data-cerrar]'))o.remove()});document.body.appendChild(o);
+}
 async function rhCompartirArchivo(blob,nom){
-  const f=new File([blob],nom,{type:blob.type});
-  if(navigator.canShare&&navigator.canShare({files:[f]})&&/Android|iPhone|iPad|Macintosh.*Mobile/i.test(navigator.userAgent)){try{await navigator.share({files:[f],title:nom.replace(/\.(xlsx|pdf)$/,'')})}catch(e){if(e.name!=='AbortError')throw e}return}
-  const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=nom;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000);toast('Listo: '+nom);
+  const movil=/Android|iPhone|iPad|Macintosh.*Mobile/i.test(navigator.userAgent), f=new File([blob],nom,{type:blob.type});
+  let ok=false;
+  try{ok=!!(movil&&navigator.canShare&&navigator.canShare({files:[f]}))}catch(e){ok=false}
+  if(ok){try{await navigator.share({files:[f],title:nom.replace(/\.(xlsx|pdf)$/,'')});return}catch(e){if(e.name==='AbortError')return}}
+  rhDescargar(blob,nom);
+  if(movil&&/\.xlsx$/.test(nom))rhAvisoDescarga(nom);else toast('Listo: '+nom);
 }
 async function rhExportar(b,tipo,fmt){
   const fd=rhFirmaDatos(); if(tipo!=='descansos'&&!fd.grupos.length){toast('No hay empleados con sueldo en esta semana.');return}
@@ -1902,6 +1936,7 @@ document.addEventListener('click',async e=>{
   if(a==='comcerrar'){rhComAb=null;return render()}
   if(a==='nomrecalc'){const e_=rhEmp(d.id),c=rhNomCalc(e_,rhSem).calc;document.querySelectorAll(`.rhn[data-emp="${d.id}"]`).forEach(i=>{const k=i.dataset.k;if(k==='transfer'||k==='nota')return;if(i.type==='checkbox')i.checked=!!c[k];else if(k in c)i.value=c[k]||''});
     const i0=document.querySelector(`.rhn[data-emp="${d.id}"]`);if(i0)i0.dispatchEvent(new Event('input',{bubbles:true}));toast('Recalculado. Revisa y dale Guardar.');return}
+  if(a==='nomocultar'){st.rhNomOcultar=1;save();render();return}
   if(a==='exportar'){rhExportar(t,d.tipo||($('#rhExpTipo')||{}).value||'completa',d.fmt);return}
   if(a==='resberenice'){window.open('https://wa.me/?text='+encodeURIComponent(rhMsgBerenice()),'_blank');return}
   if(a==='recibo'){const e_=rhEmp(d.id),v=rhLeeNom(d.id),tot=rhTot(v),L=[`*Nómina La Holandesa*`,`${e_.nombre}`,`Semana del ${rhCorta(rhSem)} al ${rhCorta(rhMas(rhSem,6))}`,``];
@@ -1934,6 +1969,9 @@ document.addEventListener('click',async e=>{
       await rhApi({accion:'acceso_rol',nombre:a==='raalta'?$('#raNom').value:RH.acceso_rol.nombre,pin});toast(a==='raalta'?'Acceso listo. Mándale el link.':'Clave cambiada. La anterior ya no sirve.')}
     else if(a==='raquitar'){if(!confirm('¿Quitarle el acceso a '+RH.acceso_rol.nombre+'? Su clave dejará de funcionar.')){t.disabled=false;return}await rhApi({accion:'acceso_rol_quitar'});toast('Acceso quitado')}
     else if(a==='raver'){const j=await api('/api/rh',{accion:'acceso_rol_ver'}),el=$('#raClave');t.disabled=false;if(j.clave&&el){el.textContent=j.clave;setTimeout(()=>{if(el.isConnected)el.textContent='••••'},15000)}return}
+    else if(a==='nomguardarnombres'){const cambios=[...document.querySelectorAll('.rhnomsel')].filter(x=>x.value).map(x=>({id:x.dataset.id,nombre:x.value}));
+      if(!cambios.length){toast('No escogiste ningún nombre.');t.disabled=false;return}
+      await rhApi({accion:'emp_nombres',cambios});toast(cambios.length===1?'Nombre guardado':cambios.length+' nombres guardados')}
     else if(a==='copiar'){await rhApi({accion:'rol_copiar',semana:rhSem,anterior:rhMas(rhSem,-7)});toast('Semana copiada')}
     else if(a==='nomguardar'||a==='nompagar'){const g=(RH.nominas[rhSem]||{})[d.id];const c=rhLeeNom(d.id);c.pagada=a==='nompagar'?!(g&&g.pagada):!!(g&&g.pagada);await rhApi({accion:'nomina_guardar',semana:rhSem,emp:d.id,campos:c});toast(a==='nompagar'?(c.pagada?'Marcada como pagada':'Ya no está marcada como pagada'):'Nómina guardada')}
     else if(a==='prestamo'){await rhApi({accion:'prestamo_alta',emp:$('#rpEmp').value,monto:$('#rpMon').value,abono:$('#rpAb').value,fecha:$('#rpFec').value,concepto:$('#rpCon').value});toast('Préstamo registrado')}
