@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 145            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.43'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 146            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.44'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -2665,7 +2665,7 @@ class Monitor:
         try:
             with open(RH_FILE, encoding='utf-8') as f: d = json.load(f)
         except (OSError, ValueError): d = {}
-        for k, v in (('empleados', []), ('roles', {}), ('roles_meta', {}), ('roles_h', {}), ('nominas', {}), ('prestamos', []), ('vales', []), ('acceso_rol', {}), ('desc_comida', {}), ('aud_ok', {}), ('res_aj', {})):
+        for k, v in (('empleados', []), ('roles', {}), ('roles_meta', {}), ('roles_h', {}), ('nominas', {}), ('prestamos', []), ('abonos', []), ('vales', []), ('acceso_rol', {}), ('desc_comida', {}), ('aud_ok', {}), ('res_aj', {})):
             if not isinstance(d.get(k), type(v)): d[k] = v
         if d.get('semana_inicia') != 'martes':
             rh_a_martes(d)
@@ -2880,6 +2880,12 @@ class Monitor:
             m = num(a.get('monto'))
             if m <= 0: raise ValueError('Escribe el monto del préstamo.')
             d['prestamos'].append({'id': secrets.token_hex(4), 'emp': emp_id(a.get('emp')), 'fecha': fecha(a.get('fecha'), True), 'monto': m, 'concepto': txt(a.get('concepto'), 120), 'abono_sugerido': num(a.get('abono'))})
+        elif acc == 'abono_alta':   # abonos a préstamos que no salieron de la nómina del panel (los de antes, en Excel, o pagados aparte)
+            m = num(a.get('monto'))
+            if m <= 0: raise ValueError('Escribe el monto del abono.')
+            d.setdefault('abonos', []).append({'id': secrets.token_hex(4), 'emp': emp_id(a.get('emp')), 'fecha': fecha(a.get('fecha'), True), 'monto': m, 'nota': txt(a.get('nota'), 120)})
+        elif acc == 'abono_borrar':
+            d['abonos'] = [x for x in d.get('abonos', []) if x.get('id') != a.get('id')]
         elif acc == 'vale_alta':
             m = num(a.get('monto')); tipo = 'comida' if a.get('tipo') == 'comida' else 'dinero'
             if m <= 0: raise ValueError('Escribe el descuento.' if tipo == 'comida' else 'Escribe el monto del vale.')
