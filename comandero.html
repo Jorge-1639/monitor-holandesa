@@ -294,7 +294,7 @@ async function cargar(conMenu){
   const j=await r.json().catch(()=>({ok:false,error:'Sin respuesta de la caja'}));
   if(j.sesion===false){salir(j.error);throw new Error(j.error)}
   if(!j.ok)throw new Error(j.error||'No pude leer MrTienda');
-  S.user=j.mesero;CUENTAS=j.cuentas||[];ESCRIBE=!!j.escribe;if(j.menu)M=j.menu;S.falla='';
+  S.user=j.mesero;CUENTAS=j.cuentas||[];ESCRIBE=!!j.escribe;PLAT=j.plataformas||PLAT;if(j.menu)M=j.menu;S.falla='';
 }
 async function entrar(pin){
   try{
@@ -444,7 +444,7 @@ function render(){
     app.innerHTML=`<header class="top"><button class="back" data-act="mesas" aria-label="Regresar">‹</button><h1>${esc(titulo())}<small>${c?'Abierta '+esc(c.abrio)+' · '+esc(c.mesero):'Cuenta nueva · '+esc(S.user.nombre)}</small></h1></header>
       ${falla}${factBar(c)}
       <div class="section">Consumo</div>
-      ${all.length?`<div class="lines">${all.map((it,i)=>lineHTML(it,i-prev.length)).join('')}</div><div class="total num"><span>Total</span><span>${money(c&&!S.draft.length?c.total:tot(all))}</span></div>`:'<p class="empty">Todavía no hay nada en esta cuenta.</p>'}
+      ${all.length?`<div class="lines">${all.map((it,i)=>lineHTML(it,i-prev.length)).join('')}</div><div class="total num"><span>Total</span><span>${money(c&&!S.draft.length?c.total:tot(all))}</span></div>${platPaga(c?canalDe(c):S.sel.canal,c&&!S.draft.length?c.total:tot(all))}`:'<p class="empty">Todavía no hay nada en esta cuenta.</p>'}
       <p class="empty">El cobro se hace en la caja.</p>${avisoV1}`;
     bar.hidden=false;
     bi.innerHTML=`<button class="big alt" data-act="menu">Agregar</button><button class="big" data-act="enviar" ${S.draft.length?'':'disabled'}>Enviar a cocina${S.draft.length?' ('+S.draft.reduce((a,i)=>a+i.qty,0)+')':''}</button>`;
@@ -489,6 +489,12 @@ function grupos(){
   return G;
 }
 const CANAL_TXT={recoger:'Para llevar',domicilio:'Domicilio',didi:'Didi',uber:'Uber'};
+let PLAT={};   // 30.7.47: % de comisión de Didi y Uber (lo pone Jorge en el panel)
+function platPaga(k,total){   // lo que paga Didi o Uber: menú − comisión − descuentos
+  if(!k||!['didi','uber'].includes(k.canal))return '';const p=k.canal==='didi'?'Didi':'Uber',c=PLAT[p]||{},d=parseFloat(k.desc)||0;
+  if(c.pct==null)return `<p class="empty" style="margin-top:6px">${p}: descuentos ${money(d)}. La comisión la pone Jorge en el panel.</p>`;
+  const com=Math.round(total*c.pct/100*(c.iva?1.16:1)*100)/100;
+  return `<div class="total num" style="font-size:15px;opacity:.9"><span>${p} paga <small style="font-weight:500">(− comisión ${money(com)} − descuentos ${money(d)})</small></span><span>${money(total-com-d)}</span></div>`}
 function hojaNueva(){
   const ops=[['comedor','Comedor','Elige la mesa'],['recoger','Para llevar','Recoge aquí'],['domicilio','Servicio a domicilio','Busca al cliente'],['didi','Didi','Clave y forma de pago'],['uber','Uber','Clave del pedido']];
   $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Nueva cuenta</h2><div class="opciones">${ops.map(([c,t,d])=>`<button class="k ${({comedor:'k-comedor',recoger:'k-llevar',domicilio:'k-dom',didi:'k-didi',uber:'k-uber'})[c]}" data-nueva="${c}"><span>${t}</span><small>${d}</small></button>`).join('')}</div></div></div>`;
@@ -508,7 +514,7 @@ function hojaCanal(c){
   const campo=(id,lbl,ph,extra)=>`<label for="${id}" style="font-weight:600">${lbl}</label><input id="${id}" class="search" style="margin-top:0" autocomplete="off" placeholder="${ph}" ${extra||''}>`;
   let body='';
   if(c==='recoger')body=campo('cnN','¿Para quién es?','Nombre del cliente','maxlength="40"');
-  else if(c==='didi'||c==='uber')body=campo('cnP','<span style="font-size:20px">Clave del pedido</span> <small style="font-weight:500;color:var(--muted)">(hasta 12)</small>','Ej. 123456789012','maxlength="12" autocapitalize="characters"')+(c==='didi'?`<label style="font-weight:600">¿Cómo paga?</label><div class="modo small" role="group" style="margin-top:0"><button type="button" data-pago="efectivo" aria-pressed="false">Efectivo</button><button type="button" data-pago="tarjeta" aria-pressed="false">Tarjeta</button></div>`:'<p class="empty" style="margin:0">Uber siempre es con tarjeta.</p>');
+  else if(c==='didi'||c==='uber')body=campo('cnP','<span style="font-size:20px">Clave del pedido</span> <small style="font-weight:500;color:var(--muted)">(hasta 12)</small>','Ej. 123456789012','maxlength="12" autocapitalize="characters"')+campo('cnD','Descuentos y promociones <small style="font-weight:500;color:var(--muted)">(opcional)</small>','$0 · lo que '+CANAL_TXT[c]+' le descontó al cliente','inputmode="decimal" maxlength="9"')+`<p class="empty" style="margin:-4px 0 6px">La comisión de ${CANAL_TXT[c]} la calcula el sistema.</p>`+(c==='didi'?`<label style="font-weight:600">¿Cómo paga?</label><div class="modo small" role="group" style="margin-top:0"><button type="button" data-pago="efectivo" aria-pressed="false">Efectivo</button><button type="button" data-pago="tarjeta" aria-pressed="false">Tarjeta</button></div>`:'<p class="empty" style="margin:0">Uber siempre es con tarjeta.</p>');
   else body=`<label for="cnT" style="font-weight:600">Teléfono del cliente</label><div style="display:flex;gap:8px"><input id="cnT" class="search" style="margin-top:0;flex:1" inputmode="tel" maxlength="14" autocomplete="off" placeholder="10 números"><button type="button" class="chipbtn" data-act="buscarcte">Buscar</button></div><div id="cnRes"></div>`+campo('cnN','Nombre del cliente','Si no aparece, escríbelo','maxlength="40"');
   $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><form class="sheet" id="fl"><h2>${c==='recoger'?'Para llevar':c==='domicilio'?'Servicio a domicilio':'Pedido de '+CANAL_TXT[c]}</h2>${body}<p id="cnErr" class="err2" hidden></p><button class="big" type="submit">Continuar</button></form></div>`;
   const f=$('#fl'),pri=f.querySelector('input');setTimeout(()=>pri&&pri.focus(),50);let pago='';
@@ -516,7 +522,7 @@ function hojaCanal(c){
     const r=ev.target.closest('[data-cte]');if(r){$('#cnN').value=r.dataset.cte;f.querySelectorAll('[data-cte]').forEach(x=>x.setAttribute('aria-pressed',x===r))}});
   f.onsubmit=ev=>{ev.preventDefault();const err=m=>{const e=$('#cnErr');e.textContent=m;e.hidden=false};
     const v=id=>{const x=$('#'+id);return x?x.value.trim():''};const sel={llevar:true,canal:{canal:c}};
-    if(c==='didi'||c==='uber'){const p=v('cnP').replace(/[^0-9a-z]/gi,'').toUpperCase();if(!p)return err('Escribe la clave del pedido.');if(c==='didi'&&!pago)return err('Marca si paga en efectivo o con tarjeta.');sel.canal.pedido=p;sel.canal.pago=c==='didi'?pago:'tarjeta';sel.nombre=c.toUpperCase()+' '+p}
+    if(c==='didi'||c==='uber'){const p=v('cnP').replace(/[^0-9a-z]/gi,'').toUpperCase();if(!p)return err('Escribe la clave del pedido.');if(c==='didi'&&!pago)return err('Marca si paga en efectivo o con tarjeta.');sel.canal.pedido=p;sel.canal.pago=c==='didi'?pago:'tarjeta';const dd=v('cnD').replace(/[$,\s]/g,'');if(dd){if(isNaN(+dd)||+dd<0)return err('Descuentos: escribe solo números.');sel.canal.desc=+dd}sel.nombre=c.toUpperCase()+' '+p}
     else{const n=v('cnN');if(!n)return err('Escribe el nombre del cliente.');sel.canal.nombre=n;sel.nombre=n;
       if(c==='domicilio'){const t=v('cnT').replace(/\D/g,'');if(t.length<7)return err('Escribe el teléfono del cliente (10 números).');sel.canal.tel=t}}
     $('#sheet').innerHTML='';abrir(sel)};

@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 148            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.46'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 149            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.47'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -37,6 +37,7 @@ GASTOS_FILE = os.path.join(AQUI, 'gastos.json')       # compras y gastos captura
 FOTOS_DIR = os.path.join(AQUI, 'fotos_compras')        # fotos de tickets de compra
 CAJEROS_FILE = os.path.join(AQUI, 'cajeros.json')       # cajeros con su clave (solo se guarda la huella de la clave)
 MESEROS_FILE = os.path.join(AQUI, 'meseros.json')
+PLAT_PAGOS_FILE = os.path.join(AQUI, 'plataformas_pagos.json')   # 30.7.47: lo que Didi y Uber depositaron por rango de fechas (solo en la caja)
 PEDIDOS_FILE = os.path.join(AQUI, 'comandero_pedidos.json')   # canal de cada cuenta del comandero (recoger, domicilio, Didi, Uber): solo en la caja
 CANALES = {'recoger': 'RECOGER AQUI', 'domicilio': 'SERVICIO A DOMICILIO', 'didi': 'DIDI', 'uber': 'UBER'}
 RH_FILE = os.path.join(AQUI, 'personal.json')
@@ -1778,11 +1779,11 @@ class Monitor:
             ped = self.pedidos()
             for a in out:
                 p_ = ped.get(a['archivo'])
-                if p_: a['canal'] = {k: p_.get(k, '') for k in ('canal', 'pedido', 'pago')}
+                if p_: a['canal'] = {k: p_.get(k, '') for k in ('canal', 'pedido', 'pago', 'desc')}
         except Exception: pass
         return sorted(out, key=lambda a: (a['fecha'], a['abrio']))
 
-    def eliminar_abierta(self, archivo, referencia, motivo='Sin clasificar', nota='', persona=''):
+    def eliminar_abierta(self, archivo, referencia, motivo='Sin clasificar', nota='', persona='', liq=None):
         """Replica la baja observada en MrTienda para una cuenta abierta y NO pagada.
         Respalda PENDIENT.DBF y el DBF de la cuenta, marca el renglón de PENDIENT como eliminado
         y retira el DBF activo. No toca DATABASE ni archivos .ENC/.BAK de MrTienda.
@@ -1793,6 +1794,8 @@ class Monitor:
         if motivo not in MOTIVOS: raise ValueError('Elige un motivo válido.')
         nota = str(nota or '').strip()[:120]
         persona = self._persona(motivo, persona)
+        ped = self.pedidos().get(archivo) or {}
+        liq_g = self._liq_guardar(motivo, liq, ped=ped)   # se valida antes de tocar MrTienda
         foto = next((a for a in self.abiertas() if a['archivo'].upper() == archivo.upper() and a['ref'] == referencia), None)
         if foto is None: raise RuntimeError('La cuenta ya no está abierta o cambió. Actualiza la pantalla.')
         com = os.path.join(self.base, 'COMUNES')
@@ -1846,7 +1849,8 @@ class Monitor:
                                  'fecha': foto['fecha'] or ahora.date().isoformat(), 'abrio': foto['abrio'], 'cuenta': foto['mesa'],
                                  'mesero': foto['mesero'], 'pers': foto['pers'], 'arts': foto['arts'], 'total': foto['total'],
                                  'llevar': foto['llevar'], 'items': [{'n': i['n'], 'q': i['q'], 'imp': i['imp']} for i in foto['items']],
-                                 'motivo': motivo, 'persona': persona, 'nota': nota, 'respaldo': os.path.basename(bdir)})
+                                 'motivo': motivo, 'persona': persona, 'nota': nota, 'respaldo': os.path.basename(bdir),
+                                 **({'liq': liq_g} if liq_g is not None else {}), **({'pedido': ped['pedido']} if ped.get('pedido') else {})})
         except Exception as e:
             log('La cuenta se quitó pero no pude anotarla en la bitácora: ' + str(e))
         self.refresh()
@@ -1927,6 +1931,96 @@ class Monitor:
         tmp = QUITADAS_FILE + '.tmp'
         with open(tmp, 'w', encoding='utf-8') as f: json.dump(q, f, ensure_ascii=False, indent=1)
         os.replace(tmp, QUITADAS_FILE)
+
+    # ------------------------------------------------ 30.7.47: Didi y Uber — lo que paga la plataforma (precio − comisión − descuentos)
+    def plat_cfg(self):
+        base = {'Didi': {'pct': 30.0, 'iva': True}, 'Uber': {'pct': None, 'iva': True}}
+        for k, v in (self.cfg.get('plataformas') or {}).items():
+            if k in base and isinstance(v, dict):
+                base[k] = {'pct': v.get('pct') if isinstance(v.get('pct'), (int, float)) else None, 'iva': bool(v.get('iva', True))}
+        return base
+
+    @staticmethod
+    def _monto(v, nombre):
+        if v is None or str(v).strip() == '': return None
+        try: x = round(float(str(v).replace('$', '').replace(',', '').strip()), 2)
+        except ValueError: raise ValueError(nombre + ': escribe solo números.')
+        if x < 0 or x > 1000000: raise ValueError(nombre + ': cantidad no válida.')
+        return x
+
+    def _liq_guardar(self, motivo, liq, previo=None, ped=None):
+        """Lo que se guarda en la cuenta quitada: descuentos y, si se escribió a mano, la comisión."""
+        if not str(motivo or '').startswith(('Didi', 'Uber')): return None
+        liq = liq if isinstance(liq, dict) else {}
+        out = dict(previo or {})
+        if 'desc' in liq: out['desc'] = self._monto(liq.get('desc'), 'Descuentos') or 0
+        elif 'desc' not in out and ped and ped.get('desc') is not None: out['desc'] = ped['desc']
+        if 'comision' in liq:
+            c = self._monto(liq.get('comision'), 'Comisión')
+            if c is None: out.pop('comision', None)
+            else: out['comision'] = c
+        return out
+
+    def liquidacion(self, r):
+        """Precio de menú, comisión (automática con el % de la plataforma o la escrita a mano), descuentos y lo que paga la plataforma."""
+        mot = str(r.get('motivo') or '')
+        if not mot.startswith(('Didi', 'Uber')): return None
+        plat = 'Didi' if mot.startswith('Didi') else 'Uber'; c = self.plat_cfg()[plat]
+        g = r.get('liq') or {}; precio = round(float(r.get('total') or 0), 2); desc = round(float(g.get('desc') or 0), 2)
+        if g.get('comision') is not None: com, manual = round(float(g['comision']), 2), True
+        elif c['pct'] is not None: com, manual = round(precio * c['pct'] / 100 * (1.16 if c['iva'] else 1), 2), False
+        else: com, manual = None, False
+        return {'plat': plat, 'precio': precio, 'desc': desc, 'comision': com, 'manual': manual, 'capturado': 'desc' in g,
+                'neto': round(precio - com - desc, 2) if com is not None else None, 'pct': c['pct'], 'iva': c['iva']}
+
+    def quitadas_liq(self):
+        out = []
+        for r in self.quitadas():
+            x = dict(r); l_ = self.liquidacion(x)
+            if l_: x['liq'] = l_
+            else: x.pop('liq', None)
+            out.append(x)
+        return out
+
+    def plat_pagos(self):
+        try:
+            with open(PLAT_PAGOS_FILE, encoding='utf-8') as f: d = json.load(f)
+            return d if isinstance(d, list) else []
+        except (OSError, ValueError): return []
+
+    def plataformas_accion(self, d):
+        acc = d.get('accion')
+        if acc == 'config':
+            cfg = {}
+            for k in ('Didi', 'Uber'):
+                v = (d.get('plataformas') or {}).get(k) or {}
+                pct = self._monto(v.get('pct'), 'Porcentaje de ' + k)
+                if pct is not None and pct > 100: raise ValueError('Porcentaje de ' + k + ': no puede ser más de 100.')
+                cfg[k] = {'pct': pct, 'iva': bool(v.get('iva', True))}
+            self.cfg['plataformas'] = cfg
+            with open(CONFIG_FILE, 'w', encoding='utf-8') as fh: json.dump(self.cfg, fh, ensure_ascii=False, indent=2)
+        elif acc in ('pago', 'pago_borrar'):
+            with self.q_lock:
+                L = self.plat_pagos()
+                if acc == 'pago':
+                    plat = d.get('plataforma')
+                    if plat not in ('Didi', 'Uber'): raise ValueError('Plataforma no válida.')
+                    de, ha = str(d.get('desde') or '')[:10], str(d.get('hasta') or '')[:10]
+                    datetime.date.fromisoformat(de); datetime.date.fromisoformat(ha)
+                    if de > ha: de, ha = ha, de
+                    monto = self._monto(d.get('monto'), 'Lo que pagó ' + plat)
+                    if monto is None: raise ValueError('Escribe cuánto pagó ' + plat + '.')
+                    L.append({'id': secrets.token_hex(5), 'plataforma': plat, 'desde': de, 'hasta': ha, 'monto': monto,
+                              'nota': str(d.get('nota') or '').strip()[:80], 'capturado': datetime.datetime.now().isoformat(timespec='seconds')})
+                else:
+                    n0 = len(L); L = [x for x in L if x.get('id') != d.get('id')]
+                    if len(L) == n0: raise RuntimeError('No encontré ese pago.')
+                tmp = PLAT_PAGOS_FILE + '.tmp'
+                with open(tmp, 'w', encoding='utf-8') as f: json.dump(L, f, ensure_ascii=False, indent=1)
+                os.replace(tmp, PLAT_PAGOS_FILE)
+        else: raise ValueError('Acción no válida.')
+        self.refresh()
+        return {'ok': True}
 
     def anotar_quitada(self, reg):
         with self.q_lock:
@@ -2458,7 +2552,7 @@ class Monitor:
         for a in self.abiertas():
             out.append({'archivo': a['archivo'], 'ref': a['ref'], 'abrio': a['abrio'], 'fecha': a['fecha'], 'mesero': a['mesero'], 'cod': a['cod'],
                         'llevar': a['llevar'], 'pers': a['pers'], 'total': a['total'],
-                        'canal': {k: v for k, v in (ped.get(a['archivo']) or {}).items() if k in ('canal', 'pedido', 'pago', 'nombre')}, 'cortes': a.get('cortes', 0),
+                        'canal': {k: v for k, v in (ped.get(a['archivo']) or {}).items() if k in ('canal', 'pedido', 'pago', 'nombre', 'desc')}, 'cortes': a.get('cortes', 0),
                         'cte': a.get('cte', ''), 'des_cte': a.get('des_cte', ''), 'factura': (ped.get(a['archivo']) or {}).get('factura', ''),
                         'items': [{'n': _dbf_txt(i['n']), 'q': i['q'], 'imp': i['imp'], 'det': _dbf_txt(i.get('det', '')), 'h': i['h'], 'llevar': i['llevar']} for i in a['items']]})
         return out
@@ -2557,6 +2651,8 @@ class Monitor:
             if c_ in ('didi', 'uber'):
                 ped = re.sub(r'[^0-9A-Za-z]', '', str(d.get('pedido') or ''))[:12].upper()   # clave completa (hasta 12); en MrTienda va solo el final
                 if not ped: raise ValueError('Escribe la clave del pedido de ' + c_.title() + '.')
+                dsc = self._monto(d.get('desc'), 'Descuentos')
+                if dsc is not None: canal['desc'] = dsc
                 canal.update({'pedido': ped, 'pago': ('efectivo' if d.get('pago') == 'efectivo' else 'tarjeta') if c_ == 'didi' else 'tarjeta', 'ref': ('D' + ped[-5:] + ('E' if d.get('pago') == 'efectivo' else 'T')) if c_ == 'didi' else 'UBER ' + ped[-5:]})   # Didi: D + clave + E (efectivo) o T (tarjeta)
                 if c_ == 'didi' and d.get('pago') not in ('efectivo', 'tarjeta'): raise ValueError('Marca si el pedido de Didi es en efectivo o con tarjeta.')
             else:
@@ -3237,7 +3333,7 @@ class Monitor:
         self.refresh()
         return {'ok': True}
 
-    def cambiar_motivo(self, rid, motivo, nota, persona=''):
+    def cambiar_motivo(self, rid, motivo, nota, persona='', liq=None):
         if motivo not in MOTIVOS: raise ValueError('Motivo no válido.')
         persona = self._persona(motivo, persona)
         with self.q_lock:
@@ -3246,6 +3342,9 @@ class Monitor:
             except (OSError, ValueError): q = []
             for r in q:
                 if r.get('id') == rid:
+                    g = self._liq_guardar(motivo, liq, previo=r.get('liq'))
+                    if g is None: r.pop('liq', None)
+                    else: r['liq'] = g
                     r['motivo'] = motivo; r['nota'] = str(nota or '').strip()[:120]; r['persona'] = persona
                     r['editado'] = datetime.datetime.now().isoformat(timespec='seconds')
                     self._guardar_quitadas(q); break
@@ -3275,7 +3374,8 @@ class Monitor:
         try: out['tardadas'] = self.tiempos_lista()
         except Exception as e: log('No pude leer los tiempos de comanda: ' + str(e)); out['tardadas'] = []
         out['huellas'] = [{k: x.get(k, '') for k in ('id', 'nombre', 'rp', 'alta', 'ultimo', 'v')} for x in huellas()]; out['minutos_sesion'] = self.cfg.get('minutos_sesion', 30)
-        out['quitadas'] = self.quitadas(); out['motivos'] = MOTIVOS; out['familia'] = self.familia()
+        out['quitadas'] = self.quitadas_liq(); out['motivos'] = MOTIVOS
+        out['plataformas'] = {'config': self.plat_cfg(), 'pagos': self.plat_pagos()}; out['familia'] = self.familia()
         out['empleados'] = self.empleados()
         out['gastos'] = self.gastos(); out['categorias_gasto'] = CATEGORIAS_GASTO
         out['cajeros'] = [{'id': x['id'], 'nombre': x['nombre'], 'activo': x.get('activo', True), 'alta': x.get('alta', '')} for x in self.cajeros()]
@@ -3579,7 +3679,7 @@ def make_handler(mon, cfg):
                 except Exception as e:
                     log('Exportar nómina: ' + traceback.format_exc())
                     return self._json({'ok': False, 'error': 'No pude armar el archivo: ' + str(e)}, 409)
-            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/log-cliente', '/api/clientes-nuevos', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia', '/api/github'): self.send_response(404); self.end_headers(); return
+            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/log-cliente', '/api/clientes-nuevos', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia', '/api/github', '/api/plataformas'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return
             try:
@@ -3635,9 +3735,10 @@ def make_handler(mon, cfg):
                     with open(CONFIG_FILE, 'w', encoding='utf-8') as f: json.dump(cfg, f, ensure_ascii=False, indent=2)
                     mon.cfg = cfg; mon.refresh()
                 elif self.path == '/api/gastos': out=mon.gasto_accion(d)
-                elif self.path == '/api/quitada-motivo': out=mon.cambiar_motivo(d.get('id'),d.get('motivo'),d.get('nota'),d.get('persona'))
+                elif self.path == '/api/quitada-motivo': out=mon.cambiar_motivo(d.get('id'),d.get('motivo'),d.get('nota'),d.get('persona'),d.get('liq'))
+                elif self.path == '/api/plataformas': out=mon.plataformas_accion(d)
                 elif self.path == '/api/familia': out=mon.familia_accion(d)
-                else: out=mon.eliminar_abierta(d.get('archivo'),d.get('referencia'),d.get('motivo') or 'Sin clasificar',d.get('nota'),d.get('persona'))
+                else: out=mon.eliminar_abierta(d.get('archivo'),d.get('referencia'),d.get('motivo') or 'Sin clasificar',d.get('nota'),d.get('persona'),d.get('liq'))
                 body=json.dumps(out,ensure_ascii=False).encode('utf-8')
                 return self._send(body,'application/json; charset=utf-8')
             except Exception as e:
@@ -3733,7 +3834,7 @@ def make_handler(mon, cfg):
                     body = json.dumps({'ok': False, 'sesion': False, 'error': m_['bloqueo'] if m_ else 'Tu sesión terminó. Vuelve a entrar con tu clave.' if ip_del_restaurante(self.client_address[0]) else FUERA_WIFI}, ensure_ascii=False).encode('utf-8')
                     self.send_response(401); self.send_header('Content-Type', 'application/json'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
                 try:
-                    out = {'ok': True, 'mesero': m_, 'cuentas': mon.cuentas_comandero(), 'hora': datetime.datetime.now().strftime('%H:%M'), 'escribe': bool(mon.cfg.get('comandero_escribe'))}
+                    out = {'ok': True, 'mesero': m_, 'cuentas': mon.cuentas_comandero(), 'hora': datetime.datetime.now().strftime('%H:%M'), 'escribe': bool(mon.cfg.get('comandero_escribe')), 'plataformas': mon.plat_cfg()}
                     if 'menu=1' in self.path: out['menu'] = mon.menu_comandero()
                     body = json.dumps(out, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
                     if 'gzip' in self.headers.get('Accept-Encoding', ''): return self._send(gzip.compress(body, 6), 'application/json; charset=utf-8', True)

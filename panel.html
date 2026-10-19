@@ -533,10 +533,12 @@ function vPeriodo(){
 
 // ---------- CONTROL
 function itemList(arr,render,emptyTxt){return arr.length?`<div class="list">${arr.map(render).join('')}</div>`:`<p class="empty">${emptyTxt}</p>`}
+function liqTxt(l){if(!l)return '';if(l.neto==null)return `${l.plat}: falta la comisión (pon el % de ${l.plat} en Reportes → Didi y Uber o escríbela en el pedido)`;
+  return `${l.plat} paga ${fmt2(l.neto)} · comisión ${fmt2(l.comision)}${l.manual?'':' ('+l.pct+'%'+(l.iva?' + IVA':'')+')'} · descuentos ${fmt2(l.desc)}${l.capturado?'':' <span class="pill warn">sin descuentos capturados</span>'}`}
 function quitadaItem(r,conFecha){
   return `<div class="item"><span>${esc(r.cuenta)} ${pillMot(r.motivo||'Sin clasificar')}${r.persona?' <b>'+esc(r.persona)+'</b>':''}</span><span class="num">${fmt2(r.total)}</span>
-    <span class="meta">${conFecha?corto(r.fecha)+' · ':''}Abrió ${esc(r.abrio||'')} · quitada ${esc((r.quitada||'').slice(11,16))} · ${esc(r.mesero||'')}${r.nota?' · '+esc(r.nota):''}${r.items&&r.items.length?'<br>'+esc(r.items.map(i=>i.q+' '+i.n).join(', ')):''}
-    ${COPIA?'':` · <a href="#" data-motivo="${esc(r.id)}" style="color:var(--green-2);font-weight:600">cambiar motivo</a>`}</span></div>`}
+    <span class="meta">${conFecha?corto(r.fecha)+' · ':''}Abrió ${esc(r.abrio||'')} · quitada ${esc((r.quitada||'').slice(11,16))} · ${esc(r.mesero||'')}${r.nota?' · '+esc(r.nota):''}${r.items&&r.items.length?'<br>'+esc(r.items.map(i=>i.q+' '+i.n).join(', ')):''}${r.liq?'<br><b style="color:var(--ink)">'+liqTxt(r.liq)+'</b>':''}
+    ${COPIA?'':` · <a href="#" data-motivo="${esc(r.id)}" style="color:var(--green-2);font-weight:600">${r.liq?'cambiar motivo o descuentos':'cambiar motivo'}</a>`}</span></div>`}
 function vControl(D){
   const bt=D.borrados.reduce((a,b)=>a+(b.importe||0)*(b.cant||1),0), dt=D.descuentos.reduce((a,b)=>a+b.monto,0);
   const q=(DATA.quitadas||[]).filter(r=>r.fecha===cur);
@@ -557,13 +559,14 @@ function vControl(D){
 }
 
 // ---------- REPORTES
-const REPS=[['historial','Historial'],['quitadas','Cuentas quitadas'],['cajeras','Cajeras'],['meseros','Meseros'],['mes','Por mes'],['calor','Horas y días'],['compara','Comparativos'],['compras','Compras'],['resultados','Resultados'],['gastos','Gastos'],['tardadas','Comandas tardadas']];
+const REPS=[['historial','Historial'],['quitadas','Cuentas quitadas'],['plataformas','Didi y Uber'],['cajeras','Cajeras'],['meseros','Meseros'],['mes','Por mes'],['calor','Horas y días'],['compara','Comparativos'],['compras','Compras'],['resultados','Resultados'],['gastos','Gastos'],['tardadas','Comandas tardadas']];
 // ---- Didi y Uber (cuentas quitadas) como opción en los reportes; la familia nunca cuenta como venta
 let incPlat=!!st.plat, RD=null;
 const esPlat=r=>/^(Didi|Uber)/.test(r.motivo||'');
+const ventaQ=r=>r.liq&&r.liq.neto!=null?r.liq.neto:(r.total||0);   // 30.7.47: Didi y Uber cuentan como venta lo que paga la plataforma
 function datosRep(){
   const Q=incPlat?(DATA.quitadas||[]).filter(esPlat):[];
-  const pd2={},ph={};Q.forEach(r=>{const o=pd2[r.fecha]=pd2[r.fecha]||{t:0,n:0};o.t+=r.total||0;o.n++;const h=parseInt((r.abrio||'').slice(0,2));if(!isNaN(h)){const k=r.fecha;(ph[k]=ph[k]||{})[h]=(ph[k][h]||0)+(r.total||0)}});
+  const pd2={},ph={};Q.forEach(r=>{const o=pd2[r.fecha]=pd2[r.fecha]||{t:0,n:0};o.t+=ventaQ(r);o.n++;const h=parseInt((r.abrio||'').slice(0,2));if(!isNaN(h)){const k=r.fecha;(ph[k]=ph[k]||{})[h]=(ph[k][h]||0)+ventaQ(r)}});
   const diario=DATA.diario.map(x=>pd2[x.fecha]?{...x,total:x.total+pd2[x.fecha].t,tickets:x.tickets+pd2[x.fecha].n,plat:pd2[x.fecha].t}:x);
   const mon={};diario.forEach(x=>{const m=mon[x.fecha.slice(0,7)]=mon[x.fecha.slice(0,7)]||{mes:x.fecha.slice(0,7),total:0,tickets:0,personas:0};m.total+=x.total;m.tickets+=x.tickets;m.personas+=x.personas||0});
   const mensual=Object.values(mon).sort((a,b)=>a.mes.localeCompare(b.mes));
@@ -578,7 +581,7 @@ function vReportes(){
   RD=datosRep();
   const usaPlat=['historial','mes','calor','compara','resultados'].includes(repModo);
   const head=segBtns('rp',REPS,repModo)+(usaPlat?`<div class="seg"><button data-plat="1" aria-pressed="${incPlat}">${incPlat?'✓ ':''}Incluir Didi y Uber</button></div>`:'');
-  const fn={historial:rHist,quitadas:rQuitadas,cajeras:rCajeras,meseros:rMeseros,calor:rCalor,compara:rCompara,mes:rMes,resultados:rResultados,gastos:rGastos,compras:rCompras,tardadas:rTardadas}[repModo]||rHist;
+  const fn={historial:rHist,quitadas:rQuitadas,plataformas:rPlat,cajeras:rCajeras,meseros:rMeseros,calor:rCalor,compara:rCompara,mes:rMes,resultados:rResultados,gastos:rGastos,compras:rCompras,tardadas:rTardadas}[repModo]||rHist;
   return '<section>'+head+fn()+'</section>';
 }
 const conFechas=()=>`<div class="card">${selectorFechas('r',rDesde,rHasta)}</div>`;
@@ -596,6 +599,47 @@ function rHist(){
     <p class="empty">El mes actual puede estar incompleto.</p></div>
   <div class="card"><h2>Mejores y peores días <small>últimos 30</small></h2>
     <div class="list">${[...best.slice(0,3).map(x=>[x,'good','Mejor']),...best.slice(-3).reverse().map(x=>[x,'bad','Bajo'])].map(([x,c,t])=>`<div class="item"><span>${lbl(x.fecha)} <span class="pill ${c}">${t}</span></span><span class="num">${fmt2(x.total)}</span><span class="meta">${x.tickets} tickets</span></div>`).join('')}</div></div>`;
+}
+// 30.7.47: Didi y Uber — cuánto deben pagar (pedidos con tarjeta) contra lo que pagaron, en las fechas que elija Jorge
+function rPlat(){
+  const C=DATA.plataformas||{config:{},pagos:[]}, cfg=p=>(C.config||{})[p]||{pct:null,iva:true};
+  const enR=(r,a,b)=>esPlat(r)&&r.fecha>=a&&r.fecha<=b, deP=(r,p)=>(r.motivo||'').startsWith(p), efe=r=>/efectivo/i.test(r.motivo||'');
+  const S=(L,k)=>L.reduce((a,r)=>a+((r.liq||{})[k]||0),0), faltan=L=>L.filter(r=>!r.liq||r.liq.neto==null).length;
+  const esperado=(p,a,b)=>(DATA.quitadas||[]).filter(r=>enR(r,a,b)&&deP(r,p)&&!efe(r)).reduce((x,r)=>x+ventaQ(r),0);
+  const tabla=(L,tit,tot)=>`<table class="ledger num"><tbody><tr><td>${tit} <small style="color:var(--muted)">(${pl(L.length,'pedido')})</small></td><td>${fmt2(S(L,'precio'))}</td></tr>
+    <tr><td>− Comisión</td><td>${fmt2(S(L,'comision'))}</td></tr><tr><td>− Descuentos y promociones</td><td>${fmt2(S(L,'desc'))}</td></tr>
+    <tr class="tot"><td>${tot}</td><td>${fmt2(L.reduce((a,r)=>a+ventaQ(r),0))}</td></tr></tbody></table>`;
+  const tarjeta=p=>{
+    const L=(DATA.quitadas||[]).filter(r=>enR(r,rDesde,rHasta)&&deP(r,p)).sort((a,b)=>(a.fecha+a.abrio).localeCompare(b.fecha+b.abrio));
+    const T=L.filter(r=>!efe(r)), E=L.filter(efe), sinD=L.filter(r=>r.liq&&!r.liq.capturado).length, sinC=faltan(L), c=cfg(p);
+    const pagos=(C.pagos||[]).filter(x=>x.plataforma===p&&x.desde<=rHasta&&x.hasta>=rDesde).sort((a,b)=>a.desde.localeCompare(b.desde));
+    return `<div class="card"><h2>${p} <small>${corto(rDesde)} al ${corto(rHasta)} · comisión ${c.pct!=null?c.pct+'%'+(c.iva?' + IVA':''):'sin %'}</small></h2>
+    ${L.length?tabla(T,'Pedidos con tarjeta, a precio de menú','Te debe pagar '+p):'<p class="empty">No hay pedidos de '+p+' en estas fechas.</p>'}
+    ${sinC?`<p class="empty" style="margin-top:8px;color:var(--bad)">${pl(sinC,'pedido')} sin comisión: pon el % de ${p} abajo o escríbela en cada pedido. Mientras, cuentan a precio de menú.</p>`:''}
+    ${sinD?`<p class="empty" style="margin-top:8px"><span class="pill warn">${pl(sinD,'pedido')} sin descuentos capturados</span> Revísalos en "Pedido por pedido".</p>`:''}
+    ${E.length?`<h3 class="dh3" style="margin-top:14px">Pedidos en efectivo <small style="font-weight:400;color:var(--muted)">no entran en el pago de ${p}</small></h3>${tabla(E,'En efectivo, a precio de menú','Te queda')}`:''}
+    <h3 class="dh3" style="margin-top:14px">Lo que pagó ${p}</h3>
+    ${pagos.length?`<div class="list">${pagos.map(x=>{const e=esperado(p,x.desde,x.hasta),df=x.monto-e;return `<div class="item"><span>${corto(x.desde)} al ${corto(x.hasta)}${x.nota?' · '+esc(x.nota):''}</span><span class="num">${fmt2(x.monto)}</span>
+      <span class="meta">Debía pagar ${fmt2(e)} · <b style="color:${Math.abs(df)<=1?'var(--good)':'var(--bad)'}">${Math.abs(df)<=1?'Cuadra':(df<0?'Pagó de menos ':'Pagó de más ')+fmt2(Math.abs(df))}</b>${COPIA?'':` · <a href="#" data-pborrar="${esc(x.id)}" style="color:var(--bad)">borrar</a>`}</span></div>`}).join('')}</div>`:'<p class="empty">Aún no capturas pagos de '+p+' en estas fechas.</p>'}
+    ${COPIA?'':`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px"><div class="field" style="margin:0"><label for="pm${p}">Pagó del ${corto(rDesde)} al ${corto(rHasta)}</label><input id="pm${p}" inputmode="decimal" placeholder="$0.00" autocomplete="off"></div><div class="field" style="margin:0"><label for="pn${p}">Nota (opcional)</label><input id="pn${p}" maxlength="80" placeholder="Ej. depósito 21 oct" autocomplete="off"></div></div>
+      <button class="btn pri" style="margin-top:8px;width:100%" data-ppago="${p}">Guardar lo que pagó ${p}</button>
+      <p class="empty" style="margin-top:6px">Elige arriba las mismas fechas que trae el reporte de pago de ${p} (una semana, 15 días o las que sean) y escribe el total que te depositó.</p>`}
+    ${L.length?`<details class="drow" style="margin-top:10px"><summary><span>Pedido por pedido <small>(${L.length})</small></span><span></span></summary><div class="dlist">${L.map(r=>{const l=r.liq||{};return linea(`${corto(r.fecha)} · ${esc(r.pedido||r.cuenta)} · ${efe(r)?'efectivo':'tarjeta'}${l.capturado?'':' <span class="pill warn">sin descuentos</span>'}`,l.neto!=null?fmt2(l.neto):'—',`menú ${fmt2(l.precio||r.total)} · comisión ${l.comision!=null?fmt2(l.comision)+(l.manual?' (a mano)':''):'falta'} · descuentos ${fmt2(l.desc||0)}${COPIA?'':` · <a href="#" data-motivo="${esc(r.id)}" style="color:var(--green-2);font-weight:600">editar</a>`}`)}).join('')}</div></details>`:''}
+    </div>`};
+  return conFechas()+tarjeta('Didi')+tarjeta('Uber')+`<div class="card"><h2>Comisión de cada plataforma</h2>
+    ${['Didi','Uber'].map(p=>{const c=cfg(p);return `<div style="display:grid;grid-template-columns:70px 1fr auto;gap:10px;align-items:center;margin-top:8px"><b>${p}</b>
+      <label class="field" style="margin:0"><input id="pc${p}" inputmode="decimal" placeholder="% (en blanco = la escribes en cada pedido)" value="${c.pct!=null?c.pct:''}" ${COPIA?'disabled':''} aria-label="Porcentaje de comisión de ${p}"></label>
+      <label style="display:flex;gap:6px;align-items:center;font-size:13px;white-space:nowrap"><input type="checkbox" id="pi${p}" ${c.iva?'checked':''} ${COPIA?'disabled':''}> + IVA 16%</label></div>`}).join('')}
+    ${COPIA?'':'<button class="btn" style="margin-top:12px;width:100%" data-pcfg="1">Guardar porcentajes</button>'}
+    <p class="empty" style="margin-top:8px">La comisión se calcula sobre el precio de tu menú. Si en un pedido escribes la comisión a mano, se respeta esa. Lo que paga la plataforma (menú − comisión − descuentos) es lo que cuenta como venta en Resultados.</p></div>`;
+}
+async function guardarPlat(t,d){
+  try{t.disabled=true;
+    if(d.pcfg){const pl_={};['Didi','Uber'].forEach(p=>pl_[p]={pct:$('#pc'+p).value.trim(),iva:$('#pi'+p).checked});await api('/api/plataformas',{accion:'config',plataformas:pl_});toast('Porcentajes guardados')}
+    else if(d.ppago){const p=d.ppago;await api('/api/plataformas',{accion:'pago',plataforma:p,desde:rDesde,hasta:rHasta,monto:$('#pm'+p).value.trim(),nota:$('#pn'+p).value.trim()});toast('Pago de '+p+' guardado')}
+    else if(d.pborrar){if(!confirm('¿Borrar este pago?')){t.disabled=false;return}await api('/api/plataformas',{accion:'pago_borrar',id:d.pborrar});toast('Pago borrado')}
+    await cargar(true);
+  }catch(e){t.disabled=false;toast(e.message)}
 }
 function rQuitadas(){
   const q=(DATA.quitadas||[]).filter(r=>r.fecha>=rDesde&&r.fecha<=rHasta).sort((a,b)=>(b.fecha+b.abrio).localeCompare(a.fecha+a.abrio));
@@ -1270,7 +1314,7 @@ function costoFijos(a,b){
 const CANS=[['comedor','Comedor'],['llevar','Para llevar'],['domicilio','A domicilio'],['didi','Didi'],['uber','Uber']];
 function canalesPorDia(D){
   const m={};D.forEach(x=>{const o=m[x.fecha]={comedor:0,llevar:0,domicilio:0,didi_e:0,didi_t:0,uber:0};Object.entries(x.canales||{}).forEach(([k,v])=>o[k]=(o[k]||0)+v)});
-  if(incPlat)(DATA.quitadas||[]).filter(esPlat).forEach(r=>{const o=m[r.fecha];if(!o)return;o[/^Uber/.test(r.motivo)?'uber':(/efectivo/i.test(r.motivo)?'didi_e':'didi_t')]+=r.total||0});
+  if(incPlat)(DATA.quitadas||[]).filter(esPlat).forEach(r=>{const o=m[r.fecha];if(!o)return;o[/^Uber/.test(r.motivo)?'uber':(/efectivo/i.test(r.motivo)?'didi_e':'didi_t')]+=ventaQ(r)});
   Object.values(m).forEach(o=>o.didi=o.didi_e+o.didi_t);return m}
 function sumaCan(L){const t={comedor:0,llevar:0,domicilio:0,didi_e:0,didi_t:0,didi:0,uber:0};L.forEach(o=>Object.keys(t).forEach(k=>t[k]+=o[k]||0));t.total=CANS.reduce((a,[k])=>a+t[k],0);return t}
 function cardCanales(D){
@@ -1312,7 +1356,7 @@ function rResultados(){
   <div class="card"><h2>Estado de resultados <small>${corto(rDesde)} al ${corto(rHasta)}</small></h2><div class="dtab">
     ${fila('Ventas',fmt2(venta),(()=>{const T=sumaCan(Object.values(canalesPorDia(D)));
       return CANS.map(([k,l])=>ln(l,fmt2(T[k]),(venta?(100*T[k]/venta).toFixed(1)+'% de la venta':'')+(k==='didi'&&T.didi?' · efectivo '+fmt2(T.didi_e)+' · tarjeta '+fmt2(T.didi_t):''))).join('')
-        +`<p class="empty" style="margin:6px 0 4px">Cobrado en la caja (MrTienda): ${fmt2(vMT)}${incPlat?' · Didi y Uber quitadas de la caja: '+fmt2(plat):''}. La comida de la familia no cuenta como venta.</p>`})())}
+        +`<p class="empty" style="margin:6px 0 4px">Cobrado en la caja (MrTienda): ${fmt2(vMT)}${incPlat?' · Lo que pagan Didi y Uber (precio de menú menos comisión y descuentos): '+fmt2(plat):''}. La comida de la familia no cuenta como venta.</p>`})())}
     ${fila('− Insumos y compras',fmt2(compras),ins.map(m=>ln(esc(m.proveedor||m.concepto),fmt2(m.monto),corto(m.fecha)+(m.ticket?' · ticket '+esc(m.ticket):'')+' · capturado')).join('')+(cajaG?caja.map(e=>ln(esc(e.ref),fmt2(e.importe),corto(e.d)+' · salida de caja MrTienda')).join(''):''),ins.length+(cajaG?caja.length:0))}
     ${fijo('Utilidad bruta',fmt2(bruta),'tot')}
     ${fila('− Gastos fijos ('+n+(n===1?' día)':' días)'),fmt2(tFij),fj.map(f=>ln(esc(f.concepto),fmt2(f.parte),(f.real?f.real+' de '+n+' días con recibo real':'promedio')+(f.mes?' · '+fmt(f.mes)+' al mes':''))).join(''),fj.length)}
@@ -2090,15 +2134,16 @@ function abrirHoja(o){
     <h3 id="shT">${o.modo==='quitar'?'Quitar cuenta':'Cambiar motivo'}</h3>
     <p class="sub">${esc(o.cuenta)} · ${fmt2(o.total)}${o.modo==='quitar'?' · se quita de MrTienda y queda registrada aquí':''}</p>
     <div class="mot">${(DATA.motivos||Object.keys(MOTIVOS_INFO)).filter(m=>m!=='Sin clasificar').map(m=>`<button data-mot="${esc(m)}" aria-pressed="${hoja.motivo===m}">${esc(m)}<small>${esc(MOTIVOS_INFO[m]||'')}</small></button>`).join('')}</div>
-    <div id="shPer"></div>
+    <div id="shPer"></div><div id="shLiq"></div>
     <div class="field"><label for="shNota">Nota (número de pedido, cupón…)</label><input id="shNota" list="shNotas" maxlength="120" value="${esc(o.nota||'')}" autocomplete="off"><datalist id="shNotas">${notas.map(n=>`<option value="${esc(n)}">`).join('')}</datalist></div>
     <div class="btns" style="margin-top:18px"><button class="btn" data-sh="cancelar" style="flex:1">Cancelar</button><button class="btn ${o.modo==='quitar'?'danger':'pri'}" data-sh="ok" style="flex:1.4" ${hoja.motivo?'':'disabled'}>${o.modo==='quitar'?'Quitar cuenta':'Guardar'}</button></div>
   </div>`;
   document.body.appendChild(el);
-  pintarPersona();
+  pintarPersona();pintarLiq();
+  el.addEventListener('input',e=>{if(e.target.id==='shDesc'||e.target.id==='shCom')calcLiq()});
   el.addEventListener('click',async e=>{
     if(e.target===el){cerrarHoja();return}
-    const m=e.target.closest('[data-mot]');if(m){hoja.motivo=m.dataset.mot;el.querySelectorAll('[data-mot]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.mot===hoja.motivo));pintarPersona();el.querySelector('[data-sh="ok"]').disabled=false;return}
+    const m=e.target.closest('[data-mot]');if(m){hoja.motivo=m.dataset.mot;el.querySelectorAll('[data-mot]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.mot===hoja.motivo));pintarPersona();pintarLiq();el.querySelector('[data-sh="ok"]').disabled=false;return}
     const pp=e.target.closest('[data-per]');if(pp){$('#shPersona').value=pp.dataset.per;el.querySelectorAll('[data-per]').forEach(b=>b.setAttribute('aria-pressed',b===pp));return}
     const b=e.target.closest('[data-sh]');if(!b)return;
     if(b.dataset.sh==='cancelar'){cerrarHoja();return}
@@ -2108,12 +2153,33 @@ function abrirHoja(o){
     try{
       const url=hoja.modo==='quitar'?'/api/eliminar-abierta':'/api/quitada-motivo';
       const body=hoja.modo==='quitar'?{archivo:hoja.archivo,referencia:hoja.ref,motivo:hoja.motivo,nota,persona}:{id:hoja.id,motivo:hoja.motivo,nota,persona};
+      if(/^(Didi|Uber)/.test(hoja.motivo)&&$('#shDesc'))body.liq={desc:$('#shDesc').value.trim(),comision:$('#shCom').value.trim()};
       const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-Holandesa-Action':'1'},body:JSON.stringify(body),credentials:'same-origin'});
       const j=await r.json().catch(()=>({ok:false,error:'Respuesta inválida ('+r.status+')'}));
       if(!j.ok) throw new Error(j.error||'No se pudo.');
       cerrarHoja();toast(hoja.modo==='quitar'?'Cuenta quitada · '+hoja.motivo+(persona?' · '+persona:''):'Motivo actualizado');await cargar(true);
     }catch(err){b.disabled=false;b.textContent='Intentar de nuevo';toast(err.message)}
   });
+}
+// 30.7.47: Didi y Uber — comisión automática con el % de la plataforma (o escrita a mano) y descuentos; la venta es lo que paga la plataforma
+const platCfg=p=>((DATA.plataformas||{}).config||{})[p]||{pct:null,iva:true};
+const comAuto=(p,precio)=>{const c=platCfg(p);return c.pct==null?null:Math.round(precio*c.pct/100*(c.iva?1.16:1)*100)/100};
+function pintarLiq(){
+  const box=$('#shLiq');if(!box)return;const m=hoja.motivo||'';
+  if(!/^(Didi|Uber)/.test(m)){box.innerHTML='';return}
+  const p=m.startsWith('Didi')?'Didi':'Uber',c=platCfg(p),au=comAuto(p,hoja.total||0);
+  const dv=$('#shDesc')?$('#shDesc').value:(hoja.desc!=null?hoja.desc:''), cv=$('#shCom')?$('#shCom').value:(hoja.comision!=null?hoja.comision:'');
+  box.innerHTML=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div class="field"><label for="shDesc">Descuentos y promociones</label><input id="shDesc" inputmode="decimal" placeholder="$0" value="${esc(dv)}" autocomplete="off"></div>
+    <div class="field"><label for="shCom">Comisión ${c.pct!=null?`<small>(${c.pct}%${c.iva?' + IVA':''})</small>`:''}</label><input id="shCom" inputmode="decimal" placeholder="${au!=null?fmt2(au)+' automática':'Escríbela'}" value="${esc(cv)}" autocomplete="off"></div></div>
+    <p id="shNeto" class="sub" style="margin:4px 0 0"></p>`;
+  calcLiq();
+}
+function calcLiq(){
+  const out=$('#shNeto');if(!out)return;const p=(hoja.motivo||'').startsWith('Didi')?'Didi':'Uber',pr=hoja.total||0;
+  const n=v=>{const x=parseFloat(String(v).replace(/[$,\s]/g,''));return isNaN(x)?null:x};
+  const d=n($('#shDesc').value)||0,cm=n($('#shCom').value),com=cm!=null?cm:comAuto(p,pr);
+  out.innerHTML=com==null?`Falta la comisión: escríbela o pon el % de ${p} en Reportes → Didi y Uber.`:`Menú ${fmt2(pr)} − comisión ${fmt2(com)} − descuentos ${fmt2(d)} = <b style="color:var(--ink)">${p} te paga ${fmt2(pr-com-d)}</b> (esto cuenta como venta)`;
 }
 function pintarPersona(){
   const box=$('#shPer');if(!box)return;const m=hoja.motivo;
@@ -2156,7 +2222,7 @@ $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(b)irA(b.dataset.tab)};
 $('#view').addEventListener('click',e=>{
-  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-cnquitar],[data-cf],[data-cfej],[data-cfguardar],[data-cfprueba],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaquitar],[data-ghsave],[data-ghprobar],[data-ghquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes],[data-hactivar],[data-hquitar],[data-hsalir]');if(!t)return;
+  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-cnquitar],[data-cf],[data-cfej],[data-cfguardar],[data-cfprueba],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaquitar],[data-ghsave],[data-ghprobar],[data-ghquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes],[data-hactivar],[data-hquitar],[data-hsalir],[data-pcfg],[data-ppago],[data-pborrar]');if(!t)return;
   const d=t.dataset;
   if(d.go) return irA(d.go);
   if(d.pm){prodModo=d.pm;return render()} if(d.pt){prodT=d.pt;return render()}
@@ -2202,11 +2268,12 @@ $('#view').addEventListener('click',e=>{
   if(d.acceso){NUEVO_CJ=null;fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;render()}).catch(err=>toast(err.message));return}
   if(d.fcsave&&CAPMODE){e.preventDefault();guardarCompra(t,false).then(()=>{toast('Compra guardada ✓');window.scrollTo(0,0);return cargarCaptura()}).catch(err=>{toast(err.message);t.disabled=false;t.textContent='Guardar'});return}
   if(d.gimp||d.gdel||d.fsave||d.fcsave||d.rcsave||d.rcdel){e.preventDefault();guardarGasto(t,d);return}
+  if(d.pcfg||d.ppago||d.pborrar){e.preventDefault();guardarPlat(t,d);return}
   if(d.ct2){cmpTodos=!cmpTodos;return render()}
   if(d.mes){e.preventDefault();mesSel=d.mes;render();window.scrollTo(0,0);return}
   if(d.quitar!=null){e.preventDefault();const a=(DATA.abiertas||[])[+d.quitar];if(a){const k=a.canal||{},mot=k.canal==='didi'?(k.pago==='efectivo'?'Didi · efectivo':'Didi · tarjeta'):k.canal==='uber'?'Uber · tarjeta':null;
-    abrirHoja({modo:'quitar',archivo:a.archivo,ref:a.ref??a.mesa,cuenta:a.mesa,total:a.total,motivo:mot,nota:k.pedido?'Pedido '+k.pedido:''})}return}
-  if(d.motivo){e.preventDefault();const r=(DATA.quitadas||[]).find(x=>x.id===d.motivo);if(r)abrirHoja({modo:'motivo',id:r.id,cuenta:r.cuenta,total:r.total,motivo:r.motivo==='Sin clasificar'?null:r.motivo,nota:r.nota,persona:r.persona});return}
+    abrirHoja({modo:'quitar',archivo:a.archivo,ref:a.ref??a.mesa,cuenta:a.mesa,total:a.total,motivo:mot,nota:k.pedido?'Pedido '+k.pedido:'',desc:k.desc!==''&&k.desc!=null?k.desc:null})}return}
+  if(d.motivo){e.preventDefault();const r=(DATA.quitadas||[]).find(x=>x.id===d.motivo);if(r)abrirHoja({modo:'motivo',id:r.id,cuenta:r.cuenta,total:r.total,motivo:r.motivo==='Sin clasificar'?null:r.motivo,nota:r.nota,persona:r.persona,desc:r.liq&&r.liq.capturado?r.liq.desc:null,comision:r.liq&&r.liq.manual?r.liq.comision:null});return}
 });
 $('#view').addEventListener('change',e=>{const id=e.target.id,v=e.target.value;if(!v)return;
   if(id==='pD'){pDesde=v;render()}else if(id==='pH'){pHasta=v;render()}else if(id==='rD'){rDesde=v;render()}else if(id==='rH'){rHasta=v;render()}else if(id==='rMes'){mesSel=v;render()}else if(id==='cA'){cmpA=v;render()}else if(id==='cB'){cmpB=v;render()}});
