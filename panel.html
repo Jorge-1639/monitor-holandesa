@@ -1719,11 +1719,11 @@ function rhNomina(){
 // ---- Resumen de nómina: total, menos préstamos y vales, menos transferencias = efectivo que paga Berenice
 // Resumen: la nómina (sueldo) viene de la pestaña Nómina; lo demás se puede cambiar aquí. Vacío = automático.
 // Vales de dinero y de comida se toman solos de lo registrado en la semana.
-const RS_K=[['abono','Préstamo'],['comida','V. comida'],['vales','Anticipos'],['otros','Otros'],['transfer','Transfer.']];
+const RS_K=[['vales','Anticipos'],['abono','Préstamo'],['comida','V. comida'],['otros','Otros'],['grat','Gratific. (+)'],['transfer','Transfer.']];
 function rhResFila(e,sem){sem=sem||rhSem;const c=rhNomCalc(e,sem),v=c.v,vs=rhValesSem(e,sem),aj=((RH.res_aj||{})[sem]||{})[e.id]||{};
-  const auto={abono:+v.abono||0,comida:Math.round(vs.comida*100)/100,vales:Math.round((vs.man+vs.caja)*100)/100,otros:+v.otros||0,transfer:+v.transfer||0};
+  const auto={abono:+v.abono||0,comida:Math.round(vs.comida*100)/100,vales:Math.round((vs.man+vs.caja)*100)/100,otros:+v.otros||0,grat:0,transfer:+v.transfer||0};
   const f={e,g:c.g,b:rhBruto(v),auto,aj};RS_K.forEach(([k])=>f[k]=k in aj?+aj[k]:auto[k]);
-  f.tot=Math.round((f.b-f.abono-f.comida-f.vales-f.otros)*100)/100;f.ef=Math.round((f.tot-f.transfer)*100)/100;return f}
+  f.tot=Math.round((f.b-f.vales-f.abono-f.comida-f.otros+f.grat)*100)/100;f.ef=Math.round((f.tot-f.transfer)*100)/100;return f}
 function rhResumen(){
   const A=rhNomActivos(); if(!A.length)return rhSemNav()+'<p class="empty">Todavía no hay nómina que resumir.</p>';
   const F=A.map(e=>rhResFila(e));
@@ -1737,7 +1737,7 @@ function rhResumen(){
   return rhSemNav()+rhExportCard()+avisos+(sin?`<p class="note" style="margin-bottom:12px">${sin===1?'Falta guardar la nómina de 1 empleado':'Falta guardar la nómina de '+sin+' empleados'}; aquí se usa lo calculado. Guárdala en la pestaña Nómina.</p>`:'')+
   `<div class="card"><h2>Resumen de la semana</h2><table class="ledger num"><tbody>
     ${fila('Total de la nómina',S('b'),false,true)}
-    ${fila('Préstamos',S('abono'),true)}${fila('Vales de comida',S('comida'),true)}${fila('Anticipos (vales de la semana)',S('vales'),true)}${S('otros')?fila('Otros descuentos',S('otros'),true):''}
+    ${fila('Anticipos (vales de la semana)',S('vales'),true)}${fila('Préstamos',S('abono'),true)}${fila('Vales de comida',S('comida'),true)}${S('otros')?fila('Otros descuentos',S('otros'),true):''}${S('grat')?fila('+ Gratificaciones',S('grat'),false):''}
     ${fila('Total a pagar',S('tot'),false,true)}
     ${fila('Transferencias',S('transfer'),true)}
     ${fila('Efectivo a pagar',S('ef'),false,true)}</tbody></table>
@@ -1745,7 +1745,7 @@ function rhResumen(){
   <div class="card"><h2>Por empleado <small>desliza para ver todo</small></h2>
     <p class="empty" style="margin-top:0">La columna <b>Nómina</b> viene de la pestaña Nómina y no se cambia aquí. Lo demás sí: escribe la cantidad (por ejemplo la transferencia) y se guarda sola al salir del cuadro. Los anticipos (vales de la semana) y los vales de comida se ponen solos. Si borras el cuadro, vuelve a lo automático. En <span style="background:#fff7e6;border:1px solid #d97706;border-radius:5px;padding:0 4px">anaranjado</span> lo que cambiaste tú.</p>
     <div class="tscroll"><table class="tk num" style="font-size:12.5px"><thead><tr><th>Empleado</th><th class="r">Nómina</th>${RS_K.map(([,l])=>`<th class="r">${l}</th>`).join('')}<th class="r">Efectivo</th></tr></thead><tbody>
-    ${F.map((f,ix)=>(ix&&(F[ix-1].e.puesto||'Otro')===(f.e.puesto||'Otro')?'':`<tr><td colspan="8" style="font-weight:900;text-transform:uppercase;letter-spacing:.08em;padding-top:12px;color:#1d4ed8">${esc(RH_NOM_TIT[f.e.puesto]||f.e.puesto||'Otros')}</td></tr>`)+`<tr><td>${esc(f.e.nombre.split(' ').slice(0,2).join(' '))}${f.g?'':' <small style="color:var(--warn)">sin guardar</small>'}</td><td class="r"><b>${fmt2(f.b)}</b></td>${RS_K.map(([k])=>cel(f,k)).join('')}<td class="r"><b>${fmt2(f.ef)}</b></td></tr>`).join('')}
+    ${F.map((f,ix)=>(ix&&(F[ix-1].e.puesto||'Otro')===(f.e.puesto||'Otro')?'':`<tr><td colspan="9" style="font-weight:900;text-transform:uppercase;letter-spacing:.08em;padding-top:12px;color:#1d4ed8">${esc(RH_NOM_TIT[f.e.puesto]||f.e.puesto||'Otros')}</td></tr>`)+`<tr><td>${esc(f.e.nombre.split(' ').slice(0,2).join(' '))}${f.g?'':' <small style="color:var(--warn)">sin guardar</small>'}</td><td class="r"><b>${fmt2(f.b)}</b></td>${RS_K.map(([k])=>cel(f,k)).join('')}<td class="r"><b>${fmt2(f.ef)}</b></td></tr>`).join('')}
     <tr class="tt"><td>Total</td><td class="r">${fmt2(S('b'))}</td>${RS_K.map(([k])=>`<td class="r">${fmt2(S(k))}</td>`).join('')}<td class="r">${fmt2(S('ef'))}</td></tr></tbody></table></div></div>`;
 }
 // Hoja de nómina para firmar (Excel): sueldo, séptimo, horas extra, prima, incentivo y extras de cada quien; sin descuentos
@@ -1763,7 +1763,7 @@ function rhPagoDatos(){
   const grupos=[];
   rhNomActivos().forEach(e=>{const f=rhResFila(e),tit=RH_NOM_TIT[e.puesto]||e.puesto||'Otros',pr=rhPrest(e.id),aj=((RH.res_aj||{})[rhSem]||{})[e.id]||{},ya='abono' in aj?+aj.abono:+(((RH.nominas[rhSem]||{})[e.id]||{}).abono||0);
     let g=grupos.find(x=>x.titulo===tit);if(!g){g={titulo:tit,filas:[]};grupos.push(g)}
-    g.filas.push({nombre:e.nombre,nomina:f.b,prestamo:f.abono,comida:f.comida,vales:f.vales,otros:f.otros,transfer:f.transfer,saldo:Math.max(0,Math.round(((pr.saldo||0)-(f.abono-ya))*100)/100)})});
+    g.filas.push({nombre:e.nombre,nomina:f.b,prestamo:f.abono,comida:f.comida,vales:f.vales,otros:f.otros,grat:f.grat,transfer:f.transfer,saldo:Math.max(0,Math.round(((pr.saldo||0)-(f.abono-ya))*100)/100)})});
   return grupos;
 }
 // Tarjeta para compartir: nómina completa (firma + pago + descansos) o una sola hoja, en Excel o PDF
@@ -1832,11 +1832,38 @@ function rhComDetalle(c,q,x,op){
 function rhEdoCuenta(e,p){
   const AJ=RH.res_aj||{}, M=[...p.P.map(x=>({f:x.fecha,t:'Préstamo'+(x.concepto?' · '+x.concepto:''),m:+x.monto,del:'borrarprest',id:x.id})),
     ...p.AM.map(x=>({f:x.fecha,t:'Abono'+(x.nota?' · '+x.nota:''),m:-(+x.monto),del:'borrarabono',id:x.id}))];
-  new Set([...Object.keys(RH.nominas||{}),...Object.keys(AJ)]).forEach(s=>{const aj=(AJ[s]||{})[e.id]||{},v='abono' in aj?+aj.abono:+((((RH.nominas||{})[s]||{})[e.id]||{}).abono||0);if(v>0)M.push({f:rhMas(s,6),t:'Abono en nómina · semana del '+rhCorta(s),m:-v})});
+  new Set([...Object.keys(RH.nominas||{}),...Object.keys(AJ)]).forEach(s=>{const aj=(AJ[s]||{})[e.id]||{},v='abono' in aj?+aj.abono:+((((RH.nominas||{})[s]||{})[e.id]||{}).abono||0);if(v>0)M.push({f:rhMas(s,6),t:'Abono en nómina · semana del '+rhCorta(s),m:-v,sem:s})});
   M.sort((a,b)=>a.f.localeCompare(b.f)||(b.m-a.m)); let sal=0;
   return `<div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-top:10px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline"><b>${esc(e.nombre)}</b><b class="num" style="color:${p.saldo?'var(--bad)':'var(--good)'}">${p.saldo?'Debe '+fmt2(p.saldo):'Pagado'}</b></div>
-    <table class="ledger num" style="font-size:13px;margin-top:6px"><tbody>${M.map(x=>{sal+=x.m;return `<tr><td style="white-space:nowrap">${rhCorta(x.f)}</td><td>${esc(x.t)}${x.del?` <a href="#" data-rh="${x.del}" data-id="${x.id}" style="color:var(--bad);font-size:12px">borrar</a>`:''}</td><td class="r" style="color:${x.m<0?'var(--good)':'var(--bad)'}">${x.m<0?'−':'+'}${fmt2(Math.abs(x.m))}</td><td class="r"><b>${fmt2(Math.round(sal*100)/100)}</b></td></tr>`}).join('')}</tbody></table>
+    <table class="ledger num" style="font-size:13px;margin-top:6px"><tbody>${M.map(x=>{sal+=x.m;return `<tr><td style="white-space:nowrap">${rhCorta(x.f)}</td><td>${esc(x.t)}${x.del?` <a href="#" data-rh="${x.del}" data-id="${x.id}" style="color:var(--bad);font-size:12px">borrar</a>`:''}${x.sem?` <a href="#" data-rh="nodesc" data-id="${e.id}" data-sem="${x.sem}" style="color:var(--bad);font-size:12px">no se descontó</a>`:''}</td><td class="r" style="color:${x.m<0?'var(--good)':'var(--bad)'}">${x.m<0?'−':'+'}${fmt2(Math.abs(x.m))}</td><td class="r"><b>${fmt2(Math.round(sal*100)/100)}</b></td></tr>`}).join('')}</tbody></table>
     ${p.sug?`<small style="color:var(--muted)">Abono por semana: ${fmt2(p.sug)}</small>`:''}</div>`;
+}
+let rhEdoAb=null;   // empleado con el estado de cuenta abierto
+function rhAntSem(id,sems){ // anticipos (vales de la semana) de las últimas semanas: manuales y de la caja
+  const out=[];sems.forEach(s=>{const fin=rhMas(s,6),en=x=>x.fecha>=s&&x.fecha<=fin;
+    (RH.vales||[]).filter(v=>v.tipo!=='comida'&&v.emp===id&&en(v)).forEach(v=>out.push({f:v.fecha,t:'Anticipo'+(v.nota?' · '+v.nota:''),m:+v.monto}));
+    (RH.vales_caja||[]).filter(v=>en(v)&&(rhQuien(v.ref)||{}).id===id).forEach(v=>out.push({f:v.fecha,t:'Anticipo de caja · '+v.ref,m:+v.monto||0}))});
+  return out.sort((a,b)=>b.f.localeCompare(a.f));
+}
+function rhPrestModulo(A){
+  const sems=[0,1,2,3].map(k=>rhMas(rhSem,-7*k));
+  const filas=A.map(e=>{const p=rhPrest(e.id),f=rhResFila(e),ant=rhAntSem(e.id,[rhSem]).reduce((a,x)=>a+x.m,0),ab=rhEdoAb===e.id;
+    return `<div class="item" style="cursor:pointer;align-items:center" data-rh="edoabrir" data-id="${e.id}"><span><b>${esc(e.nombre)}</b><small style="display:block;color:var(--muted)">${p.P.length?'Descuento por semana '+fmt2(p.sug||0)+' · esta semana '+fmt2(f.abono):'Sin préstamo'}${ant?' · anticipos de la semana '+fmt2(ant):''}</small></span><span class="num" style="text-align:right;color:${p.saldo?'var(--bad)':'var(--muted)'}"><b>${p.P.length?(p.saldo?'Debe '+fmt2(p.saldo):'Pagado'):'—'}</b> <span style="color:var(--muted)">${ab?'▴':'▾'}</span></span></div>${ab?rhEdoDetalle(e,p,f,sems):''}`}).join('');
+  const T=A.reduce((a,e)=>a+rhPrest(e.id).saldo,0), c=(RH.cargas||{}).prestamos_excel_oct2026;
+  return `<div class="card"><h2>Préstamos y anticipos <small>toca un nombre</small></h2>
+    ${c?`<p class="note" style="margin:0 0 10px;background:var(--good-bg);color:var(--good)">Préstamos de tu Excel cargados: ${esc((c.cargados||[]).join(', ')||'ninguno')}.${(c.faltan||[]).length?' <b style="color:var(--bad)">No encontré: '+esc(c.faltan.join(', '))+'</b> — regístralos abajo.':''} Revisa cada estado de cuenta.</p>`:''}
+    <div class="list">${filas}</div><p class="empty" style="margin-top:8px">Total que te deben de préstamos: <b>${fmt2(T)}</b>. El descuento de cada semana se pone solo en la nómina y en el resumen; si no se lo descontaste, ábrelo y toca <b>No se descontó</b>.</p></div>`;
+}
+function rhEdoDetalle(e,p,f,sems){
+  const aj=((RH.res_aj||{})[rhSem]||{})[e.id]||{}, quitado='abono' in aj&&+aj.abono===0;
+  const ant=rhAntSem(e.id,sems);
+  return `<div style="padding:4px 2px 12px">${p.P.length?rhEdoCuenta(e,p):''}
+    ${p.P.length?`<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:8px"><div class="field" style="margin:0;flex:1;min-width:140px"><label>Descuento por semana</label><input id="rhSemAb_${e.id}" inputmode="decimal" value="${p.sug||''}"></div><button class="btn" data-rh="semab" data-id="${e.id}">Guardar</button></div>
+      <div class="note" style="margin-top:8px;background:var(--surface-2);color:var(--ink)">Semana del ${rhCorta(rhSem)} al ${rhCorta(rhMas(rhSem,6))}: ${quitado?'<b>no se le descuenta</b>':'se le descuentan <b>'+fmt2(f.abono)+'</b>'}
+        <div class="btns" style="margin-top:6px">${quitado?`<button class="btn" data-rh="sidesc" data-id="${e.id}">Sí se descontó</button>`:`<button class="btn" data-rh="nodesc" data-id="${e.id}" style="color:var(--bad)">No se descontó</button>`}</div></div>`:''}
+    <b style="display:block;margin-top:10px;font-size:13px">Anticipos (vales de la semana) · últimas 4 semanas</b>
+    ${ant.length?`<table class="ledger num" style="font-size:13px"><tbody>${ant.map(x=>`<tr><td style="white-space:nowrap">${rhCorta(x.f)}</td><td>${esc(x.t)}</td><td class="r">${fmt2(x.m)}</td></tr>`).join('')}</tbody></table>`:'<p class="empty" style="margin:4px 0">Sin anticipos.</p>'}
+    <p class="empty" style="margin:6px 0 0">Los anticipos se descuentan completos en la nómina de su semana.</p></div>`;
 }
 function rhValesPrest(){
   const A=rhAct(), op=[['','Elige…'],...A.map(e=>[e.id,e.nombre])];
@@ -1855,7 +1882,7 @@ function rhValesPrest(){
       <p class="empty" style="margin-top:10px">Para que los de la caja se identifiquen solos, la cajera debe capturarlos como "VALE" y el nombre completo, igual que en el catálogo de empleados.</p></div>`;
   const VCo=(RH.vales||[]).filter(v=>v.tipo==='comida'&&v.fecha>=rhSem&&v.fecha<=fin);
   const CS=(RH.comidas||[]).filter(c=>c.fecha>=rhSem&&c.fecha<=fin).sort((a,b)=>a.fecha.localeCompare(b.fecha));
-  return `<div class="card"><h2>Registrar préstamo</h2>
+  return rhSemNav()+rhPrestModulo(A)+`<div class="card"><h2>Registrar préstamo</h2>
       ${rhSel('rpEmp','Empleado',op,'')}<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">${rhIn('rpMon','Monto','','inputmode="decimal"')}${rhIn('rpAb','Abono por semana','','inputmode="decimal" placeholder="Ej. 250"')}</div>
       ${rhIn('rpFec','Fecha',RH.hoy,'type="date"')}${rhIn('rpCon','Motivo','','placeholder="Ej. para la renta"')}
       <div class="btns"><button class="btn pri" data-rh="prestamo">Registrar préstamo</button></div></div>
@@ -1863,12 +1890,11 @@ function rhValesPrest(){
       <p class="empty" style="margin-top:0">Aquí van los abonos que ya te dieron y tienes en tu Excel, o los que te paguen en efectivo fuera de la nómina. Los abonos de cada semana <b>no</b> se capturan aquí: se descuentan solos en la nómina.</p>
       ${rhSel('raEmp','Empleado',op,'')}<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">${rhIn('raMon','Monto','','inputmode="decimal"')}${rhIn('raFec','Fecha',RH.hoy,'type="date"')}</div>${rhIn('raNot','Nota','','placeholder="Ej. de sus vacaciones, en efectivo"')}
       <div class="btns"><button class="btn pri" data-rh="abono">Registrar abono</button></div></div>
-    <div class="card"><h2>Préstamos <small>estado de cuenta de cada quien</small></h2>${conP.length?conP.map(({e,p})=>rhEdoCuenta(e,p)).join(''):'<p class="empty">No hay préstamos registrados.</p>'}
-      <p class="empty" style="margin-top:10px">Préstamo suma, abono resta. Los abonos de la nómina salen solos con la semana en que se descontaron.</p></div>
+
     <div class="card"><h2>Anticipos (vales de la semana) <small>que no pasaron por caja</small></h2><p class="empty" style="margin-top:0">Los anticipos que sí pasaron por la caja de MrTienda salen solos (abajo).</p>
       ${rhSel('rvEmp','Empleado',op,'')}<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">${rhIn('rvMon','Monto','','inputmode="decimal"')}${rhIn('rvFec','Fecha',RH.hoy,'type="date"')}</div>${rhIn('rvNot','Nota','')}
       <div class="btns"><button class="btn pri" data-rh="vale">Registrar anticipo</button></div></div>
-    ${rhSemNav()}${resVales}
+    ${resVales}
     <div class="card"><h2>Vales de comida <small>semana del ${rhCorta(rhSem)}</small></h2>
       <p class="empty" style="margin-top:0">Lo que comieron los empleados (cuentas quitadas en Ventas con motivo "Empleado" y el nombre). Toca cada una para ver la comanda y poner el descuento en porcentaje o en pesos; pasa solo a su nómina y al resumen.</p>
       ${CS.length?`<div class="list">${CS.map(c=>{const q=rhComidaEmp(c),x=rhDC(c),ab=rhComAb===c.id;
@@ -1951,6 +1977,7 @@ document.addEventListener('click',async e=>{
   if(a==='comcerrar'){rhComAb=null;return render()}
   if(a==='nomrecalc'){const e_=rhEmp(d.id),c=rhNomCalc(e_,rhSem).calc;document.querySelectorAll(`.rhn[data-emp="${d.id}"]`).forEach(i=>{const k=i.dataset.k;if(k==='transfer'||k==='nota')return;if(i.type==='checkbox')i.checked=!!c[k];else if(k in c)i.value=c[k]||''});
     const i0=document.querySelector(`.rhn[data-emp="${d.id}"]`);if(i0)i0.dispatchEvent(new Event('input',{bubbles:true}));toast('Recalculado. Revisa y dale Guardar.');return}
+  if(a==='edoabrir'){if(e.target.closest('input,button,a:not([data-rh="edoabrir"])'))return;rhEdoAb=rhEdoAb===d.id?null:d.id;render();return}
   if(a==='nomocultar'){st.rhNomOcultar=1;save();render();return}
   if(a==='exportar'){rhExportar(t,d.tipo||($('#rhExpTipo')||{}).value||'completa',d.fmt);return}
   if(a==='resberenice'){window.open('https://wa.me/?text='+encodeURIComponent(rhMsgBerenice()),'_blank');return}
@@ -1996,6 +2023,9 @@ document.addEventListener('click',async e=>{
       await rhApi({accion:'comida_desc',id:rhComAb,monto:m,pct:p,emp:em});rhComAb=null;toast(q?'Descuento quitado':'Descuento guardado; ya pasa a su nómina')}
     else if(a==='valecomida'){await rhApi({accion:'vale_alta',tipo:'comida',emp:$('#rcEmp').value,monto:$('#rcDes').value,consumo:$('#rcCon').value,fecha:$('#rcFec').value});toast('Vale de comida registrado')}
     else if(a==='borrarprest'||a==='borrarvale'||a==='borrarabono'){if(!confirm('¿Borrar este registro?'))return;await rhApi({accion:a==='borrarprest'?'prestamo_borrar':a==='borrarabono'?'abono_borrar':'vale_borrar',id:d.id});toast('Borrado')}
+    else if(a==='semab'){await rhApi({accion:'prestamo_semanal',emp:d.id,abono:($('#rhSemAb_'+d.id)||{}).value||0});toast('Descuento por semana guardado')}
+    else if(a==='nodesc'||a==='sidesc'){const s_=d.sem||rhSem;if(a==='nodesc'&&!confirm('¿Marcar que la semana del '+rhCorta(s_)+' no se le descontó el préstamo?')){t.disabled=false;return}
+      await rhApi({accion:'res_aj',semana:s_,emp:d.id,k:'abono',valor:a==='nodesc'?0:null});toast(a==='nodesc'?'Quitado: esa semana no se le descuenta':'Vuelve a descontarse')}
     else if(a==='abono'){await rhApi({accion:'abono_alta',emp:$('#raEmp').value,monto:$('#raMon').value,fecha:$('#raFec').value,nota:$('#raNot').value});toast('Abono registrado')}
     render();
   }catch(err){toast(err.message);if(t.tagName==='BUTTON')t.disabled=false}

@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 147            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.45'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 148            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.46'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -1198,12 +1198,12 @@ def rh_hoja_firma(d):
             'nota': 'Con mi firma o huella declaro que recibí de conformidad el pago de los días y horas trabajados en la semana indicada, incluido el séptimo día, y que no se me adeuda cantidad alguna por este periodo.'})
 
 def rh_hoja_pago(d):
-    C = [('Nombre del trabajador', 34, 'nom'), ('Nómina\n(percepciones)', 13, 'd'), ('Préstamo', 11, 'd'), ('Vales de\ncomida', 11, 'd'), ('Anticipo\n(vale semana)', 12, 'd'), ('Otros\ndescuentos', 11, 'd'),
-         ('Total\na pagar', 13, 'f:{B}-{C}-{D}-{E}-{F}'), ('Transfe-\nrencia', 12, 'd'), ('Efectivo', 13, 'f:{G}-{H}'), ('Saldo del\npréstamo', 11, 'd')]
-    G = [{'titulo': g.get('titulo', ''), 'filas': [[str(f.get('nombre', ''))[:60]] + [_rh_num(f.get(k)) for k in ('nomina', 'prestamo', 'comida', 'vales', 'otros')] + ['', _rh_num(f.get('transfer')), '', _rh_num(f.get('saldo'))]
+    C = [('Nombre del trabajador', 34, 'nom'), ('Nómina\n(percepciones)', 13, 'd'), ('Anticipo\n(vale semana)', 12, 'd'), ('Préstamo', 11, 'd'), ('Vales de\ncomida', 11, 'd'), ('Otros\ndescuentos', 11, 'd'),
+         ('Gratifi-\ncación (+)', 11, 'd'), ('Total\na pagar', 13, 'f:{B}-{C}-{D}-{E}-{F}+{G}'), ('Transfe-\nrencia', 12, 'd'), ('Efectivo', 13, 'f:{H}-{I}'), ('Saldo del\npréstamo', 11, 'd')]
+    G = [{'titulo': g.get('titulo', ''), 'filas': [[str(f.get('nombre', ''))[:60]] + [_rh_num(f.get(k)) for k in ('nomina', 'vales', 'prestamo', 'comida', 'otros', 'grat')] + ['', _rh_num(f.get('transfer')), '', _rh_num(f.get('saldo'))]
                                                 for f in g.get('filas') or []]} for g in d.get('grupos') or []]
     return _rh_completa({'nombre': 'Pago', 'titulo': 'PAGO DE LA NÓMINA · SEMANA DEL %s AL %s' % (d.get('semana', ''), d.get('al', '')), 'apaisado': True, 'cols': C, 'grupos': G, 'totales': True, 'alto': 20,
-            'sin_total': {9}, 'nota': 'Descuentos y forma de pago. Total a pagar = nómina − préstamo − vales de comida − anticipos (vales de la semana) − otros. Efectivo = total a pagar − transferencia. Saldo del préstamo: lo que queda después del abono de esta semana.'})
+            'sin_total': {10}, 'nota': 'Descuentos y forma de pago. Total a pagar = nómina − anticipos (vales de la semana) − préstamo − vales de comida − otros + gratificación. Efectivo = total a pagar − transferencia. Saldo del préstamo: lo que queda después del abono de esta semana.'})
 
 RH_TIT_PUESTO = {'Cocinero': 'Cocineros', 'Ayudante de cocina': 'Ayudantes de cocina', 'Mesero': 'Meseros', 'Cajero': 'Cajeros', 'Encargada': 'Encargada',
                  'Ayudante general': 'Ayudantes generales', 'Repartidor': 'Repartidores', 'Lavaloza': 'Lavaloza', 'Otro': 'Otros'}
@@ -2673,6 +2673,50 @@ class Monitor:
                 self._rh_guardar(d); log('Personal: las semanas del rol y la nómina ahora van de martes a lunes.')
         return d
 
+    # Carga única (30.7.46): préstamos y abonos del Excel de Jorge (hoja 06 AL 12, oct-2026). Corre una sola vez.
+    # No toca a quien ya tenga préstamos capturados, y no repite un abono si esa semana ya tiene abono en la nómina del panel.
+    CARGA_PRESTAMOS = [
+        ('rene', 2000, '2026-08-31', 500, [(500, '2026-08-31', 'vacaciones'), (250, '2026-09-07', ''), (250, '2026-09-14', ''), (250, '2026-09-21', ''), (250, '2026-09-28', ''),
+                                         ('P', 1500, '2026-09-29'), (500, '2026-10-05', ''), (500, '2026-10-12', '')]),
+        ('martin', 1100, '2026-09-01', 500, [(500, '2026-09-05', ''), (500, '2026-10-05', '')]),
+        ('berenisse', 1750, '2026-10-01', 500, [(500, '2026-10-05', '')])]
+    def carga_prestamos_excel(self):
+        try:
+            if not os.path.exists(RH_FILE): return
+            d = self.rh(); cargas = d.setdefault('cargas', {})
+            if cargas.get('prestamos_excel_oct2026'): return
+            def norm(t): return re.sub(r'[^A-Z ]', ' ', _sin_acento(str(t or '')).upper()).split()
+            def lev(a, b):
+                v = list(range(len(b) + 1))
+                for i in range(1, len(a) + 1):
+                    p_, v[0] = v[0], i
+                    for j in range(1, len(b) + 1): t_ = v[j]; v[j] = min(v[j] + 1, v[j - 1] + 1, p_ + (a[i - 1] != b[j - 1])); p_ = t_
+                return v[len(b)]
+            act = [e for e in d['empleados'] if e.get('activo', True)]
+            def busca(clave):
+                if clave == 'rene': m = [e for e in act if set(norm(e['nombre'])) & {'RENE', 'ANTUAN', 'ANTOINE'}]
+                elif clave == 'martin': m = [e for e in act if norm(e['nombre'])[:1] == ['MARTIN']]
+                else: m = [e for e in act if any(lev(w, 'BERENISSE') <= 2 for w in norm(e['nombre'])) and not any(lev(w, 'MONSERRAT') <= 2 for w in norm(e['nombre']))]
+                return m[0] if len(m) == 1 else None
+            hechos, faltan = [], []
+            for clave, monto, f0, sug, movs in self.CARGA_PRESTAMOS:
+                e = busca(clave)
+                if not e: faltan.append(clave); continue
+                if any(p_.get('emp') == e['id'] for p_ in d['prestamos']): faltan.append(clave + ' (ya tenía préstamos)'); continue
+                d['prestamos'].append({'id': secrets.token_hex(4), 'emp': e['id'], 'fecha': f0, 'monto': monto, 'concepto': 'de tu Excel', 'abono_sugerido': sug})
+                for mv in movs:
+                    if mv[0] == 'P':
+                        d['prestamos'].append({'id': secrets.token_hex(4), 'emp': e['id'], 'fecha': mv[2], 'monto': mv[1], 'concepto': 'de tu Excel', 'abono_sugerido': sug}); continue
+                    sem = inicio_sem(datetime.date.fromisoformat(mv[1])).isoformat()
+                    ya = (d['nominas'].get(sem) or {}).get(e['id'], {}).get('abono') or ((d.get('res_aj') or {}).get(sem) or {}).get(e['id'], {}).get('abono')
+                    if ya: continue
+                    d['abonos'].append({'id': secrets.token_hex(4), 'emp': e['id'], 'fecha': mv[1], 'monto': mv[0], 'nota': ((mv[2] + ' · ') if mv[2] else '') + 'de tu Excel'})
+                hechos.append(e['nombre'])
+            cargas['prestamos_excel_oct2026'] = {'cuando': datetime.datetime.now().isoformat(timespec='seconds'), 'cargados': hechos, 'faltan': faltan}
+            self._rh_guardar(d)
+            log('Personal: préstamos del Excel cargados para ' + (', '.join(hechos) or 'nadie') + ('; no encontré: ' + ', '.join(faltan) if faltan else ''))
+        except Exception as e_: log('Personal: no pude cargar los préstamos del Excel: ' + str(e_))
+
     def _rh_guardar(self, d):
         tmp = RH_FILE + '.tmp'
         with open(tmp, 'w', encoding='utf-8') as f: json.dump(d, f, ensure_ascii=False, indent=1)
@@ -2884,6 +2928,10 @@ class Monitor:
             m = num(a.get('monto'))
             if m <= 0: raise ValueError('Escribe el monto del abono.')
             d.setdefault('abonos', []).append({'id': secrets.token_hex(4), 'emp': emp_id(a.get('emp')), 'fecha': fecha(a.get('fecha'), True), 'monto': m, 'nota': txt(a.get('nota'), 120)})
+        elif acc == 'prestamo_semanal':   # cuánto se le descuenta por semana (se guarda en su último préstamo)
+            e = emp_id(a.get('emp')); P = [x for x in d['prestamos'] if x.get('emp') == e]
+            if not P: raise ValueError('No tiene préstamos.')
+            P[-1]['abono_sugerido'] = num(a.get('abono'))
         elif acc == 'abono_borrar':
             d['abonos'] = [x for x in d.get('abonos', []) if x.get('id') != a.get('id')]
         elif acc == 'vale_alta':
@@ -2894,7 +2942,7 @@ class Monitor:
         elif acc == 'res_aj':
             # ajuste que Jorge escribe en el Resumen de nómina (préstamo, vales, otros, transferencia); vacío = automático
             sem = fecha(a.get('semana'), True); e = emp_id(a.get('emp')); k = a.get('k')
-            if k not in ('abono', 'comida', 'vales', 'otros', 'transfer'): raise ValueError('Ese dato no se puede cambiar aquí.')
+            if k not in ('abono', 'comida', 'vales', 'otros', 'transfer', 'grat'): raise ValueError('Ese dato no se puede cambiar aquí.')
             r = d['res_aj'].setdefault(sem, {}).setdefault(e, {})
             if a.get('valor') in (None, ''): r.pop(k, None)
             else: r[k] = num(a.get('valor'))
@@ -3940,6 +3988,7 @@ def main():
         log('No existe la carpeta ' + cfg['carpeta_mrtienda'] + '. Corrígela en config.json'); sys.exit(1)
     mon = Monitor(cfg)
     _ses_cargar()   # quien ya había entrado al panel sigue dentro después de una actualización
+    mon.carga_prestamos_excel()
     try: mon.borrar_fotos()
     except Exception as e: log('No pude borrar las fotos viejas: ' + str(e))
     threading.Thread(target=mon.loop, daemon=True).start()
