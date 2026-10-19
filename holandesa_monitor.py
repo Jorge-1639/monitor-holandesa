@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 146            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.44'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 147            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.45'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -1198,12 +1198,12 @@ def rh_hoja_firma(d):
             'nota': 'Con mi firma o huella declaro que recibí de conformidad el pago de los días y horas trabajados en la semana indicada, incluido el séptimo día, y que no se me adeuda cantidad alguna por este periodo.'})
 
 def rh_hoja_pago(d):
-    C = [('Nombre del trabajador', 34, 'nom'), ('Nómina\n(percepciones)', 13, 'd'), ('Préstamo', 11, 'd'), ('Vales de\ncomida', 11, 'd'), ('Vales de\ndinero', 11, 'd'), ('Otros\ndescuentos', 11, 'd'),
+    C = [('Nombre del trabajador', 34, 'nom'), ('Nómina\n(percepciones)', 13, 'd'), ('Préstamo', 11, 'd'), ('Vales de\ncomida', 11, 'd'), ('Anticipo\n(vale semana)', 12, 'd'), ('Otros\ndescuentos', 11, 'd'),
          ('Total\na pagar', 13, 'f:{B}-{C}-{D}-{E}-{F}'), ('Transfe-\nrencia', 12, 'd'), ('Efectivo', 13, 'f:{G}-{H}'), ('Saldo del\npréstamo', 11, 'd')]
     G = [{'titulo': g.get('titulo', ''), 'filas': [[str(f.get('nombre', ''))[:60]] + [_rh_num(f.get(k)) for k in ('nomina', 'prestamo', 'comida', 'vales', 'otros')] + ['', _rh_num(f.get('transfer')), '', _rh_num(f.get('saldo'))]
                                                 for f in g.get('filas') or []]} for g in d.get('grupos') or []]
     return _rh_completa({'nombre': 'Pago', 'titulo': 'PAGO DE LA NÓMINA · SEMANA DEL %s AL %s' % (d.get('semana', ''), d.get('al', '')), 'apaisado': True, 'cols': C, 'grupos': G, 'totales': True, 'alto': 20,
-            'sin_total': {9}, 'nota': 'Descuentos y forma de pago. Total a pagar = nómina − préstamo − vales de comida − vales de dinero − otros. Efectivo = total a pagar − transferencia. Saldo del préstamo: lo que queda después del abono de esta semana.'})
+            'sin_total': {9}, 'nota': 'Descuentos y forma de pago. Total a pagar = nómina − préstamo − vales de comida − anticipos (vales de la semana) − otros. Efectivo = total a pagar − transferencia. Saldo del préstamo: lo que queda después del abono de esta semana.'})
 
 RH_TIT_PUESTO = {'Cocinero': 'Cocineros', 'Ayudante de cocina': 'Ayudantes de cocina', 'Mesero': 'Meseros', 'Cajero': 'Cajeros', 'Encargada': 'Encargada',
                  'Ayudante general': 'Ayudantes generales', 'Repartidor': 'Repartidores', 'Lavaloza': 'Lavaloza', 'Otro': 'Otros'}
