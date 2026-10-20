@@ -491,11 +491,15 @@ function grupos(){
 }
 const CANAL_TXT={recoger:'Para llevar',domicilio:'Domicilio',didi:'Didi',uber:'Uber'};
 let PLAT={};   // 30.7.47: % de comisión de Didi y Uber (lo pone Jorge en el panel)
-function platPaga(k,total){   // lo que paga Didi o Uber: menú − comisión − descuentos
-  if(!k||!['didi','uber'].includes(k.canal))return '';const p=k.canal==='didi'?'Didi':'Uber',c=PLAT[p]||{},d=parseFloat(k.desc)||0;
-  if(c.pct==null)return `<p class="empty" style="margin-top:6px">${p}: descuentos ${money(d)}. La comisión la pone Jorge en el panel.</p>`;
-  const com=Math.round(total*c.pct/100*(c.iva?1.16:1)*100)/100;
-  return `<div class="total num" style="font-size:15px;opacity:.9"><span>${p} paga <small style="font-weight:500">(− comisión ${money(com)} − descuentos ${money(d)})</small></span><span>${money(total-com-d)}</span></div>`}
+function platCalc(p,cobrado,desc){   // 30.7.49: como el estado de cuenta de Didi: cobrado con IVA 8% → base; comisión 30% + IVA; retenciones ISR e IVA; menos lo que absorbes
+  const c=Object.assign({pct:30,iva_com:8,iva_venta:8,ret_isr:2.5,ret_iva:8},PLAT[p]||{}),r=x=>Math.round(x*100)/100;
+  const base=r(cobrado/(1+c.iva_venta/100)),com=c.pct==null?null:r(base*c.pct/100),ivc=com==null?0:r(com*c.iva_com/100),ri=r(base*c.ret_isr/100),rv=r(base*c.ret_iva/100);
+  return {base,com,ivc,ri,rv,neto:com==null?null:r(cobrado-com-ivc-ri-rv-desc)}}
+function platPaga(k,total){
+  if(!k||!['didi','uber'].includes(k.canal))return '';const p=k.canal==='didi'?'Didi':'Uber',d=parseFloat(k.desc)||0,cob=k.cobrado!=null&&k.cobrado!==''?+k.cobrado:null;
+  const x=platCalc(p,cob!=null?cob:total,d);
+  if(x.neto==null)return `<p class="empty" style="margin-top:6px">${p}: la comisión la pone Jorge en el panel.</p>`;
+  return `<div class="total num" style="font-size:15px;opacity:.9"><span>Te queda de ${p} <small style="font-weight:500">(${cob!=null?'recibo '+money(cob):'sin recibo: precio de menú'} − comisión e IVA ${money(x.com+x.ivc)} − retenciones ${money(x.ri+x.rv)} − otros ${money(d)})</small></span><span>${money(x.neto)}</span></div>`}
 function hojaNueva(){
   const ops=[['comedor','Comedor','Elige la mesa'],['recoger','Para llevar','Recoge aquí'],['domicilio','Servicio a domicilio','Busca al cliente'],['didi','Didi','Clave y forma de pago'],['uber','Uber','Clave del pedido']];
   $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Nueva cuenta</h2><div class="opciones">${ops.map(([c,t,d])=>`<button class="k ${({comedor:'k-comedor',recoger:'k-llevar',domicilio:'k-dom',didi:'k-didi',uber:'k-uber'})[c]}" data-nueva="${c}"><span>${t}</span><small>${d}</small></button>`).join('')}</div></div></div>`;
@@ -515,7 +519,10 @@ function hojaCanal(c){
   const campo=(id,lbl,ph,extra)=>`<label for="${id}" style="font-weight:600">${lbl}</label><input id="${id}" class="search" style="margin-top:0" autocomplete="off" placeholder="${ph}" ${extra||''}>`;
   let body='';
   if(c==='recoger')body=campo('cnN','¿Para quién es?','Nombre del cliente','maxlength="40"');
-  else if(c==='didi'||c==='uber')body=campo('cnP','<span style="font-size:20px">Clave del pedido</span> <small style="font-weight:500;color:var(--muted)">(hasta 12)</small>','Ej. 123456789012','maxlength="12" autocapitalize="characters"')+campo('cnD','Descuentos y promociones <small style="font-weight:500;color:var(--muted)">(opcional)</small>','$0 · lo que '+CANAL_TXT[c]+' le descontó al cliente','inputmode="decimal" maxlength="9"')+`<p class="empty" style="margin:-4px 0 6px">La comisión de ${CANAL_TXT[c]} la calcula el sistema.</p>`+(c==='didi'?`<label style="font-weight:600">¿Cómo paga?</label><div class="modo small" role="group" style="margin-top:0"><button type="button" data-pago="efectivo" aria-pressed="false">Efectivo</button><button type="button" data-pago="tarjeta" aria-pressed="false">Tarjeta</button></div>`:'<p class="empty" style="margin:0">Uber siempre es con tarjeta.</p>');
+  else if(c==='didi'||c==='uber')body=campo('cnP','<span style="font-size:20px">Clave del pedido</span> <small style="font-weight:500;color:var(--muted)">(hasta 12)</small>','Ej. 123456789012','maxlength="12" autocapitalize="characters"')+`<button type="button" class="chipbtn" data-act="fotorecibo" style="width:100%;margin:2px 0 4px;padding:12px">📷 Tomar foto del recibo de ${CANAL_TXT[c]} (se llena solo)</button><input type="file" id="cnFoto" accept="image/*" capture="environment" hidden><p id="cnLee" class="empty" style="margin:0" hidden></p>`
+      +campo('cnC',(c==='didi'?'Subtotal del recibo':'Importe pagado del recibo')+' <small style="font-weight:500;color:var(--muted)">(lo que pagó el cliente por la comida)</small>','$0.00','inputmode="decimal" maxlength="9"')
+      +campo('cnD',(c==='didi'?'Descuento de la tarifa de entrega y otros que absorbes':'Otros que absorbes')+' <small style="font-weight:500;color:var(--muted)">(opcional)</small>','$0','inputmode="decimal" maxlength="9"')
+      +`<p class="empty" style="margin:-4px 0 6px">La comisión, el IVA y las retenciones de ${CANAL_TXT[c]} los calcula el sistema.</p>`+(c==='didi'?`<label style="font-weight:600">¿Cómo paga?</label><div class="modo small" role="group" style="margin-top:0"><button type="button" data-pago="efectivo" aria-pressed="false">Efectivo</button><button type="button" data-pago="tarjeta" aria-pressed="false">Tarjeta</button></div>`:'<p class="empty" style="margin:0">Uber siempre es con tarjeta.</p>');
   else body=`<label for="cnT" style="font-weight:600">Teléfono del cliente</label><div style="display:flex;gap:8px"><input id="cnT" class="search" style="margin-top:0;flex:1" inputmode="tel" maxlength="14" autocomplete="off" placeholder="10 números"><button type="button" class="chipbtn" data-act="buscarcte">Buscar</button></div><div id="cnRes"></div>`+campo('cnN','Nombre del cliente','Si no aparece, escríbelo','maxlength="40"');
   $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><form class="sheet" id="fl"><h2>${c==='recoger'?'Para llevar':c==='domicilio'?'Servicio a domicilio':'Pedido de '+CANAL_TXT[c]}</h2>${body}<p id="cnErr" class="err2" hidden></p><button class="big" type="submit">Continuar</button></form></div>`;
   const f=$('#fl'),pri=f.querySelector('input');setTimeout(()=>pri&&pri.focus(),50);let pago='';
@@ -523,7 +530,8 @@ function hojaCanal(c){
     const r=ev.target.closest('[data-cte]');if(r){$('#cnN').value=r.dataset.cte;f.querySelectorAll('[data-cte]').forEach(x=>x.setAttribute('aria-pressed',x===r))}});
   f.onsubmit=ev=>{ev.preventDefault();const err=m=>{const e=$('#cnErr');e.textContent=m;e.hidden=false};
     const v=id=>{const x=$('#'+id);return x?x.value.trim():''};const sel={llevar:true,canal:{canal:c}};
-    if(c==='didi'||c==='uber'){const p=v('cnP').replace(/[^0-9a-z]/gi,'').toUpperCase();if(!p)return err('Escribe la clave del pedido.');if(c==='didi'&&!pago)return err('Marca si paga en efectivo o con tarjeta.');sel.canal.pedido=p;sel.canal.pago=c==='didi'?pago:'tarjeta';const dd=v('cnD').replace(/[$,\s]/g,'');if(dd){if(isNaN(+dd)||+dd<0)return err('Descuentos: escribe solo números.');sel.canal.desc=+dd}sel.nombre=c.toUpperCase()+' '+p}
+    if(c==='didi'||c==='uber'){const p=v('cnP').replace(/[^0-9a-z]/gi,'').toUpperCase();if(!p)return err('Escribe la clave del pedido.');if(c==='didi'&&!pago)return err('Marca si paga en efectivo o con tarjeta.');sel.canal.pedido=p;sel.canal.pago=c==='didi'?pago:'tarjeta';const dd=v('cnD').replace(/[$,\s]/g,'');if(dd){if(isNaN(+dd)||+dd<0)return err('Descuentos: escribe solo números.');sel.canal.desc=+dd}
+      const cc=v('cnC').replace(/[$,\s]/g,'');if(cc){if(isNaN(+cc)||+cc<=0)return err('Subtotal del recibo: escribe solo números.');sel.canal.cobrado=+cc}sel.nombre=c.toUpperCase()+' '+p}
     else{const n=v('cnN');if(!n)return err('Escribe el nombre del cliente.');sel.canal.nombre=n;sel.nombre=n;
       if(c==='domicilio'){const t=v('cnT').replace(/\D/g,'');if(t.length<7)return err('Escribe el teléfono del cliente (10 números).');sel.canal.tel=t}}
     $('#sheet').innerHTML='';abrir(sel)};
@@ -632,6 +640,13 @@ document.addEventListener('click',e=>{const t=e.target.closest('[data-fact],[dat
   if(a==='foto'){const f=$('#ffoto')||Object.assign(document.createElement('input'),{type:'file',accept:'image/*',id:'ffoto',hidden:true});f.setAttribute('capture','environment');if(!f.isConnected){$('#fsh').appendChild(f);f.onchange=ev=>{const x=ev.target.files&&ev.target.files[0];if(x)facFoto(x)}}f.value='';return f.click()}
   if(a==='mano')return facNuevo({});if(a==='aplicar')return facAplicar(t);if(a==='revisar')return facRevisar();
   if(a==='corregir')return facNuevo(FACT.nuevo);if(a==='enviar')return facEnviar(t)},true);
+async function leeRecibo(file){const msg=$('#cnLee');if(msg){msg.hidden=false;msg.textContent='Leyendo el recibo…'}
+  try{const b64=await new Promise((ok,no)=>{const im=new Image(),u=URL.createObjectURL(file);im.onload=()=>{const m=1600,k=Math.min(1,m/Math.max(im.width,im.height)),cv=document.createElement('canvas');cv.width=Math.round(im.width*k);cv.height=Math.round(im.height*k);cv.getContext('2d').drawImage(im,0,0,cv.width,cv.height);URL.revokeObjectURL(u);ok(cv.toDataURL('image/jpeg',.82))};im.onerror=()=>no(new Error('No pude abrir la foto'));im.src=u});
+    const d=(await apiM('/api/comandero/leer-recibo',{foto:b64})).datos,pon=(id,v)=>{const x=$('#'+id);if(x&&v!=null&&v!=='')x.value=v};
+    if(d.pedido)pon('cnP',d.pedido);if(d.subtotal)pon('cnC',d.subtotal.toFixed(2));pon('cnD',d.desc?d.desc.toFixed(2):'');
+    const bp=document.querySelector(`[data-pago="${d.efectivo>0?'efectivo':'tarjeta'}"]`);if(bp)bp.click();
+    if(msg)msg.innerHTML=`✅ Leído. <b>Revisa que los números coincidan con el recibo</b>${d.efectivo>0?` · pagó <b>${money(d.efectivo)} en efectivo</b>: no olvides el reingreso en la caja`:''}.`}
+  catch(e){if(msg)msg.innerHTML=`<span class="err2" style="display:inline">${esc(e.message)}</span>`}}
 async function buscarCte(){
   const t=($('#cnT')||{}).value||'',out=$('#cnRes');if(!out)return;
   if(t.replace(/\D/g,'').length<4){out.innerHTML='<p class="empty" style="margin:0">Escribe al menos 4 números.</p>';return}
@@ -768,6 +783,7 @@ document.addEventListener('click',e=>{
   if(a==='nosalio'){const v=vistos();v['p|'+t.dataset.dk]=Date.now()+5*60000;guardaVistos(v);alarmaK=null;$('#alarma').hidden=true;return}
   if(a==='yasalio'){const dk=t.dataset.dk||'';if(!dk.startsWith('postre|')){const p=dk.split('|');avisaTiempo('salio',p[0],p[p.length-1])}const v=vistos();v[t.dataset.dk]=1;guardaVistos(v);alarmaK=null;$('#alarma').hidden=true;return revisarDemoras()}
   if(t.dataset.factresp){const f=preguntaFactura.sigue;preguntaFactura.sigue=null;$('#sheet').innerHTML='';if(f)return f(t.dataset.factresp);return}
+  if(a==='fotorecibo'){const f=$('#cnFoto');if(!f)return;f.value='';f.onchange=ev=>{const x=ev.target.files&&ev.target.files[0];if(x)leeRecibo(x)};return f.click()}
   if(a==='buscarcte')return buscarCte();
   if(a==='factura')return hojaFactura();
   if(a==='factpreg'){e.preventDefault();const c=cuentaDe(S.sel&&S.sel.k);if(!c)return;return preguntaFactura(async r=>{await guardaRespFactura(c,r);$('#sheet').innerHTML='';render();if(r==='si')hojaFactura()})}

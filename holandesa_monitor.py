@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 150            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.48'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 151            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.49'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -123,6 +123,10 @@ ORDEN_ROL = ['Cocinero', 'Ayudante de cocina', 'Mesero', 'Cajero', 'Encargada', 
 PUESTOS = ['Mesero', 'Cajero', 'Encargada', 'Cocinero', 'Ayudante de cocina', 'Ayudante general', 'Repartidor', 'Lavaloza', 'Otro']       # meseros del comandero: código de MrTienda + huella de su clave
 IA_URL = 'https://api.anthropic.com/v1/messages'
 IA_MODELO = 'claude-haiku-5-5'
+PROMPT_RECIBO_PLAT = '''Lee la foto de este recibo de pedido de Didi Food o Uber Eats (el que imprime la tableta del restaurante) y responde SOLO con un objeto JSON, sin texto antes ni después:
+{"plataforma": "didi o uber", "pedido": "", "subtotal": 0, "descuento_entrega": 0, "otros_restaurante": 0, "efectivo": 0, "total_app": 0}
+Reglas: pedido = el número o clave del pedido (en Didi el que va con #, ej. 792006; en Uber el código corto arriba, ej. C176B), sin # ni espacios. subtotal = el renglón Subtotal (en Uber, si no hay Subtotal, el Importe pagado). descuento_entrega = el renglón "Descuento de la tarifa de entrega" como número positivo (0 si no viene). otros_restaurante = otros descuentos que diga que paga la tienda o el restaurante (no "Platform discount" ni "Tarifa de servicio"); 0 si no hay. efectivo = el renglón "Pago en efectivo" (0 si no viene). total_app = "Pago de DiDi Food" o "Importe pagado". Solo números, sin signo de pesos. No inventes: lo que no se vea, 0.'''
+
 PROMPT_CONSTANCIA = '''Lee la foto de esta Constancia de Situación Fiscal del SAT (o del papel con datos de facturación que dio el cliente) y responde SOLO con un objeto JSON, sin texto antes ni después, con esta forma:
 {"rfc": "", "razon_social": "", "cp": "", "regimen": "", "calle": "", "no_ext": "", "no_int": "", "colonia": "", "localidad": "", "municipio": "", "estado": "", "correo": "", "telefono": ""}
 Reglas: rfc en mayúsculas sin espacios. razon_social: la denominación o razón social; si es persona física, nombre completo (nombre y apellidos) en mayúsculas, sin régimen de capital. cp: el código postal del domicilio fiscal (5 números). regimen: SOLO la clave de 3 números del catálogo del SAT (601 General de Ley Personas Morales, 603 Personas Morales con Fines no Lucrativos, 605 Sueldos y Salarios, 606 Arrendamiento, 608 Demás ingresos, 612 Personas Físicas con Actividades Empresariales y Profesionales, 616 Sin obligaciones fiscales, 621 Incorporación Fiscal, 622 Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras, 625 Plataformas Tecnológicas, 626 Régimen Simplificado de Confianza); si tiene varios, el primero de la lista. estado: nombre completo en mayúsculas (ej. BAJA CALIFORNIA). Lo que no se vea, déjalo vacío; no inventes.'''
@@ -1779,7 +1783,7 @@ class Monitor:
             ped = self.pedidos()
             for a in out:
                 p_ = ped.get(a['archivo'])
-                if p_: a['canal'] = {k: p_.get(k, '') for k in ('canal', 'pedido', 'pago', 'desc')}
+                if p_: a['canal'] = {k: p_.get(k, '') for k in ('canal', 'pedido', 'pago', 'desc', 'cobrado')}
         except Exception: pass
         return sorted(out, key=lambda a: (a['fecha'], a['abrio']))
 
@@ -1933,11 +1937,20 @@ class Monitor:
         os.replace(tmp, QUITADAS_FILE)
 
     # ------------------------------------------------ 30.7.47: Didi y Uber — lo que paga la plataforma (precio − comisión − descuentos)
+    # 30.7.49: como el estado de cuenta de Didi que mandó Jorge (20-oct-2026): lo cobrado al cliente ya trae IVA 8%;
+    # base = cobrado / 1.08; comisión 30% de la base + IVA 8% de la comisión; retenciones de ISR 2.5% y de IVA sobre la base; menos lo que absorbe el restaurante.
+    PLAT_BASE = {'pct': 30.0, 'iva_com': 8.0, 'iva_venta': 8.0, 'ret_isr': 2.5, 'ret_iva': 8.0, 'iva': True}
     def plat_cfg(self):
-        base = {'Didi': {'pct': 30.0, 'iva': True}, 'Uber': {'pct': None, 'iva': True}}
+        base = {'Didi': dict(self.PLAT_BASE), 'Uber': dict(self.PLAT_BASE)}
         for k, v in (self.cfg.get('plataformas') or {}).items():
             if k in base and isinstance(v, dict):
-                base[k] = {'pct': v.get('pct') if isinstance(v.get('pct'), (int, float)) else None, 'iva': bool(v.get('iva', True))}
+                c = dict(base[k])
+                for f in ('pct', 'iva_com', 'iva_venta', 'ret_isr', 'ret_iva'):
+                    if isinstance(v.get(f), (int, float)): c[f] = float(v[f])
+                    elif f in v and v[f] is None and f == 'pct': c[f] = None
+                if 'iva_com' not in v and 'iva' in v: c['iva_com'] = 8.0 if v.get('iva') else 0.0   # configuración vieja (30.7.47)
+                c['iva'] = c['iva_com'] > 0
+                base[k] = c
         return base
 
     @staticmethod
@@ -1955,6 +1968,11 @@ class Monitor:
         out = dict(previo or {})
         if 'desc' in liq: out['desc'] = self._monto(liq.get('desc'), 'Descuentos') or 0
         elif 'desc' not in out and ped and ped.get('desc') is not None: out['desc'] = ped['desc']
+        if 'cobrado' in liq:
+            cb = self._monto(liq.get('cobrado'), 'Lo cobrado al cliente')
+            if cb is None: out.pop('cobrado', None)
+            else: out['cobrado'] = cb
+        elif 'cobrado' not in out and ped and ped.get('cobrado') is not None: out['cobrado'] = ped['cobrado']
         if 'comision' in liq:
             c = self._monto(liq.get('comision'), 'Comisión')
             if c is None: out.pop('comision', None)
@@ -1967,11 +1985,16 @@ class Monitor:
         if not mot.startswith(('Didi', 'Uber')): return None
         plat = 'Didi' if mot.startswith('Didi') else 'Uber'; c = self.plat_cfg()[plat]
         g = r.get('liq') or {}; precio = round(float(r.get('total') or 0), 2); desc = round(float(g.get('desc') or 0), 2)
-        if g.get('comision') is not None: com, manual = round(float(g['comision']), 2), True
-        elif c['pct'] is not None: com, manual = round(precio * c['pct'] / 100 * (1.16 if c['iva'] else 1), 2), False
-        else: com, manual = None, False
-        return {'plat': plat, 'precio': precio, 'desc': desc, 'comision': com, 'manual': manual, 'capturado': 'desc' in g,
-                'neto': round(precio - com - desc, 2) if com is not None else None, 'pct': c['pct'], 'iva': c['iva']}
+        cobrado = round(float(g['cobrado']), 2) if g.get('cobrado') is not None else precio   # sin recibo capturado: precio de menú
+        base = round(cobrado / (1 + c['iva_venta'] / 100), 2)
+        ret_isr = round(base * c['ret_isr'] / 100, 2); ret_iva = round(base * c['ret_iva'] / 100, 2)
+        if g.get('comision') is not None: com, iva_com, manual = round(float(g['comision']), 2), 0.0, True   # escrita a mano: ya con IVA
+        elif c['pct'] is not None: com = round(base * c['pct'] / 100, 2); iva_com = round(com * c['iva_com'] / 100, 2); manual = False
+        else: com, iva_com, manual = None, 0.0, False
+        neto = round(cobrado - com - iva_com - ret_isr - ret_iva - desc, 2) if com is not None else None
+        return {'plat': plat, 'precio': precio, 'cobrado': cobrado, 'sin_cobrado': g.get('cobrado') is None, 'base': base, 'desc': desc,
+                'comision': com, 'iva_com': iva_com, 'ret_isr': ret_isr, 'ret_iva': ret_iva, 'manual': manual, 'capturado': 'desc' in g or 'cobrado' in g,
+                'neto': neto, 'pct': c['pct'], 'iva': c['iva'], 'cfg': c}
 
     def quitadas_liq(self):
         out = []
@@ -1996,7 +2019,11 @@ class Monitor:
                 v = (d.get('plataformas') or {}).get(k) or {}
                 pct = self._monto(v.get('pct'), 'Porcentaje de ' + k)
                 if pct is not None and pct > 100: raise ValueError('Porcentaje de ' + k + ': no puede ser más de 100.')
-                cfg[k] = {'pct': pct, 'iva': bool(v.get('iva', True))}
+                cfg[k] = {'pct': pct}
+                for f, nom in (('iva_com', 'IVA de la comisión'), ('iva_venta', 'IVA de la venta'), ('ret_isr', 'Retención de ISR'), ('ret_iva', 'Retención de IVA')):
+                    x = self._monto(v.get(f), nom + ' de ' + k)
+                    if x is not None and x > 100: raise ValueError(nom + ' de ' + k + ': no puede ser más de 100.')
+                    cfg[k][f] = x if x is not None else self.PLAT_BASE[f]
             self.cfg['plataformas'] = cfg
             with open(CONFIG_FILE, 'w', encoding='utf-8') as fh: json.dump(self.cfg, fh, ensure_ascii=False, indent=2)
         elif acc in ('pago', 'pago_borrar'):
@@ -2518,6 +2545,29 @@ class Monitor:
         try: out['existentes'] = self.clientes_buscar(out['rfc'])['clientes'] if len(out['rfc']) >= 12 else []
         except Exception: out['existentes'] = []
         return {'ok': True, 'datos': out}
+    def leer_recibo_plat(self, b64):
+        llave = self.cfg.get('ia_llave')
+        if not llave: raise RuntimeError('La lectura automática no está activada (Reportes → Gastos). Escribe los datos a mano.')
+        if ',' in b64[:80]: b64 = b64.split(',', 1)[1]
+        cuerpo = {'model': self.cfg.get('ia_modelo') or IA_MODELO, 'max_tokens': 600,
+                  'messages': [{'role': 'user', 'content': [{'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg', 'data': b64}},
+                                                            {'type': 'text', 'text': PROMPT_RECIBO_PLAT}]}]}
+        req = urllib.request.Request(IA_URL, data=json.dumps(cuerpo).encode('utf-8'), method='POST',
+                                     headers={'x-api-key': llave, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'})
+        try:
+            with urllib.request.urlopen(req, timeout=90) as r: resp = json.loads(r.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            log('La lectura del recibo de plataforma falló: ' + str(e.code) + ' ' + e.read().decode('utf-8', 'ignore')[:300])
+            raise RuntimeError('No se pudo leer la foto (' + ('llave no válida' if e.code in (401, 403) else 'sin saldo o límite' if e.code in (402, 429) else 'error ' + str(e.code)) + '). Escribe los datos a mano.')
+        txt = ''.join(b.get('text', '') for b in resp.get('content', []) if b.get('type') == 'text')
+        a, z = txt.find('{'), txt.rfind('}')
+        if a < 0 or z < a: raise RuntimeError('No se entendió la foto. Intenta otra más clara o escribe los datos.')
+        j = json.loads(txt[a:z + 1]); num = lambda k: max(0.0, round(float(str(j.get(k) or 0).replace('$', '').replace(',', '') or 0), 2))
+        try: out = {'plataforma': 'uber' if 'uber' in str(j.get('plataforma', '')).lower() else 'didi', 'pedido': re.sub(r'[^0-9A-Za-z]', '', str(j.get('pedido') or ''))[:12].upper(),
+                    'subtotal': num('subtotal'), 'desc': round(num('descuento_entrega') + num('otros_restaurante'), 2), 'efectivo': num('efectivo'), 'total_app': num('total_app')}
+        except ValueError: raise RuntimeError('No se entendieron los números de la foto. Escríbelos a mano.')
+        return {'ok': True, 'datos': out}
+
     CLIENTES_NUEVOS_F = os.path.join(AQUI, 'clientes_nuevos.json')
     def clientes_nuevos(self):
         try: return json.load(open(self.CLIENTES_NUEVOS_F, encoding='utf-8'))
@@ -2603,7 +2653,7 @@ class Monitor:
         for a in self.abiertas():
             out.append({'archivo': a['archivo'], 'ref': a['ref'], 'abrio': a['abrio'], 'fecha': a['fecha'], 'mesero': a['mesero'], 'cod': a['cod'],
                         'llevar': a['llevar'], 'pers': a['pers'], 'total': a['total'],
-                        'canal': {k: v for k, v in (ped.get(a['archivo']) or {}).items() if k in ('canal', 'pedido', 'pago', 'nombre', 'desc')}, 'cortes': a.get('cortes', 0),
+                        'canal': {k: v for k, v in (ped.get(a['archivo']) or {}).items() if k in ('canal', 'pedido', 'pago', 'nombre', 'desc', 'cobrado')}, 'cortes': a.get('cortes', 0),
                         'cte': a.get('cte', ''), 'des_cte': a.get('des_cte', ''), 'factura': (ped.get(a['archivo']) or {}).get('factura', ''),
                         'items': [{'n': _dbf_txt(i['n']), 'q': i['q'], 'imp': i['imp'], 'det': _dbf_txt(i.get('det', '')), 'h': i['h'], 'llevar': i['llevar']} for i in a['items']]})
         return out
@@ -2704,6 +2754,8 @@ class Monitor:
                 if not ped: raise ValueError('Escribe la clave del pedido de ' + c_.title() + '.')
                 dsc = self._monto(d.get('desc'), 'Descuentos')
                 if dsc is not None: canal['desc'] = dsc
+                cob = self._monto(d.get('cobrado'), 'Lo cobrado al cliente')
+                if cob is not None: canal['cobrado'] = cob
                 canal.update({'pedido': ped, 'pago': ('efectivo' if d.get('pago') == 'efectivo' else 'tarjeta') if c_ == 'didi' else 'tarjeta', 'ref': ('D' + ped[-5:] + ('E' if d.get('pago') == 'efectivo' else 'T')) if c_ == 'didi' else 'UBER ' + ped[-5:]})   # Didi: D + clave + E (efectivo) o T (tarjeta)
                 if c_ == 'didi' and d.get('pago') not in ('efectivo', 'tarjeta'): raise ValueError('Marca si el pedido de Didi es en efectivo o con tarjeta.')
             else:
@@ -3666,7 +3718,7 @@ def make_handler(mon, cfg):
                     if not isinstance(e, (ValueError, PermissionError, RuntimeError)): log('Rol de descansos: ' + traceback.format_exc())
                     body = json.dumps({'ok': False, 'error': str(e), 'sesion': not isinstance(e, PermissionError)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(409); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
-            if self.path in ('/api/comandero/cliente-aplicar', '/api/comandero/leer-constancia', '/api/comandero/cliente-nuevo', '/api/comandero/factura-resp'):   # factura (30.7.12)
+            if self.path in ('/api/comandero/cliente-aplicar', '/api/comandero/leer-constancia', '/api/comandero/cliente-nuevo', '/api/comandero/factura-resp', '/api/comandero/leer-recibo'):   # factura (30.7.12)
                 m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'), self.client_address[0])
                 try:
                     if m_ and m_.get('bloqueo'): raise PermissionError(m_['bloqueo'])
@@ -3676,6 +3728,7 @@ def make_handler(mon, cfg):
                     d = json.loads(self.rfile.read(n).decode('utf-8'))
                     if self.path.endswith('aplicar'): out = mon.cliente_aplicar(m_, d)
                     elif self.path.endswith('constancia'): out = mon.leer_constancia(str(d.get('foto') or ''))
+                    elif self.path.endswith('leer-recibo'): out = mon.leer_recibo_plat(str(d.get('foto') or ''))
                     elif self.path.endswith('factura-resp'):
                         if not any(a['archivo'] == str(d.get('k') or '') and a['cod'] == m_['cod'] for a in mon.abiertas()): raise RuntimeError('Esa cuenta ya no está abierta o es de otro mesero.')
                         out = mon.factura_resp(str(d.get('k')), d.get('factura'))
@@ -3730,11 +3783,11 @@ def make_handler(mon, cfg):
                 except Exception as e:
                     log('Exportar nómina: ' + traceback.format_exc())
                     return self._json({'ok': False, 'error': 'No pude armar el archivo: ' + str(e)}, 409)
-            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/log-cliente', '/api/clientes-nuevos', '/api/plano', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia', '/api/github', '/api/plataformas'): self.send_response(404); self.end_headers(); return
+            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/log-cliente', '/api/clientes-nuevos', '/api/plano', '/api/leer-recibo', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia', '/api/github', '/api/plataformas'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return
             try:
-                lim = 17 * 1024 * 1024 if self.path == '/api/rh-archivo' else 9 * 1024 * 1024 if self.path in ('/api/compra', '/api/gastos', '/api/leer-ticket') else 262144
+                lim = 17 * 1024 * 1024 if self.path == '/api/rh-archivo' else 9 * 1024 * 1024 if self.path in ('/api/compra', '/api/gastos', '/api/leer-ticket', '/api/leer-recibo') else 262144
                 n=int(self.headers.get('Content-Length','0') or 0)
                 if n > lim: raise ValueError('La foto es demasiado grande.')
                 d=json.loads(self.rfile.read(n).decode('utf-8'))
@@ -3748,6 +3801,7 @@ def make_handler(mon, cfg):
                 elif self.path == '/api/comanda-formato': out=mon.comanda_formato(d)
                 elif self.path == '/api/clientes-nuevos': out = mon.clientes_nuevos_accion(d)
                 elif self.path == '/api/plano': out = mon.plano_accion(d); mon.refresh()
+                elif self.path == '/api/leer-recibo': out = mon.leer_recibo_plat(str(d.get('foto') or ''))
                 elif self.path == '/api/log-cliente': log('Teléfono (' + str(d.get('que', ''))[:40] + '): ' + str(d.get('error', ''))[:200] + ' · ' + str(d.get('ua', ''))[:160]); out = {'ok': True}
                 elif self.path == '/api/leer-pendientes': out=mon.leer_pendientes()
                 elif self.path == '/api/drive':

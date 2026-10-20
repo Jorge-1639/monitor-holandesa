@@ -234,3 +234,5 @@ Versión 30.7.47 — Didi y Uber cuentan como venta lo que paga la plataforma: p
 
 Versión 30.7.48 — panel → COMANDERO → Mapa del comedor: editor con el dedo (agregar mesa sola o doble A/B, letreros, arrastrar, girar, voltear, tamaño, número, borrar). Se guarda en plano.json en la caja y el comandero lo usa.
 
+Versión 30.7.49 — Didi y Uber como su estado de cuenta: se captura el subtotal del recibo (o foto del recibo que se llena sola) y lo que absorbes; el sistema saca la base sin IVA 8%, comisión 30% + IVA 8%, retenciones de ISR 2.5% e IVA 8% (todo editable en Reportes → Didi y Uber). Sin recibo usa el precio de menú.
+
