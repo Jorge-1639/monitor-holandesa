@@ -236,3 +236,5 @@ Versión 30.7.48 — panel → COMANDERO → Mapa del comedor: editor con el ded
 
 Versión 30.7.49 — Didi y Uber como su estado de cuenta: se captura el subtotal del recibo (o foto del recibo que se llena sola) y lo que absorbes; el sistema saca la base sin IVA 8%, comisión 30% + IVA 8%, retenciones de ISR 2.5% e IVA 8% (todo editable en Reportes → Didi y Uber). Sin recibo usa el precio de menú.
 
+Versión 30.7.50 — Resultados: Didi y Uber entran a ventas por lo cobrado al cliente; la comisión, su IVA y los descuentos que absorbes van como renglón de gasto ("Comisiones de Didi y Uber"); las retenciones de ISR e IVA aparecen aparte (no son gasto, son a cuenta de impuestos).
+

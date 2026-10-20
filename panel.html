@@ -573,10 +573,12 @@ const REPS=[['historial','Historial'],['quitadas','Cuentas quitadas'],['platafor
 // ---- Didi y Uber (cuentas quitadas) como opción en los reportes; la familia nunca cuenta como venta
 let incPlat=!!st.plat, RD=null;
 const esPlat=r=>/^(Didi|Uber)/.test(r.motivo||'');
-const ventaQ=r=>r.liq&&r.liq.neto!=null?r.liq.neto:(r.total||0);   // 30.7.47: Didi y Uber cuentan como venta lo que paga la plataforma
+const ventaQ=r=>r.liq&&r.liq.neto!=null?r.liq.neto:(r.total||0);
+// 30.7.50: en ventas y resultados, Didi y Uber van por lo cobrado al cliente; la comisión, su IVA y lo que absorbes van como gasto y las retenciones aparte
+const ventaB=r=>r.liq&&r.liq.cobrado!=null&&r.liq.neto!=null?r.liq.cobrado:ventaQ(r);   // 30.7.47: Didi y Uber cuentan como venta lo que paga la plataforma
 function datosRep(){
   const Q=incPlat?(DATA.quitadas||[]).filter(esPlat):[];
-  const pd2={},ph={};Q.forEach(r=>{const o=pd2[r.fecha]=pd2[r.fecha]||{t:0,n:0};o.t+=ventaQ(r);o.n++;const h=parseInt((r.abrio||'').slice(0,2));if(!isNaN(h)){const k=r.fecha;(ph[k]=ph[k]||{})[h]=(ph[k][h]||0)+ventaQ(r)}});
+  const pd2={},ph={};Q.forEach(r=>{const o=pd2[r.fecha]=pd2[r.fecha]||{t:0,n:0};o.t+=ventaB(r);o.n++;const h=parseInt((r.abrio||'').slice(0,2));if(!isNaN(h)){const k=r.fecha;(ph[k]=ph[k]||{})[h]=(ph[k][h]||0)+ventaB(r)}});
   const diario=DATA.diario.map(x=>pd2[x.fecha]?{...x,total:x.total+pd2[x.fecha].t,tickets:x.tickets+pd2[x.fecha].n,plat:pd2[x.fecha].t}:x);
   const mon={};diario.forEach(x=>{const m=mon[x.fecha.slice(0,7)]=mon[x.fecha.slice(0,7)]||{mes:x.fecha.slice(0,7),total:0,tickets:0,personas:0};m.total+=x.total;m.tickets+=x.tickets;m.personas+=x.personas||0});
   const mensual=Object.values(mon).sort((a,b)=>a.mes.localeCompare(b.mes));
@@ -1387,7 +1389,7 @@ function costoFijos(a,b){
 const CANS=[['comedor','Comedor'],['llevar','Para llevar'],['domicilio','A domicilio'],['didi','Didi'],['uber','Uber']];
 function canalesPorDia(D){
   const m={};D.forEach(x=>{const o=m[x.fecha]={comedor:0,llevar:0,domicilio:0,didi_e:0,didi_t:0,uber:0};Object.entries(x.canales||{}).forEach(([k,v])=>o[k]=(o[k]||0)+v)});
-  if(incPlat)(DATA.quitadas||[]).filter(esPlat).forEach(r=>{const o=m[r.fecha];if(!o)return;o[/^Uber/.test(r.motivo)?'uber':(/efectivo/i.test(r.motivo)?'didi_e':'didi_t')]+=ventaQ(r)});
+  if(incPlat)(DATA.quitadas||[]).filter(esPlat).forEach(r=>{const o=m[r.fecha];if(!o)return;o[/^Uber/.test(r.motivo)?'uber':(/efectivo/i.test(r.motivo)?'didi_e':'didi_t')]+=ventaB(r)});
   Object.values(m).forEach(o=>o.didi=o.didi_e+o.didi_t);return m}
 function sumaCan(L){const t={comedor:0,llevar:0,domicilio:0,didi_e:0,didi_t:0,didi:0,uber:0};L.forEach(o=>Object.keys(t).forEach(k=>t[k]+=o[k]||0));t.total=CANS.reduce((a,[k])=>a+t[k],0);return t}
 function cardCanales(D){
@@ -1417,7 +1419,9 @@ function rResultados(){
   const sm=a=>a.reduce((x,m)=>x+(m.monto??m.importe??0),0);
   const compras=sm(ins)+(cajaG?sm(caja):0), bruta=venta-compras;
   const fj=costoFijos(rDesde,rHasta);
-  const tFij=fj.reduce((a,f)=>a+f.parte,0), tOtr=sm(otros), util=bruta-tFij-tOtr;
+  const QP=incPlat?(DATA.quitadas||[]).filter(r=>esPlat(r)&&r.fecha>=rDesde&&r.fecha<=rHasta&&r.liq&&r.liq.neto!=null):[];
+  const sq=k=>QP.reduce((a,r)=>a+(r.liq[k]||0),0), tCom=sq('comision')+sq('iva_com')+sq('desc'), tRet=sq('ret_isr')+sq('ret_iva');
+  const tFij=fj.reduce((a,f)=>a+f.parte,0), tOtr=sm(otros), util=bruta-tFij-tOtr-tCom;
   const nom=fj.filter(f=>/Sueldos|Seguro social/.test(f.categoria)).reduce((a,f)=>a+f.parte,0)+otros.filter(m=>/Sueldos|Seguro social/.test(m.categoria)).reduce((a,m)=>a+m.monto,0);
   const p=v=>venta?(100*v/venta).toFixed(1)+'%':'—';
   const ln=(a,b,c)=>linea(a,b,c);
@@ -1429,12 +1433,16 @@ function rResultados(){
   <div class="card"><h2>Estado de resultados <small>${corto(rDesde)} al ${corto(rHasta)}</small></h2><div class="dtab">
     ${fila('Ventas',fmt2(venta),(()=>{const T=sumaCan(Object.values(canalesPorDia(D)));
       return CANS.map(([k,l])=>ln(l,fmt2(T[k]),(venta?(100*T[k]/venta).toFixed(1)+'% de la venta':'')+(k==='didi'&&T.didi?' · efectivo '+fmt2(T.didi_e)+' · tarjeta '+fmt2(T.didi_t):''))).join('')
-        +`<p class="empty" style="margin:6px 0 4px">Cobrado en la caja (MrTienda): ${fmt2(vMT)}${incPlat?' · Lo que pagan Didi y Uber (precio de menú menos comisión y descuentos): '+fmt2(plat):''}. La comida de la familia no cuenta como venta.</p>`})())}
+        +`<p class="empty" style="margin:6px 0 4px">Cobrado en la caja (MrTienda): ${fmt2(vMT)}${incPlat?' · Didi y Uber, lo cobrado al cliente según el recibo (o tu precio de menú si no hay recibo): '+fmt2(plat)+'. Su comisión, IVA y descuentos van abajo como gasto':''}. La comida de la familia no cuenta como venta.</p>`})())}
     ${fila('− Insumos y compras',fmt2(compras),ins.map(m=>ln(esc(m.proveedor||m.concepto),fmt2(m.monto),corto(m.fecha)+(m.ticket?' · ticket '+esc(m.ticket):'')+' · capturado')).join('')+(cajaG?caja.map(e=>ln(esc(e.ref),fmt2(e.importe),corto(e.d)+' · salida de caja MrTienda')).join(''):''),ins.length+(cajaG?caja.length:0))}
     ${fijo('Utilidad bruta',fmt2(bruta),'tot')}
     ${fila('− Gastos fijos ('+n+(n===1?' día)':' días)'),fmt2(tFij),fj.map(f=>ln(esc(f.concepto),fmt2(f.parte),(f.real?f.real+' de '+n+' días con recibo real':'promedio')+(f.mes?' · '+fmt(f.mes)+' al mes':''))).join(''),fj.length)}
     ${fila('− Otros gastos capturados',fmt2(tOtr),otros.map(m=>ln(esc(m.proveedor||m.concepto),fmt2(m.monto),corto(m.fecha)+' · '+esc(m.categoria))).join(''),otros.length)}
-    ${fijo('Utilidad de operación',(util<0?'−':'')+fmt2(Math.abs(util)),'tot')}</div>
+    ${QP.length?fila('− Comisiones de Didi y Uber',fmt2(tCom),['Didi','Uber'].map(pf=>{const L=QP.filter(r=>r.motivo.startsWith(pf));if(!L.length)return '';const g=k=>L.reduce((a,r)=>a+(r.liq[k]||0),0);
+      return ln(pf+' · comisión',fmt2(g('comision')),pl(L.length,'pedido'))+ln(pf+' · IVA de la comisión',fmt2(g('iva_com')),'posible acreditable')+(g('desc')?ln(pf+' · descuentos que absorbes',fmt2(g('desc')),''):'')}).join(''),QP.length):''}
+    ${fijo('Utilidad de operación',(util<0?'−':'')+fmt2(Math.abs(util)),'tot')}
+    ${QP.length&&tRet?fila('Retenciones de Didi y Uber (ISR e IVA)',fmt2(tRet),['Didi','Uber'].map(pf=>{const L=QP.filter(r=>r.motivo.startsWith(pf));if(!L.length)return '';const g=k=>L.reduce((a,r)=>a+(r.liq[k]||0),0);
+      return ln(pf+' · retención de ISR',fmt2(g('ret_isr')),'a cuenta de tu ISR')+ln(pf+' · retención de IVA',fmt2(g('ret_iva')),'a cuenta de tu IVA')}).join('')+'<p class="empty" style="margin:6px 0 4px">No es gasto: es impuesto que la plataforma pagó por ti al SAT. Lo acreditas en tu declaración. Ya viene restado en lo que te deposita.</p>',QP.length):''}</div>
     ${cafe.length?`<p class="empty" style="margin-top:10px">Compras de la cafetería en estas fechas: <b style="color:var(--ink)">${fmt2(sm(cafe))}</b>. No se restan aquí porque son de la cafetería.</p>`:''}
     <div class="seg" style="margin-top:12px"><button data-cajag="1" aria-pressed="${cajaG}">${cajaG?'✓ ':''}Sumar también salidas de caja de MrTienda</button></div>
     <p class="empty" style="margin-top:10px">Apagado (lo normal): solo cuenta lo que capturan en el módulo de compras, para no contar doble. Préndelo solo en días en que no se capturó nada.</p></div>
