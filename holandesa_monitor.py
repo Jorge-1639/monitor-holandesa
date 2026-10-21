@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 152            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.50'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 153            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.51'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -153,6 +153,23 @@ def log(msg):
     except Exception: pass
     try: print(line)
     except Exception: pass
+
+# 30.7.48: partes del sistema que se pueden apagar en config.json ("modulos"), p. ej. en un negocio que solo usa el panel de ventas
+MODULOS = ('comandero', 'personal', 'compras', 'plataformas')
+RUTAS_MODULO = {   # se apaga todo lo que empiece así
+    'comandero': ('/comandero', '/api/comandero', '/api/mesero-login', '/api/meseros', '/manifest-comandero', '/api/comanda-formato', '/api/clientes-nuevos', '/api/plano'),
+    'personal': ('/personal', '/descansos', '/api/rh', '/api/rol', '/api/descansos', '/manifest-rol', '/manifest-rh'),
+    'compras': ('/captura', '/api/compra', '/api/captura-info', '/api/leer-ticket', '/api/leer-pendientes', '/api/caja-login', '/api/cajeros', '/api/ia', '/api/drive', '/manifest-caja'),
+    'plataformas': ('/api/plataformas', '/api/leer-recibo'),
+}
+
+def modulos(cfg):
+    m = cfg.get('modulos') if isinstance(cfg.get('modulos'), dict) else {}
+    return {k: m.get(k, True) is not False for k in MODULOS}
+
+def ruta_apagada(cfg, path):
+    p = path.split('?')[0]; on = modulos(cfg)
+    return any(not on[k] and p.startswith(rutas) for k, rutas in RUTAS_MODULO.items())
 
 def load_config_ro():
     cfg = dict(DEFAULT_CONFIG)
@@ -3477,7 +3494,8 @@ class Monitor:
         try: out['tardadas'] = self.tiempos_lista()
         except Exception as e: log('No pude leer los tiempos de comanda: ' + str(e)); out['tardadas'] = []
         out['huellas'] = [{k: x.get(k, '') for k in ('id', 'nombre', 'rp', 'alta', 'ultimo', 'v')} for x in huellas()]; out['minutos_sesion'] = self.cfg.get('minutos_sesion', 30)
-        out['quitadas'] = self.quitadas_liq(); out['motivos'] = MOTIVOS
+        out['quitadas'] = self.quitadas_liq(); out['motivos'] = MOTIVOS if modulos(self.cfg)['plataformas'] else [m for m in MOTIVOS if not m.startswith(('Didi', 'Uber'))]
+        out['modulos'] = modulos(self.cfg); out['actualiza'] = self.cfg.get('actualizar_solo', True) is not False
         out['plataformas'] = {'config': self.plat_cfg(), 'pagos': self.plat_pagos()}; out['familia'] = self.familia()
         out['empleados'] = self.empleados()
         out['gastos'] = self.gastos(); out['categorias_gasto'] = CATEGORIAS_GASTO
@@ -3635,8 +3653,15 @@ def make_handler(mon, cfg):
             self.send_response(200); self.send_header('Content-Type', ctype); self.send_header('Cache-Control', 'no-store')
             if gz: self.send_header('Content-Encoding', 'gzip')
             self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
+        def _apagada(self):
+            if not ruta_apagada(cfg, self.path): return False
+            body = '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>No activado</title><body style="font:16px system-ui;padding:24px;background:#fbf6f1;color:#1f1a17"><h2 style="color:#c2410c">Esta parte no está activada</h2><p>En este negocio solo está activado el panel de ventas.</p><p><a href="/panel" style="color:#c2410c">Ir al panel</a></p>'.encode('utf-8')
+            self.send_response(404); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
+            return True
+
         def do_POST(self):
             self._por_tailscale_serve()
+            if self._apagada(): return
             if self.path in ('/api/entrar', '/api/huella/reto', '/api/huella/entrar', '/api/huella/registrar', '/api/huella/quitar', '/api/salir'):
                 try:
                     n = min(int(self.headers.get('Content-Length', '0') or 0), 16384)
@@ -3857,6 +3882,7 @@ def make_handler(mon, cfg):
                 self.client_address = ('100.64.0.1', 0)
         def do_GET(self):
             self._por_tailscale_serve()
+            if self._apagada(): return
             p0 = self.path.split('?')[0]
             if p0 in ('/captura', '/captura/'):
                 return self._send(page, 'text/html; charset=utf-8')   # la página no trae datos; pide la clave del cajero

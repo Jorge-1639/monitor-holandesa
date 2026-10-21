@@ -592,7 +592,7 @@ function vReportes(){
   if(rDesde>rHasta){const t=rDesde;rDesde=rHasta;rHasta=t}
   RD=datosRep();
   const usaPlat=['historial','mes','calor','compara','resultados'].includes(repModo);
-  const head=segBtns('rp',REPS,repModo)+(usaPlat?`<div class="seg"><button data-plat="1" aria-pressed="${incPlat}">${incPlat?'✓ ':''}Incluir Didi y Uber</button></div>`:'');
+  const head=segBtns('rp',REPS.filter(([k])=>(k!=='plataformas'||ON('plataformas'))&&(k!=='tardadas'||ON('comandero'))),repModo)+(usaPlat&&ON('plataformas')?`<div class="seg"><button data-plat="1" aria-pressed="${incPlat}">${incPlat?'✓ ':''}Incluir Didi y Uber</button></div>`:'');
   const fn={historial:rHist,quitadas:rQuitadas,plataformas:rPlat,cajeras:rCajeras,meseros:rMeseros,calor:rCalor,compara:rCompara,mes:rMes,resultados:rResultados,gastos:rGastos,compras:rCompras,tardadas:rTardadas}[repModo]||rHist;
   return '<section>'+head+fn()+'</section>';
 }
@@ -666,7 +666,7 @@ function rQuitadas(){
       ${sub?`<p class="empty" style="margin-top:10px">${sub}</p>`:''}<div class="btns">${x(g,'Descargar Excel')}</div></div>`};
   const x=(g,l)=>COPIA?`<button class="btn" data-csv="${g}">${l} (CSV)</button>`:`<a class="btn ${g==='plataformas'?'pri':''}" href="/api/quitadas.xlsx?desde=${rDesde}&hasta=${rHasta}&grupo=${g}" download>${l}</a>`;
   return conFechas()+`
-  <div class="kpis"><div class="kpi"><b class="num">${fmt(T(didi))}</b><span>Didi · ${pl(didi.length,'pedido')}</span></div><div class="kpi"><b class="num">${fmt(T(uber))}</b><span>Uber · ${pl(uber.length,'pedido')}</span></div>
+  <div class="kpis">${ON('plataformas')?`<div class="kpi"><b class="num">${fmt(T(didi))}</b><span>Didi · ${pl(didi.length,'pedido')}</span></div><div class="kpi"><b class="num">${fmt(T(uber))}</b><span>Uber · ${pl(uber.length,'pedido')}</span></div>`:''}
     <div class="kpi"><b class="num" style="color:var(--gold)">${fmt(T(fam))}</b><span>Familia · ${pl(fam.length,'cuenta')}</span></div><div class="kpi"><b class="num" style="color:var(--gold)">${fmt(T(emp))}</b><span>Empleados · ${pl(emp.length,'cuenta')}</span></div>
     <div class="kpi"><b class="num" style="color:var(--gold)">${fmt(T(cor))}</b><span>Cortesías · ${pl(cor.length,'cuenta')}</span></div><div class="kpi"><b class="num">${fmt(T(q))}</b><span>Total · ${pl(q.length,'cuenta')}</span></div></div>
   ${porPersona(fam,'Familia por persona','','familia')}
@@ -675,7 +675,7 @@ function rQuitadas(){
   ${COPIA?'':tarjetaFamilia()}
   <div class="card"><h2>Por motivo <small>importe a precio de MrTienda</small></h2>${q.length?bars(Object.entries(by).sort((a,b)=>T(b[1])-T(a[1])).map(([n,L])=>({n,v:T(L),sub:pl(L.length,'cuenta')}))):'<p class="empty">No hay cuentas quitadas en estas fechas.</p>'}
     <h3 class="dh3" style="margin-top:16px">Descargar en Excel para conciliar</h3>
-    <div class="btns" style="margin-top:6px">${x('plataformas','Didi y Uber')}${x('didi','Solo Didi')}${x('uber','Solo Uber')}${x('familia','Familia')}${x('empleados','Empleados')}${x('cortesias','Cortesías')}${x('todas','Todas')}</div>
+    <div class="btns" style="margin-top:6px">${ON('plataformas')?x('plataformas','Didi y Uber')+x('didi','Solo Didi')+x('uber','Solo Uber'):''}${x('familia','Familia')}${x('empleados','Empleados')}${x('cortesias','Cortesías')}${x('todas','Todas')}</div>
     <p class="empty" style="margin-top:10px">El Excel trae fecha, hora, cuenta, si fue efectivo o tarjeta, la nota y los platillos, para compararlo contra el reporte de la plataforma.</p></div>
   <div class="card"><h2>Detalle <small>${q.length}</small></h2>${itemList(q,r=>quitadaItem(r,true),'Sin registros.')}
     <p class="empty" style="margin-top:10px">Solo aparecen las cuentas quitadas desde esta versión del panel.</p></div>`;
@@ -1201,7 +1201,7 @@ function tarjetaComandero(){
 function tarjetasCajeros(){
   const C=(DATA.cajeros||[]).filter(c=>c.activo), ia=DATA.ia||{};
   const pend=GA().movs.filter(m=>m.foto&&!(m.items&&m.items.length)&&!(m.lectura&&m.lectura.intentado)).length;
-  return `<div class="card"><h2>Cajeros <small>${C.length} con acceso</small></h2>
+  return (ON('compras')?`<div class="card"><h2>Cajeros <small>${C.length} con acceso</small></h2>
     ${C.length?`<div class="list">${C.map(c=>`<div class="item"><span>${esc(c.nombre)}</span><span style="font-size:13px;white-space:nowrap"><a href="#" data-cjclave="${esc(c.id)}" style="color:var(--green-2)">Cambiar clave</a> · <a href="#" data-cjbaja="${esc(c.id)}" style="color:var(--bad)">Dar de baja</a></span><span class="meta">Alta ${c.alta?corto(c.alta.slice(0,10)):''}</span></div>`).join('')}</div>`:'<p class="empty">Todavía no das de alta a nadie.</p>'}
     <div style="display:grid;grid-template-columns:1fr 110px;gap:8px;margin-top:12px">
       <input id="cjN" maxlength="40" placeholder="Nombre" style="height:44px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--ink);padding:0 12px;font:15px var(--body);min-width:0">
@@ -1213,9 +1213,7 @@ function tarjetasCajeros(){
     <p class="empty">Cuando el cajero toma la foto, Claude lee el ticket: proveedor, número, IVA y cada producto, y lo compara con el importe capturado. La foto se usa solo para leerla y se descarta: no queda guardada en la computadora, solo los datos. Necesita tu llave de la API de Claude (console.anthropic.com), que se guarda solo en la computadora de la caja.</p>
     <div class="field"><input id="iaK" type="password" autocomplete="off" placeholder="${ia.activa?'Llave guardada · pega otra para cambiarla':'Pega aquí tu llave (sk-ant-…)'}"></div>
     <div class="btns"><button class="btn pri" data-iasave="1">Guardar llave</button>${ia.activa?'<button class="btn" data-iaquitar="1">Quitar llave</button>':''}${ia.activa&&pend?`<button class="btn" data-leerpend="1">Leer ${pend} fotos pendientes</button>`:''}</div></div>
-  ${tarjetaDrive()}
-  ${tarjetaGithub()}
-  ${tarjetaHuella()}`;
+`:'')+`${ON('compras')?tarjetaDrive():''}${DATA.actualiza!==false?tarjetaGithub():''}${tarjetaHuella()}`;
 }
 // ---- entrada con huella (WebAuthn): solo en la dirección segura https
 const b64uH=b=>btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1386,11 +1384,12 @@ function costoFijos(a,b){
     return {concepto:c,categoria:f?f.categoria:(CATS().find(x=>x.toLowerCase()===c.toLowerCase())||'Otros gastos'),parte:tot,mes:fijoMes(c),real}});
 }
 // 30.7.40: venta por tipo — comedor, para llevar, a domicilio, Didi (efectivo + tarjeta) y Uber, con su % del total
-const CANS=[['comedor','Comedor'],['llevar','Para llevar'],['domicilio','A domicilio'],['didi','Didi'],['uber','Uber']];
+const CANS_ALL=[['comedor','Comedor'],['llevar','Para llevar'],['domicilio','A domicilio'],['didi','Didi'],['uber','Uber']];
+let CANS=CANS_ALL;   // 30.7.48: sin Didi ni Uber en un negocio que no los usa
 function canalesPorDia(D){
   const m={};D.forEach(x=>{const o=m[x.fecha]={comedor:0,llevar:0,domicilio:0,didi_e:0,didi_t:0,uber:0};Object.entries(x.canales||{}).forEach(([k,v])=>o[k]=(o[k]||0)+v)});
   if(incPlat)(DATA.quitadas||[]).filter(esPlat).forEach(r=>{const o=m[r.fecha];if(!o)return;o[/^Uber/.test(r.motivo)?'uber':(/efectivo/i.test(r.motivo)?'didi_e':'didi_t')]+=ventaB(r)});
-  Object.values(m).forEach(o=>o.didi=o.didi_e+o.didi_t);return m}
+  Object.values(m).forEach(o=>{o.didi=o.didi_e+o.didi_t;if(!ON('plataformas')){o.llevar+=o.didi+o.uber;o.didi=o.didi_e=o.didi_t=o.uber=0}});return m}
 function sumaCan(L){const t={comedor:0,llevar:0,domicilio:0,didi_e:0,didi_t:0,didi:0,uber:0};L.forEach(o=>Object.keys(t).forEach(k=>t[k]+=o[k]||0));t.total=CANS.reduce((a,[k])=>a+t[k],0);return t}
 function cardCanales(D){
   const pdia=canalesPorDia(D),T=sumaCan(Object.values(pdia)),pc=(v,t)=>t?(100*v/t).toFixed(1)+'%':'—',pc0=(v,t)=>!t||!v?'—':(100*v/t<0.5?'<1%':Math.round(100*v/t)+'%');
@@ -1402,10 +1401,10 @@ function cardCanales(D){
   const semanas=Object.entries(sem).map(([k,L])=>{const a=pd(k),b=pd(k);b.setDate(b.getDate()+6);return [a.getDate()+(a.getMonth()===b.getMonth()?'':' '+MESES[a.getMonth()])+'–'+b.getDate()+' '+MESES[b.getMonth()]+(L.length<7?`<br><small style="color:var(--muted)">${L.length} días</small>`:''),sumaCan(L)]});
   return `<div class="card"><h2>Ventas por tipo <small>${fmt(T.total)} = 100%</small></h2>
     ${bars(CANS.map(([k,l])=>({n:l,v:T[k],vs:fmt(T[k])+' · <b>'+pc(T[k],T.total)+'</b>',sub:k==='didi'&&T.didi?'Efectivo '+fmt(T.didi_e)+' · Tarjeta '+fmt(T.didi_t):''})),T.total||1)}
-    ${!incPlat?'<p class="empty" style="margin-top:8px">Didi y Uber solo incluyen lo cobrado en la caja. Prende <b>Incluir Didi y Uber</b> (arriba) para sumar las cuentas quitadas.</p>':''}
+    ${!incPlat&&ON('plataformas')?'<p class="empty" style="margin-top:8px">Didi y Uber solo incluyen lo cobrado en la caja. Prende <b>Incluir Didi y Uber</b> (arriba) para sumar las cuentas quitadas.</p>':''}
     ${dias.length>1?`<details class="drow" style="margin-top:10px"><summary><span>Por día <small>(${dias.length})</small></span><span></span></summary>${tabla(dias,'Día')}</details>`:''}
     ${semanas.length>1||dias.length>=7?`<details class="drow"><summary><span>Por semana <small>(lunes a domingo)</small></span><span></span></summary>${tabla(semanas,'Semana')}</details>`:''}
-    <p class="empty" style="margin-top:10px">A domicilio: cuentas abiertas en el comandero como "Servicio a domicilio". Lo demás que se marcó para llevar cuenta como Para llevar.</p></div>`;
+    ${ON('comandero')?'<p class="empty" style="margin-top:10px">A domicilio: cuentas abiertas en el comandero como "Servicio a domicilio". Lo demás que se marcó para llevar cuenta como Para llevar.</p>':''}</div>`;
 }
 function rResultados(){
   if(rDesde>rHasta){const t=rDesde;rDesde=rHasta;rHasta=t}
@@ -2291,7 +2290,17 @@ function csvQuitadas(g){
 }
 
 // ---------- pintar
+// 30.7.48: partes del sistema apagadas en config.json ("modulos")
+const ON=k=>!DATA||!DATA.modulos||DATA.modulos[k]!==false;
+function aplicarModulos(){
+  CANS=ON('plataformas')?CANS_ALL:CANS_ALL.slice(0,3);
+  if(!ON('plataformas'))incPlat=false;
+  const tc=document.getElementById('tabCmd');if(tc&&!ON('comandero')){tc.remove();const g=document.querySelector('nav.tabs .tin');if(g)g.style.gridTemplateColumns='repeat(5,1fr)';if(tab==='cmd')tab='hoy'}
+  const lp=document.getElementById('lnkPersonal');if(lp)lp.hidden=!ON('personal');
+  if(repModo==='plataformas'&&!ON('plataformas'))repModo='historial';
+}
 function render(){
+  if(DATA)aplicarModulos();
   if(RHMODE){const y=window.scrollY;$('#view').innerHTML=vRH();rhResumenForm();window.scrollTo(0,y);return}
   const D=DATA.detalle[cur]; sel.value=cur;
   const i=days.indexOf(cur); $('#prev').disabled=i<=0; $('#next').disabled=i>=days.length-1;
@@ -2418,7 +2427,7 @@ if(RHMODE){
   document.querySelector('.wrap').style.paddingBottom='40px';
   cargarCaptura();
 }else{
-  if(!COPIA){const l=document.createElement('a');l.href='/personal';l.textContent='Personal ›';l.setAttribute('aria-label','Abrir Personal (Recursos Humanos)');
+  if(!COPIA){const l=document.createElement('a');l.id='lnkPersonal';l.href='/personal';l.textContent='Personal ›';l.setAttribute('aria-label','Abrir Personal (Recursos Humanos)');
     l.style.cssText='color:var(--hero-ink);font:700 12px var(--body);text-decoration:none;border:1px solid rgba(255,255,255,.55);border-radius:14px;padding:4px 10px;white-space:nowrap';
     const live=document.getElementById('live');if(live){live.parentNode.insertBefore(l,live);live.parentNode.style.flexWrap='wrap';live.parentNode.style.rowGap='6px'}}
   cargar(); if(!COPIA) setInterval(cargar,120000);

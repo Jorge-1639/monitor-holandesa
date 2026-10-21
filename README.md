@@ -238,3 +238,5 @@ Versión 30.7.49 — Didi y Uber como su estado de cuenta: se captura el subtota
 
 Versión 30.7.50 — Resultados: Didi y Uber entran a ventas por lo cobrado al cliente; la comisión, su IVA y los descuentos que absorbes van como renglón de gasto ("Comisiones de Didi y Uber"); las retenciones de ISR e IVA aparecen aparte (no son gasto, son a cuenta de impuestos).
 
+Versión 30.7.51 — partes que se pueden apagar en config.json para otro negocio: "modulos": {"comandero": false, "personal": false, "compras": false, "plataformas": false}. Lo apagado desaparece del panel (pestaña Comandero, botón Personal, Didi y Uber, Comandas tardadas, Cajeros, lectura de tickets y Drive) y sus direcciones responden "Esta parte no está activada". Sin "modulos" todo sigue encendido (La Holandesa). Con "actualizar_solo": false tampoco se muestra la tarjeta de la llave de GitHub.
+
