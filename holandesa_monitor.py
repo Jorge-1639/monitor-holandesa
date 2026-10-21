@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 153            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.51'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 154            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.52'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -159,7 +159,7 @@ MODULOS = ('comandero', 'personal', 'compras', 'plataformas')
 RUTAS_MODULO = {   # se apaga todo lo que empiece así
     'comandero': ('/comandero', '/api/comandero', '/api/mesero-login', '/api/meseros', '/manifest-comandero', '/api/comanda-formato', '/api/clientes-nuevos', '/api/plano'),
     'personal': ('/personal', '/descansos', '/api/rh', '/api/rol', '/api/descansos', '/manifest-rol', '/manifest-rh'),
-    'compras': ('/captura', '/api/compra', '/api/captura-info', '/api/leer-ticket', '/api/leer-pendientes', '/api/caja-login', '/api/cajeros', '/api/ia', '/api/drive', '/manifest-caja'),
+    'compras': ('/captura', '/api/compra', '/api/captura-info', '/api/leer-ticket', '/api/leer-pendientes', '/api/caja-login', '/api/cajeros', '/api/drive', '/manifest-caja'),
     'plataformas': ('/api/plataformas', '/api/leer-recibo'),
 }
 
@@ -2539,6 +2539,24 @@ class Monitor:
                 self.cache = {k: v for k, v in self.cache.items() if not k[0].upper().startswith(com.upper()) and k[0] != ruta}
         log(f'COMANDERO: {mesero["nombre"]} puso la cuenta {archivo} a nombre del cliente {cod} ({_dbf_txt(nombre)}) para factura')
         return {'ok': True, 'cod': cod, 'nombre': _dbf_txt(nombre)}
+    def probar_ia(self, llave):
+        """30.7.52: prueba la llave con una pregunta mínima (cuesta menos de un centavo). Regresa (estado, mensaje)."""
+        cuerpo = {'model': self.cfg.get('ia_modelo') or IA_MODELO, 'max_tokens': 1, 'messages': [{'role': 'user', 'content': 'Hola'}]}
+        req = urllib.request.Request(IA_URL, data=json.dumps(cuerpo).encode('utf-8'), method='POST',
+                                     headers={'x-api-key': llave, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r: r.read()
+            return 'ok', 'La llave funciona. La lectura de fotos está activa.'
+        except urllib.error.HTTPError as e:
+            txt = e.read().decode('utf-8', 'ignore')[:400]
+            log('Prueba de la llave de Claude: ' + str(e.code) + ' ' + txt)
+            if e.code in (401, 403): return 'mala', 'Claude dice que esa llave no es válida. Revisa que la copiaste completa o crea otra.'
+            if 'credit' in txt.lower() or 'billing' in txt.lower() or e.code == 402: return 'saldo', 'La llave es correcta, pero la cuenta no tiene saldo. Compra créditos en platform.claude.com → Billing.'
+            if e.code == 429: return 'limite', 'La llave es correcta, pero llegó a su límite por ahora. Intenta en unos minutos.'
+            return 'error', 'Claude respondió con error ' + str(e.code) + '. Intenta otra vez en unos minutos.'
+        except Exception as e:
+            return 'error', 'No pude comunicarme con Claude (' + str(e)[:80] + '). Revisa el internet de la caja.'
+
     def leer_constancia(self, b64):
         llave = self.cfg.get('ia_llave')
         if not llave: raise RuntimeError('La lectura automática no está activada (Reportes → Gastos). Escribe los datos a mano.')
@@ -3507,7 +3525,7 @@ class Monitor:
         out['candado_rol'] = bool(self.cfg.get('candado_rol'))
         out['comandero_escribe'] = bool(self.cfg.get('comandero_escribe'))
         out['emp_mrtienda'] = sorted([{'cod': k, 'nombre': v} for k, v in self.EMP.items() if v], key=lambda e: e['nombre'])
-        out['ia'] = {'activa': bool(self.cfg.get('ia_llave')), 'modelo': self.cfg.get('ia_modelo') or IA_MODELO}
+        out['ia'] = {'activa': bool(self.cfg.get('ia_llave')), 'modelo': self.cfg.get('ia_modelo') or IA_MODELO, 'estado': self.cfg.get('ia_estado') or {}}
         tok_ = str(self.cfg.get('github_token') or '').strip()
         out['github'] = {'activa': bool(tok_), 'termina': tok_[-4:] if tok_ else '', 'privado': self.cfg.get('github_privado'), 'vence': self.cfg.get('github_vence') or '',
                          'revision': ESTADO_ACT.get('t', ''), 'revision_ok': ESTADO_ACT.get('ok'), 'revision_error': ESTADO_ACT.get('error', '')}
@@ -3845,12 +3863,19 @@ def make_handler(mon, cfg):
                         with open(CONFIG_FILE, 'w', encoding='utf-8') as f: json.dump(cfg, f, ensure_ascii=False, indent=2)
                         mon.cfg = cfg; mon.refresh(); out = {'ok': True}
                 elif self.path == '/api/ia':
-                    llave = str(d.get('llave') or '').strip()
-                    if d.get('quitar'): cfg.pop('ia_llave', None)
-                    elif not llave.startswith('sk-'): raise ValueError('Esa no parece una llave de la API (empieza con sk-).')
-                    else: cfg['ia_llave'] = llave
+                    llave = re.sub(r'\s+', '', str(d.get('llave') or ''))
+                    out = {'ok': True}
+                    if d.get('quitar'): cfg.pop('ia_llave', None); cfg.pop('ia_estado', None)
+                    else:
+                        if not llave and d.get('probar') and cfg.get('ia_llave'): llave = cfg['ia_llave']   # "Probar otra vez" con la guardada
+                        if not llave.startswith('sk-'): raise ValueError('Esa no parece una llave de Claude (empieza con sk-ant-). Cópiala completa.')
+                        est, msg = mon.probar_ia(llave)
+                        if est == 'mala': raise ValueError(msg)   # una llave mala no se guarda
+                        cfg['ia_llave'] = llave
+                        cfg['ia_estado'] = {'estado': est, 'msg': msg, 'fecha': datetime.datetime.now().isoformat(timespec='minutes'), 'fin': llave[-4:]}
+                        out = {'ok': True, 'estado': est, 'mensaje': msg}
                     with open(CONFIG_FILE, 'w', encoding='utf-8') as f: json.dump(cfg, f, ensure_ascii=False, indent=2)
-                    mon.cfg = cfg; mon.refresh(); out = {'ok': True}
+                    mon.cfg = cfg; mon.refresh()
                 elif self.path == '/api/github':   # 30.7.39: llave de solo lectura para que la caja se actualice con el repositorio privado
                     if d.get('quitar'):
                         for k_ in ('github_token', 'github_privado', 'github_vence'): cfg.pop(k_, None)

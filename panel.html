@@ -1198,6 +1198,16 @@ function tarjetaComandero(){
     ${ACCESO&&ACCESO.cmd?bloqueComandero():''}
     <p class="empty" style="margin-top:10px">Los meseros solo pueden entrar y enviar conectados al WiFi del restaurante; por Tailscale únicamente quien tú permitas. La lista sale de los usuarios activos de MrTienda. La clave es de 4 números y no se puede repetir. Si alguien se da de baja en MrTienda, su clave deja de funcionar sola.</p></div>`;
 }
+// 30.7.52: llave de Claude para leer fotos (tickets de compra, recibos de Didi y Uber, constancias fiscales); se prueba al guardarla
+function tarjetaIA(pend){
+  const ia=DATA.ia||{}, e=ia.estado||{}, col={ok:'good',saldo:'warn',limite:'warn',error:'bad'}[e.estado]||'mut';
+  const usos=[ON('compras')?'tickets de compra que sube el cajero':'',ON('plataformas')?'recibos de Didi y Uber':'',ON('comandero')?'constancias fiscales para factura':''].filter(Boolean);
+  return `<div class="card"><h2>Lectura de fotos con Claude <small>${!ia.activa?'<span class="pill mut">Apagada</span>':`<span class="pill ${col}">${e.estado==='ok'?'Activa':e.estado==='saldo'?'Sin saldo':e.estado==='limite'?'En su límite':e.estado?'Revisar':'Activa (sin probar)'}</span>`}</small></h2>
+    <p class="empty">Claude lee las fotos y llena los datos solo: ${usos.join(', ')}. La foto se usa solo para leerla. Necesita tu llave de la API de Claude (platform.claude.com), que se guarda solo en la computadora de la caja.</p>
+    ${ia.activa&&e.msg?`<p class="empty" style="margin-top:8px;color:${e.estado==='ok'?'var(--good)':'var(--bad)'}"><b>${esc(e.msg)}</b>${e.fin?' · llave terminada en '+esc(e.fin):''}${e.fecha?' · probada '+esc(e.fecha.replace('T',' ')):''}</p>`:''}
+    <div class="field"><input id="iaK" type="password" autocomplete="off" placeholder="${ia.activa?'Llave guardada · pega otra para cambiarla':'Pega aquí tu llave (sk-ant-…)'}"></div>
+    <div class="btns"><button class="btn pri" data-iasave="1">Guardar y probar llave</button>${ia.activa?'<button class="btn" data-iaprobar="1">Probar otra vez</button><button class="btn" data-iaquitar="1">Quitar llave</button>':''}${ia.activa&&pend?`<button class="btn" data-leerpend="1">Leer ${pend} fotos pendientes</button>`:''}</div></div>`;
+}
 function tarjetasCajeros(){
   const C=(DATA.cajeros||[]).filter(c=>c.activo), ia=DATA.ia||{};
   const pend=GA().movs.filter(m=>m.foto&&!(m.items&&m.items.length)&&!(m.lectura&&m.lectura.intentado)).length;
@@ -1209,11 +1219,7 @@ function tarjetasCajeros(){
     <div class="btns"><button class="btn pri" data-cjalta="1">Dar de alta</button><button class="btn" data-acceso="1">Dirección para el teléfono</button></div>
     ${ACCESO?bloqueAcceso():''}
     <p class="empty" style="margin-top:10px">La clave es de 4 a 6 números y no se puede repetir. Si alguien se va, dale de baja y su clave deja de funcionar.</p></div>
-  <div class="card"><h2>Lectura automática de tickets <small>${ia.activa?'<span class="pill good">Activa</span>':'<span class="pill mut">Apagada</span>'}</small></h2>
-    <p class="empty">Cuando el cajero toma la foto, Claude lee el ticket: proveedor, número, IVA y cada producto, y lo compara con el importe capturado. La foto se usa solo para leerla y se descarta: no queda guardada en la computadora, solo los datos. Necesita tu llave de la API de Claude (console.anthropic.com), que se guarda solo en la computadora de la caja.</p>
-    <div class="field"><input id="iaK" type="password" autocomplete="off" placeholder="${ia.activa?'Llave guardada · pega otra para cambiarla':'Pega aquí tu llave (sk-ant-…)'}"></div>
-    <div class="btns"><button class="btn pri" data-iasave="1">Guardar llave</button>${ia.activa?'<button class="btn" data-iaquitar="1">Quitar llave</button>':''}${ia.activa&&pend?`<button class="btn" data-leerpend="1">Leer ${pend} fotos pendientes</button>`:''}</div></div>
-`:'')+`${ON('compras')?tarjetaDrive():''}${DATA.actualiza!==false?tarjetaGithub():''}${tarjetaHuella()}`;
+`:'')+`${ON('compras')||ON('plataformas')||ON('comandero')?tarjetaIA(pend):''}${ON('compras')?tarjetaDrive():''}${DATA.actualiza!==false?tarjetaGithub():''}${tarjetaHuella()}`;
 }
 // ---- entrada con huella (WebAuthn): solo en la dirección segura https
 const b64uH=b=>btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -2179,7 +2185,7 @@ async function accionAdmin(t,d){
     else if(d.ghsave){t.textContent='Probando con GitHub…';const j=await api('/api/github',{llave:$('#ghK').value});toast('Llave guardada y probada'+(j.privado?' · repositorio privado':' · ya puedes hacer privado el repositorio'))}
     else if(d.ghprobar){t.textContent='Probando…';const j=await api('/api/github',{});toast('La llave funciona'+(j.privado?' · repositorio privado ✓':' · el repositorio sigue público'))}
     else if(d.ghquitar){if(!confirm('¿Quitar la llave de GitHub? Si el repositorio ya es privado, la caja dejará de actualizarse.')){t.disabled=false;return}await api('/api/github',{quitar:true});toast('Llave quitada')}
-    else if(d.iasave){await api('/api/ia',{llave:$('#iaK').value});toast('Llave guardada; la lectura automática está activa')}
+    else if(d.iasave||d.iaprobar){t.textContent='Probando con Claude…';const j=await api('/api/ia',d.iaprobar?{probar:true}:{llave:$('#iaK').value});toast(j.mensaje||'Llave guardada')}
     else if(d.iaquitar){if(!confirm('¿Quitar la llave? Se apaga la lectura automática.')){t.disabled=false;return}await api('/api/ia',{quitar:true});toast('Llave quitada')}
     else if(d.drconectar){t.textContent='Probando…';await api('/api/drive',{accion:'guardar',url:$('#drU').value});toast('Google Drive conectado')}
     else if(d.drquitar){if(!confirm('¿Desconectar Google Drive? Las fotos que ya están en tu Drive se quedan ahí.')){t.disabled=false;return}await api('/api/drive',{accion:'quitar'});toast('Desconectado')}
@@ -2317,7 +2323,7 @@ $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(b)irA(b.dataset.tab)};
 $('#view').addEventListener('click',e=>{
-  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-cnquitar],[data-cf],[data-cfej],[data-cfguardar],[data-cfprueba],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaquitar],[data-ghsave],[data-ghprobar],[data-ghquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes],[data-hactivar],[data-hquitar],[data-hsalir],[data-pcfg],[data-ppago],[data-pborrar]');if(!t)return;
+  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-cnquitar],[data-cf],[data-cfej],[data-cfguardar],[data-cfprueba],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaprobar],[data-iaquitar],[data-ghsave],[data-ghprobar],[data-ghquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes],[data-hactivar],[data-hquitar],[data-hsalir],[data-pcfg],[data-ppago],[data-pborrar]');if(!t)return;
   const d=t.dataset;
   if(d.go) return irA(d.go);
   if(d.pm){prodModo=d.pm;return render()} if(d.pt){prodT=d.pt;return render()}
@@ -2347,7 +2353,7 @@ $('#view').addEventListener('click',e=>{
   if(d.drver){fetch('/api/drive-script',{credentials:'same-origin'}).then(r=>r.text()).then(t=>{DSCRIPT=t;render()}).catch(err=>toast(err.message));return}
   if(d.drcopiar){const ta=$('#drS');ta.select();(navigator.clipboard?navigator.clipboard.writeText(ta.value):Promise.reject()).then(()=>toast('Programa copiado')).catch(()=>{document.execCommand('copy');toast('Programa copiado')});return}
   if(d.famalta||d.fambaja){e.preventDefault();(async()=>{try{t.disabled=true;await api('/api/familia',{accion:d.famalta?'alta':'baja',nombre:d.famalta?$('#famN').value:d.fambaja});toast(d.famalta?'Agregado':'Quitado');await cargar(true)}catch(err){toast(err.message);t.disabled=false}})();return}
-  if(d.msremoto||d.msenvio||d.mscandado||d.msalta||d.msbaja||d.msclave||d.cjalta||d.cjbaja||d.cjclave||d.iasave||d.iaquitar||d.ghsave||d.ghprobar||d.ghquitar||d.leerpend||d.drconectar||d.drquitar||d.drborrar||d.drmes){e.preventDefault();accionAdmin(t,d);return}
+  if(d.msremoto||d.msenvio||d.mscandado||d.msalta||d.msbaja||d.msclave||d.cjalta||d.cjbaja||d.cjclave||d.iasave||d.iaprobar||d.iaquitar||d.ghsave||d.ghprobar||d.ghquitar||d.leerpend||d.drconectar||d.drquitar||d.drborrar||d.drmes){e.preventDefault();accionAdmin(t,d);return}
   if(d.cpurl){(navigator.clipboard?navigator.clipboard.writeText(d.cpurl):Promise.reject()).then(()=>toast('Dirección copiada')).catch(()=>toast(d.cpurl));return}
   if(d.msver){e.preventDefault();const el=document.getElementById('msk-'+d.msver);if(!el)return;
     if(el.dataset.v){el.textContent='••••';delete el.dataset.v;return}
