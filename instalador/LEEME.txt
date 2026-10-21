@@ -1,0 +1,33 @@
+﻿PANEL DE VENTAS - CÓMO INSTALARLO
+==================================
+
+Se instala en la computadora de la caja (la que tiene MrTienda).
+Solo instala el panel de ventas: no incluye comandero, Personal, compras con foto ni Didi/Uber.
+No se actualiza solo: se queda con esta versión.
+
+PASOS
+1. Copia este ZIP a la computadora de la caja (USB, correo o WhatsApp Web).
+2. Clic derecho en el ZIP > "Extraer todo..." > "Extraer".
+3. En la carpeta que se abre, doble clic en INSTALAR.
+4. Si sale "Windows protegió su PC": clic en "Más información" > "Ejecutar de todas formas".
+5. Si pregunta "¿Quieres permitir que esta aplicación haga cambios?": clic en "Sí".
+6. Sigue la ventana negra. Te va diciendo paso por paso (8 pasos):
+   1) Permisos
+   2) Python: si no está, lo descarga e instala solo (necesita internet)
+   3) Busca la carpeta de MrTienda (te pregunta si es la correcta)
+   4) Revisa si ya había una instalación
+   5) Copia el programa a C:\MonitorHolandesa
+   6) Te pide un usuario y una contraseña para entrar al panel (anótalos)
+   7) Abre el panel al WiFi del negocio, para verlo en el celular
+   8) Prueba que lea las ventas y lo deja arrancando solo al prender la computadora
+7. Al final sale "LISTO" con las direcciones, el usuario y la contraseña. Tómale foto.
+
+PARA ENTRAR
+- En la caja: el ícono "Panel de ventas" del escritorio (o http://localhost:8765/panel).
+- En el celular: conectado al WiFi del negocio, abre en Chrome la dirección que salió al final
+  (ejemplo http://192.168.1.50:8765/panel). Luego menú > "Agregar a pantalla de inicio".
+- Si un día el celular ya no abre, puede que el router le haya cambiado la dirección a la caja:
+  abre INSTALAR otra vez, elige conservar los datos y al final te da la dirección nueva.
+
+SI ALGO SALE EN ROJO
+Tómale foto a la pantalla y mándasela a Jorge.

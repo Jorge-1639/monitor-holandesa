@@ -240,3 +240,5 @@ Versión 30.7.50 — Resultados: Didi y Uber entran a ventas por lo cobrado al c
 
 Versión 30.7.51 — partes que se pueden apagar en config.json para otro negocio: "modulos": {"comandero": false, "personal": false, "compras": false, "plataformas": false}. Lo apagado desaparece del panel (pestaña Comandero, botón Personal, Didi y Uber, Comandas tardadas, Cajeros, lectura de tickets y Drive) y sus direcciones responden "Esta parte no está activada". Sin "modulos" todo sigue encendido (La Holandesa). Con "actualizar_solo": false tampoco se muestra la tarjeta de la llave de GitHub.
 
+
+Instalador para otro negocio (solo panel de ventas, copia fija): carpeta `instalador/` (INSTALAR.bat + instalar.ps1 + LEEME.txt). Para armar el ZIP se ponen junto a ellos, en `programa/`, los archivos de archivos.txt de la versión que se entrega. No se descarga por la caja (no está en archivos.txt).
