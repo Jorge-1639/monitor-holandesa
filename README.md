@@ -246,3 +246,5 @@ Instalador para otro negocio (solo panel de ventas, copia fija): carpeta `instal
 Versión 30.7.52 — tarjeta "Lectura de fotos con Claude" (Reportes → Gastos): "Guardar y probar llave" la prueba con Claude antes de guardarla (llave mala no se guarda; avisa si no hay saldo o llegó al límite), "Probar otra vez", estado con los últimos 4 caracteres y la fecha. Sirve para tickets de compra, recibos de Didi/Uber y constancias fiscales; aparece si cualquiera de esas partes está encendida.
 
 Versión 30.7.53 — comida de empleados (Quitar cuenta / cambiar motivo → Empleado): solo aparecen los empleados activos de Personal, con su nombre completo de la nómina y agrupados por puesto; ya no se escriben nombres a mano (si no está en la nómina, se rechaza). Sin empleados en Personal (otro negocio) funciona como antes.
+
+Versión 30.7.54 — Personal: campo Sobrenombre (opcional, ej. Pepe) en el expediente; sale en el catálogo y en la comida de empleados (sobrenombre grande, nombre completo abajo). Siempre se guarda el nombre completo. Escribir el sobrenombre se reconoce como esa persona. Al guardar en Personal, el panel se actualiza al momento.

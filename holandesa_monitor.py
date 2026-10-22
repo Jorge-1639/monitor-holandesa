@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 155            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.53'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 156            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.54'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -2959,6 +2959,8 @@ class Monitor:
             hoy = os.path.join(AQUI, 'respaldos_personal', 'personal_' + datetime.date.today().isoformat() + '.json')
             if not os.path.exists(hoy): shutil.copy2(RH_FILE, hoy)   # una copia por día, por si algo se borra por error
         os.replace(tmp, RH_FILE)
+        try: threading.Thread(target=self.refresh, daemon=True).start()   # 30.7.54: el panel ve al momento altas, bajas y sobrenombres
+        except Exception: pass
 
     def rh_info(self):
         d = self.rh()
@@ -3107,7 +3109,7 @@ class Monitor:
             comunes = collections.Counter(tuple(h) for h in trab).most_common(1)
             try: comida_min = max(0, min(180, int(float(e.get('comida_min') or 0))))
             except ValueError: raise ValueError('Revisa los minutos de comida.')
-            reg = {'nombre': nombre, 'puesto': puesto, 'cod_mt': txt(e.get('cod_mt'), 6), 'ingreso': fecha(e.get('ingreso')),
+            reg = {'nombre': nombre, 'apodo': txt(e.get('apodo'), 20).title(), 'puesto': puesto, 'cod_mt': txt(e.get('cod_mt'), 6), 'ingreso': fecha(e.get('ingreso')),
                    'diario': diario, 'incentivo': num(e.get('incentivo')), 'comida_min': comida_min, 'horario': base,
                    'pago': 'hora' if e.get('pago') == 'hora' else 'dia', 'tarifa': num(e.get('tarifa')), 'resta_comida': bool(e.get('resta_comida')), 'paga_prima': bool(e.get('paga_prima')), 'prima_siempre': bool(e.get('prima_siempre')), 'paga_extra': e.get('paga_extra') is not False,
                    'sueldo': round(diario * len(trab), 2) if diario else num(e.get('sueldo')),
@@ -3443,7 +3445,8 @@ class Monitor:
         nom = self.empleados_nomina() if motivo == 'Empleado' else {}
         if nom and persona:   # con nómina: el nombre tiene que ser uno de los de Personal (sin importar mayúsculas ni acentos)
             k = _sin_acentos(persona.lower())
-            persona = next((n for n in nom if _sin_acentos(n.lower()) == k), None)
+            ap = self.empleados_apodo()
+            persona = next((n for n in nom if _sin_acentos(n.lower()) == k), None) or next((n for n, a in ap.items() if _sin_acentos(a.lower()) == k), None)
             if not persona: raise ValueError('Ese nombre no está en la nómina. Tócalo en la lista; si es alguien nuevo, dalo de alta primero en Personal.')
         elif motivo == 'Empleado' and persona and persona not in self.empleados():
             self.cfg['empleados_extra'] = (self.cfg.get('empleados_extra') or []) + [persona]
@@ -3454,9 +3457,14 @@ class Monitor:
         """30.7.53: empleados activos de Personal, con su nombre completo tal como está en la nómina, y su puesto."""
         out = {}
         for e in self.rh().get('empleados', []):
-            n = re.sub(r'\s+', ' ', str(e.get('nombre') or '')).strip()
+            n = re.sub(r'\s+', ' ', str(e.get('nombre') or '')).strip().title()
             if e.get('activo') and n and n.lower() not in {x.lower() for x in out}: out[n] = str(e.get('puesto') or '').strip() or 'Otros'
         return out
+
+    def empleados_apodo(self):
+        """30.7.54: sobrenombre de cada empleado activo (Pepe → José ...), para mostrarlo y para reconocerlo al escribirlo."""
+        return {re.sub(r'\s+', ' ', str(e.get('nombre') or '')).strip().title(): str(e.get('apodo') or '').strip()
+                for e in self.rh().get('empleados', []) if e.get('activo') and e.get('apodo')}
 
     def empleados(self):
         nom = self.empleados_nomina()
@@ -3530,7 +3538,7 @@ class Monitor:
         out['quitadas'] = self.quitadas_liq(); out['motivos'] = MOTIVOS if modulos(self.cfg)['plataformas'] else [m for m in MOTIVOS if not m.startswith(('Didi', 'Uber'))]
         out['modulos'] = modulos(self.cfg); out['actualiza'] = self.cfg.get('actualizar_solo', True) is not False
         out['plataformas'] = {'config': self.plat_cfg(), 'pagos': self.plat_pagos()}; out['familia'] = self.familia()
-        out['empleados'] = self.empleados(); out['empleados_puesto'] = self.empleados_nomina()
+        out['empleados'] = self.empleados(); out['empleados_puesto'] = self.empleados_nomina(); out['empleados_apodo'] = self.empleados_apodo()
         out['gastos'] = self.gastos(); out['categorias_gasto'] = CATEGORIAS_GASTO
         out['cajeros'] = [{'id': x['id'], 'nombre': x['nombre'], 'activo': x.get('activo', True), 'alta': x.get('alta', '')} for x in self.cajeros()]
         try: ligados = {str(e.get('cod_mt') or '').strip() for e in self.rh()['empleados'] if e.get('cod_mt')}

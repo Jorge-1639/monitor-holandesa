@@ -1499,6 +1499,7 @@ const rhDist=(a,b)=>{const m=a.length,n=b.length;if(Math.abs(m-n)>2)return 9;let
 function rhQuien(texto){ // a quién corresponde un vale o comida escrito con nombre libre
   const t=' '+rhNorm(texto).replace(/^VALES? /,'')+' ', A=rhAct();
   let m=A.filter(e=>t.includes(' '+rhNorm(e.nombre)+' '));
+  if(m.length!==1){const ap=A.filter(e=>e.apodo&&t.includes(' '+rhNorm(e.apodo)+' '));if(ap.length===1)return ap[0]}   // 30.7.54: sobrenombre (Pepe)
   if(m.length===1)return m[0];
   const p=t.trim().split(' ')[0]; if(!p)return null;
   m=A.filter(e=>rhNorm(e.nombre).split(' ')[0]===p);
@@ -1534,7 +1535,7 @@ function rhEmpleados(){
   if(rhEdit)h+=rhForm(rhEdit==='nuevo'?{contrato:{}}:rhEmp(rhEdit));
   else h+=`<div class="btns"><button class="btn pri" data-rh="nuevo">+ Agregar empleado</button></div>`;
   h+=rhNombresCard(A);
-  h+=`<div class="card"><h2>Catálogo de empleados <small>${A.length}</small></h2>${A.length?`<div class="list">${A.map(e=>{const an=rhAntig(e.ingreso),c=e.contrato||{};return `<div class="item"><span><b>${esc(e.nombre)}</b> <span class="pill ${c.estado==='firmado'?'good':'warn'}">${c.estado==='firmado'?'Contrato firmado':'Contrato pendiente'}</span></span><span><a href="#" data-rh="editar" data-id="${e.id}" style="color:var(--green-2);font-size:13px">Expediente</a></span><span class="meta">${esc(e.puesto)}${e.pago==='hora'&&+e.tarifa?' · '+fmt2(+e.tarifa)+' por hora':e.diario?' · '+fmt2(+e.diario)+' por día':e.sueldo?' · '+fmt2(e.sueldo)+' por semana':''}${an?' · '+an.txt:' · sin fecha de ingreso'}${rhHorarioTxt(e)?'<br>'+esc(rhHorarioTxt(e)):''}${rhDeudaTxt(e)}</span></div>`}).join('')}</div>`:'<p class="empty">Todavía no hay empleados. Toca "Agregar empleado".</p>'}</div>`;
+  h+=`<div class="card"><h2>Catálogo de empleados <small>${A.length}</small></h2>${A.length?`<div class="list">${A.map(e=>{const an=rhAntig(e.ingreso),c=e.contrato||{};return `<div class="item"><span><b>${esc(e.nombre)}</b>${e.apodo?` <small style="color:var(--muted)">(${esc(e.apodo)})</small>`:''} <span class="pill ${c.estado==='firmado'?'good':'warn'}">${c.estado==='firmado'?'Contrato firmado':'Contrato pendiente'}</span></span><span><a href="#" data-rh="editar" data-id="${e.id}" style="color:var(--green-2);font-size:13px">Expediente</a></span><span class="meta">${esc(e.puesto)}${e.pago==='hora'&&+e.tarifa?' · '+fmt2(+e.tarifa)+' por hora':e.diario?' · '+fmt2(+e.diario)+' por día':e.sueldo?' · '+fmt2(e.sueldo)+' por semana':''}${an?' · '+an.txt:' · sin fecha de ingreso'}${rhHorarioTxt(e)?'<br>'+esc(rhHorarioTxt(e)):''}${rhDeudaTxt(e)}</span></div>`}).join('')}</div>`:'<p class="empty">Todavía no hay empleados. Toca "Agregar empleado".</p>'}</div>`;
   if(B.length)h+=`<div class="card"><h2>Dados de baja <small><a href="#" data-rh="bajas" style="color:var(--green-2)">${rhBajas?'Ocultar':'Ver '+B.length}</a></small></h2>${rhBajas?`<div class="list">${B.map(e=>`<div class="item"><span>${esc(e.nombre)}</span><span><a href="#" data-rh="reactivar" data-id="${e.id}" style="color:var(--green-2);font-size:13px">Reactivar</a></span><span class="meta">${esc(e.puesto)} · baja ${e.fecha_baja?rhCorta(e.fecha_baja):''}</span></div>`).join('')}</div>`:''}</div>`;
   return h;
 }
@@ -1569,7 +1570,8 @@ function rhForm(e){
       <small id="rfHh${i}" class="num" style="text-align:right;color:var(--muted)"></small></div>`}).join('');
   const docs=(e.archivos||[]).slice().reverse();
   return `<div class="card" id="rhForm"><h2>${e.id?'Expediente':'Nuevo empleado'} <small>${e.id&&e.alta?'alta '+rhCorta(e.alta.slice(0,10)):''}</small></h2>
-    ${rhIn('rfNom','Nombre completo',e.nombre,'autocomplete="off" style="text-transform:uppercase"')}
+    ${rhIn('rfNom','Nombre completo (como en la nómina)',e.nombre,'autocomplete="off" style="text-transform:uppercase"')}
+    ${rhIn('rfApo','Sobrenombre (opcional, ej. Pepe)',e.apodo||'','autocomplete="off" maxlength="20"')}
     ${rhSel('rfPue','Puesto',RH.puestos.map(p=>[p,p]),e.puesto||'Mesero')}
     ${rhSel('rfMt','Usuario en MrTienda (para el comandero y sus ventas)',mt,e.cod_mt||'')}
     ${rhIn('rfIng','Fecha de ingreso',e.ingreso,'type="date"')}
@@ -2120,7 +2122,7 @@ document.addEventListener('click',async e=>{
     if(t.tagName==='BUTTON')t.disabled=true;
     if(a==='guardar'){const g=id=>($('#'+id)||{}).value||'';
       const hz=rhLeeHorario();if(hz.some(x=>x&&(!x[0]||!x[1]))){toast('Falta la hora de entrada o de salida de algún día que trabaja.');t.disabled=false;return}
-      await rhApi({accion:'emp_guardar',emp:{id:d.id,nombre:g('rfNom'),puesto:g('rfPue'),cod_mt:g('rfMt'),ingreso:g('rfIng'),diario:rhPagoForm()==='hora'?'':g('rfDia'),pago:rhPagoForm(),tarifa:rhPagoForm()==='hora'?g('rfTar'):'',resta_comida:!!($('#rfRc')||{}).checked,paga_prima:!!($('#rfPd')||{}).checked,prima_siempre:!!($('#rfPs')||{}).checked,paga_extra:!!($('#rfPx')||{}).checked,incentivo:g('rfInc'),comida_min:g('rfCom'),horario:hz,telefono:g('rfTel'),nss:g('rfNss'),curp:g('rfCurp'),rfc:g('rfRfc'),domicilio:g('rfDom'),notas:g('rfNot'),contrato:{estado:g('rfCe'),tipo:g('rfCt'),fecha:g('rfCf'),nota:g('rfCn')}}});
+      await rhApi({accion:'emp_guardar',emp:{id:d.id,nombre:g('rfNom'),apodo:g('rfApo'),puesto:g('rfPue'),cod_mt:g('rfMt'),ingreso:g('rfIng'),diario:rhPagoForm()==='hora'?'':g('rfDia'),pago:rhPagoForm(),tarifa:rhPagoForm()==='hora'?g('rfTar'):'',resta_comida:!!($('#rfRc')||{}).checked,paga_prima:!!($('#rfPd')||{}).checked,prima_siempre:!!($('#rfPs')||{}).checked,paga_extra:!!($('#rfPx')||{}).checked,incentivo:g('rfInc'),comida_min:g('rfCom'),horario:hz,telefono:g('rfTel'),nss:g('rfNss'),curp:g('rfCurp'),rfc:g('rfRfc'),domicilio:g('rfDom'),notas:g('rfNot'),contrato:{estado:g('rfCe'),tipo:g('rfCt'),fecha:g('rfCf'),nota:g('rfCn')}}});
       rhEdit=null;toast('Expediente guardado')}
     else if(a==='baja'){if(!confirm('¿Dar de baja a este empleado? Su expediente se conserva.')){t.disabled=false;return}await rhApi({accion:'emp_baja',id:d.id});rhEdit=null;toast('Dado de baja')}
     else if(a==='reactivar'){await rhApi({accion:'emp_baja',id:d.id,reactivar:true});toast('Reactivado')}
@@ -2284,7 +2286,7 @@ function pintarPersona(){
   if(conNom){const G={};Object.keys(EP).sort((a,b)=>a.localeCompare(b)).forEach(n=>(G[EP[n]]=G[EP[n]]||[]).push(n));
     const sel=Object.keys(EP).find(n=>n.toLowerCase()===String(prev).toLowerCase())||'';
     box.innerHTML=`<div class="field"><label>${tit} <small>(los de la nómina)</small></label>
-      ${Object.keys(G).sort((a,b)=>a.localeCompare(b)).map(p=>`<div style="font:800 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:10px 0 4px">${esc(p)}</div><div class="seg" style="flex-wrap:wrap">${G[p].map(n=>`<button type="button" data-per="${esc(n)}" aria-pressed="${n===sel}">${esc(n)}</button>`).join('')}</div>`).join('')}
+      ${Object.keys(G).sort((a,b)=>a.localeCompare(b)).map(p=>`<div style="font:800 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:10px 0 4px">${esc(p)}</div><div class="seg" style="flex-wrap:wrap">${G[p].map(n=>{const a=(DATA.empleados_apodo||{})[n];return `<button type="button" data-per="${esc(n)}" aria-pressed="${n===sel}" style="text-align:left;line-height:1.2">${a?`<b>${esc(a)}</b><br><small style="font-weight:400">${esc(n)}</small>`:esc(n)}</button>`}).join('')}</div>`).join('')}
       <input id="shPersona" type="hidden" value="${esc(sel)}">
       <p class="empty" style="margin-top:8px">${prev&&!sel?`Antes decía <b>${esc(prev)}</b>: toca su nombre en la lista. `:''}¿No aparece? Dalo de alta en Personal y luego regresa aquí.</p></div>`;return}
   box.innerHTML=`<div class="field"><label for="shPersona">${tit}</label>
