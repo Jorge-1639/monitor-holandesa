@@ -693,6 +693,44 @@ function vAjustes(){
     ${ON('plataformas')?sec('Didi y Uber',tarjetaComisiones()):''}
     ${ON('comandero')&&ON('personal')?sec('Comida de empleados',tarjetaTope()):''}</section>`;
 }
+// 30.7.57: comidas de empleados para descontar — esta semana de nómina aparte, semanas anteriores como historial, y editar el descuento con la comanda a la vista
+let qdAb=null;   // comida con el editor de descuento abierto
+function cardEmpDesc(emp,x){
+  if(!emp.length&&!(RH&&RH.comidas&&RH.comidas.length))return '';
+  if(!RH){if(!RHERR&&!cardEmpDesc.cargando){cardEmpDesc.cargando=1;rhCargar().then(()=>{cardEmpDesc.cargando=0;render()})}
+    return `<div class="card"><h2>Empleados · para descontar de nómina</h2><p class="empty">${RHERR?esc(RHERR):'Cargando los descuentos…'}</p></div>`}
+  const sem=rhLunes(RH.hoy), fin=rhMas(sem,6), C=(RH.comidas||[]).slice().sort((a,b)=>(b.fecha+(b.abrio||'')).localeCompare(a.fecha+(a.abrio||'')));
+  const ops=[['','Elige al empleado'],...rhAct().map(e=>[e.id,e.nombre])];
+  const fila_=c=>{const q=rhComidaEmp(c),d=rhDC(c),ab=qdAb===c.id,T=+c.total||0;
+    return `<div class="ditem" style="flex-wrap:wrap"><span><b>${esc(q?q.nombre:(c.persona||'Sin nombre'))}</b>${q?'':' <span class="pill warn">Sin identificar</span>'}<small>${corto(c.fecha)}${c.abrio?' '+esc(c.abrio):''} · consumió ${fmt2(T)}${(c.items||[]).length?' · '+esc(c.items.map(i=>(+i.q||1)+' '+i.n).join(', ')):''}</small></span>
+      <span class="num" style="text-align:right">${d.monto!=null?`<b style="color:var(--bad)">−${fmt2(d.monto)}</b>${d.pct!=null?`<small>${d.pct}%</small>`:''}`:'<span class="pill warn">Sin descuento</span>'}${COPIA?'':`<br><a href="#" data-qd="${esc(c.id)}" style="color:var(--green-2);font-weight:600;font-size:13px">${ab?'Cerrar':'Editar descuento'}</a>`}</span>
+      ${ab?`<div class="note" id="rcDet" data-total="${T}" style="flex-basis:100%;background:var(--surface-2);color:var(--ink);margin:6px 0 4px">
+        ${(c.items||[]).length?`<table class="ledger num" style="font-size:13px"><tbody>${c.items.map(i=>`<tr><td>${+i.q||1} × ${esc(i.n||'')}</td><td class="r">${fmt2(+i.imp||0)}</td></tr>`).join('')}<tr class="tt"><td><b>Total de la comanda</b></td><td class="r"><b>${fmt2(T)}</b></td></tr></tbody></table>`:`<b>Total de la comanda: ${fmt2(T)}</b>`}
+        ${rhSel('rcEmpC','Empleado',ops,q?q.id:'')}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">${rhIn('rcPct','Descuento en %',d.pct!=null?d.pct:'','inputmode="decimal" placeholder="Ej. 20"')}${rhIn('rcMon','Descuento en $',d.monto!=null?d.monto:'','inputmode="decimal" placeholder="Ej. 20"')}</div>
+        <p class="empty" id="rcRes" style="margin-top:4px">${d.monto!=null?`Se le descuenta ${fmt2(d.monto)} de ${fmt2(T)} (paga la casa ${fmt2(Math.max(0,T-d.monto))}).`:'Ej.: 20% de $100 = se le descuentan $20 y la casa paga $80.'}</p>
+        <div class="btns"><button class="btn pri" data-qdsave="${esc(c.id)}">Guardar descuento</button>${d.monto!=null?`<button class="btn" data-qdquitar="${esc(c.id)}" style="color:var(--bad)">Quitar descuento</button>`:''}</div></div>`:''}</div>`};
+  const suma=L=>`consumió ${fmt2(L.reduce((a,c)=>a+(+c.total||0),0))} · se descuenta ${fmt2(L.reduce((a,c)=>a+(rhDC(c).monto||0),0))}`;
+  const esta=C.filter(c=>c.fecha>=sem&&c.fecha<=fin), antes=C.filter(c=>c.fecha<sem&&c.fecha>=rDesde&&c.fecha<=rHasta), G={};
+  antes.forEach(c=>(G[rhLunes(c.fecha)]=G[rhLunes(c.fecha)]||[]).push(c));
+  const sinD=esta.filter(c=>rhDC(c).monto==null).length;
+  return `<div class="card"><h2>Empleados · para descontar de nómina</h2>
+    <h3 class="dh3" style="margin-top:4px">Esta semana de nómina <small style="text-transform:none;letter-spacing:0;font-weight:400">${rhCorta(sem)} al ${rhCorta(fin)} · ${suma(esta)}</small></h3>
+    ${sinD?`<p class="empty" style="margin:2px 0 6px;color:var(--bad)">${pl(sinD,'comida')} sin descuento: tócalas en "Editar descuento".</p>`:''}
+    ${esta.length?`<div class="dlist" style="padding-left:0">${esta.map(fila_).join('')}</div>`:'<p class="empty">Esta semana no hay comidas de empleados para descontar.</p>'}
+    <h3 class="dh3" style="margin-top:16px">Semanas anteriores <small style="text-transform:none;letter-spacing:0;font-weight:400">historial, en las fechas de arriba</small></h3>
+    ${Object.keys(G).length?`<div class="dtab">${Object.keys(G).sort().reverse().map(k=>fila(`Semana del ${rhCorta(k)} al ${rhCorta(rhMas(k,6))}`,fmt2(G[k].reduce((a,c)=>a+(rhDC(c).monto||0),0)),`<p class="empty" style="margin:0 0 4px">${suma(G[k])}</p>`+G[k].map(fila_).join(''),G[k].length)).join('')}</div>`:'<p class="empty">No hay semanas anteriores en estas fechas.</p>'}
+    <p class="empty" style="margin-top:10px">El descuento pasa solo a la nómina de esa semana. % = parte del consumo que se le descuenta (20% de $100 = $20); $ = la cantidad exacta que se le descuenta.</p>
+    <div class="btns">${x('empleados','Descargar Excel')}</div></div>`;
+}
+async function guardarDescQ(t,d){
+  try{t.disabled=true;const quitar=!!d.qdquitar,id=d.qdsave||d.qdquitar;
+    const m=quitar?'':$('#rcMon').value.trim(),p=quitar?'':$('#rcPct').value.trim(),em=quitar?'':$('#rcEmpC').value;
+    if(!quitar&&!m){toast('Escribe el descuento en % o en $.');t.disabled=false;return}
+    if(!quitar&&!em){toast('Elige a qué empleado le toca.');t.disabled=false;return}
+    const j=await api('/api/rh',{accion:'comida_desc',id,monto:m,pct:p,emp:em});RH=j.rh;qdAb=null;toast(quitar?'Descuento quitado':'Descuento guardado; ya pasa a su nómina');render();
+  }catch(e){t.disabled=false;toast(e.message)}
+}
 function rQuitadas(){
   const q=(DATA.quitadas||[]).filter(r=>r.fecha>=rDesde&&r.fecha<=rHasta).sort((a,b)=>(b.fecha+b.abrio).localeCompare(a.fecha+a.abrio));
   const by={};q.forEach(r=>{const m=r.motivo||'Sin clasificar';(by[m]=by[m]||[]).push(r)});
@@ -707,7 +745,7 @@ function rQuitadas(){
     <div class="kpi"><b class="num" style="color:var(--gold)">${fmt(T(fam))}</b><span>Familia · ${pl(fam.length,'cuenta')}</span></div><div class="kpi"><b class="num" style="color:var(--gold)">${fmt(T(emp))}</b><span>Empleados · ${pl(emp.length,'cuenta')}</span></div>
     <div class="kpi"><b class="num" style="color:var(--gold)">${fmt(T(cor))}</b><span>Cortesías · ${pl(cor.length,'cuenta')}</span></div><div class="kpi"><b class="num">${fmt(T(q))}</b><span>Total · ${pl(q.length,'cuenta')}</span></div></div>
   ${porPersona(fam,'Familia por persona','','familia')}
-  ${porPersona(emp,'Empleados · para descontar de nómina','Es lo que cada empleado consumió a precio de MrTienda en estas fechas. Elige las fechas de tu periodo de nómina y descarga el Excel.','empleados')}
+  ${cardEmpDesc(emp,x)}
   ${porPersona(cor,'Cortesías','','cortesias')}
   <div class="card"><h2>Por motivo <small>importe a precio de MrTienda</small></h2>${q.length?bars(Object.entries(by).sort((a,b)=>T(b[1])-T(a[1])).map(([n,L])=>({n,v:T(L),sub:pl(L.length,'cuenta')}))):'<p class="empty">No hay cuentas quitadas en estas fechas.</p>'}
     <h3 class="dh3" style="margin-top:16px">Descargar en Excel para conciliar</h3>
@@ -2370,7 +2408,7 @@ $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(b)irA(b.dataset.tab)};
 $('#view').addEventListener('click',e=>{
-  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-cnquitar],[data-cf],[data-cfej],[data-cfguardar],[data-cfprueba],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaprobar],[data-iaquitar],[data-ghsave],[data-ghprobar],[data-ghquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes],[data-hactivar],[data-hquitar],[data-hsalir],[data-pcfg],[data-ppago],[data-pborrar],[data-cetope]');if(!t)return;
+  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-cnquitar],[data-cf],[data-cfej],[data-cfguardar],[data-cfprueba],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaprobar],[data-iaquitar],[data-ghsave],[data-ghprobar],[data-ghquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes],[data-hactivar],[data-hquitar],[data-hsalir],[data-pcfg],[data-ppago],[data-pborrar],[data-cetope],[data-qd],[data-qdsave],[data-qdquitar]');if(!t)return;
   const d=t.dataset;
   if(d.go) return irA(d.go);
   if(d.pm){prodModo=d.pm;return render()} if(d.pt){prodT=d.pt;return render()}
@@ -2417,6 +2455,8 @@ $('#view').addEventListener('click',e=>{
   if(d.fcsave&&CAPMODE){e.preventDefault();guardarCompra(t,false).then(()=>{toast('Compra guardada ✓');window.scrollTo(0,0);return cargarCaptura()}).catch(err=>{toast(err.message);t.disabled=false;t.textContent='Guardar'});return}
   if(d.gimp||d.gdel||d.fsave||d.fcsave||d.rcsave||d.rcdel){e.preventDefault();guardarGasto(t,d);return}
   if(d.pcfg||d.ppago||d.pborrar){e.preventDefault();guardarPlat(t,d);return}
+  if(d.qd){e.preventDefault();qdAb=qdAb===d.qd?null:d.qd;const y=window.scrollY;render();window.scrollTo(0,y);return}
+  if(d.qdsave||d.qdquitar){e.preventDefault();guardarDescQ(t,d);return}
   if(d.cetope){e.preventDefault();(async()=>{try{t.disabled=true;await api('/api/comida-emp',{accion:'tope',monto:$('#ceTope').value.trim()});toast('Tope guardado');await cargar(true)}catch(er){t.disabled=false;toast(er.message)}})();return}
   if(d.ct2){cmpTodos=!cmpTodos;return render()}
   if(d.mes){e.preventDefault();mesSel=d.mes;render();window.scrollTo(0,0);return}
