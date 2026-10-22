@@ -136,6 +136,7 @@ body.rh header.top{background:var(--surface);color:var(--ink);box-shadow:0 1px 0
 /* selectores */
 .seg{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:1px}
 .seg::-webkit-scrollbar{display:none}
+.seg.seg-wrap{flex-wrap:wrap;overflow:visible}.seg.seg-wrap button{flex:1 1 auto}   /* 30.7.56: todos los botones de Reportes a la vista */
 .seg button{flex:0 0 auto;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:20px;padding:6px 13px;font:600 13px var(--body);cursor:pointer}
 .seg button[aria-pressed="true"]{background:var(--green-2);border-color:var(--green-2);color:var(--surface)}
 :root .seg button[aria-pressed="true"]{color:#fff}
@@ -592,7 +593,7 @@ function vReportes(){
   if(rDesde>rHasta){const t=rDesde;rDesde=rHasta;rHasta=t}
   RD=datosRep();
   const usaPlat=['historial','mes','calor','compara','resultados'].includes(repModo);
-  const head=segBtns('rp',REPS.filter(([k])=>(k!=='plataformas'||ON('plataformas'))&&(k!=='tardadas'||ON('comandero'))&&(k!=='comidaemp'||(ON('comandero')&&ON('personal')))),repModo)+(usaPlat&&ON('plataformas')?`<div class="seg"><button data-plat="1" aria-pressed="${incPlat}">${incPlat?'✓ ':''}Incluir Didi y Uber</button></div>`:'');
+  const head=segBtns('rp',REPS.filter(([k])=>(k!=='plataformas'||ON('plataformas'))&&(k!=='tardadas'||ON('comandero'))&&(k!=='comidaemp'||(ON('comandero')&&ON('personal')))),repModo).replace('<div class="seg">','<div class="seg seg-wrap">')+(usaPlat&&ON('plataformas')?`<div class="seg"><button data-plat="1" aria-pressed="${incPlat}">${incPlat?'✓ ':''}Incluir Didi y Uber</button></div>`:'');
   const fn={historial:rHist,quitadas:rQuitadas,plataformas:rPlat,comidaemp:rComidaEmp,cajeras:rCajeras,meseros:rMeseros,calor:rCalor,compara:rCompara,mes:rMes,resultados:rResultados,gastos:rGastos,compras:rCompras,tardadas:rTardadas}[repModo]||rHist;
   return '<section>'+head+fn()+'</section>';
 }
@@ -641,12 +642,7 @@ function rPlat(){
       <p class="empty" style="margin-top:6px">Elige arriba las mismas fechas que trae el reporte de pago de ${p} (una semana, 15 días o las que sean) y escribe el total que te depositó.</p>`}
     ${L.length?`<details class="drow" style="margin-top:10px"><summary><span>Pedido por pedido <small>(${L.length})</small></span><span></span></summary><div class="dlist">${L.map(r=>{const l=r.liq||{};return linea(`${corto(r.fecha)} · ${esc(r.pedido||r.cuenta)} · ${efe(r)?'efectivo':'tarjeta'}${l.capturado?'':' <span class="pill warn">sin descuentos</span>'}`,l.neto!=null?fmt2(l.neto):'—',`${l.sin_cobrado?'<span class="pill warn">sin recibo</span> menú '+fmt2(l.precio||r.total):'recibo '+fmt2(l.cobrado)} · comisión e IVA ${l.comision!=null?fmt2(l.comision+(l.iva_com||0))+(l.manual?' (a mano)':''):'falta'} · retenciones ${fmt2((l.ret_isr||0)+(l.ret_iva||0))} · otros ${fmt2(l.desc||0)}${COPIA?'':` · <a href="#" data-motivo="${esc(r.id)}" style="color:var(--green-2);font-weight:600">editar</a>`}`)}).join('')}</div></details>`:''}
     </div>`};
-  return conFechas()+tarjeta('Didi')+tarjeta('Uber')+`<div class="card"><h2>Comisión de cada plataforma</h2>
-    ${['Didi','Uber'].map(p=>{const c=platCfg(p),f=(k,l,v)=>`<label class="field" style="margin:0"><span style="font-size:12px;color:var(--muted)">${l}</span><input id="p${k}${p}" inputmode="decimal" value="${v!=null?v:''}" ${COPIA?'disabled':''}></label>`;
-      return `<h3 class="dh3" style="margin-top:12px">${p}</h3><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px">
-      ${f('c','Comisión %',c.pct)}${f('ic','IVA de la comisión %',c.iva_com)}${f('iv','IVA incluido en la venta %',c.iva_venta)}${f('ri','Retención ISR %',c.ret_isr)}${f('rv','Retención IVA %',c.ret_iva)}</div>`}).join('')}
-    ${COPIA?'':'<button class="btn" style="margin-top:12px;width:100%" data-pcfg="1">Guardar porcentajes</button>'}
-    <p class="empty" style="margin-top:8px">Se calcula como el estado de cuenta de Didi: lo cobrado al cliente (subtotal del recibo) trae IVA; se le quita para sacar la base; la comisión es el % de la base más su IVA; las retenciones de ISR e IVA son % de la base; y al final se restan los descuentos que absorbes. Si un pedido no tiene recibo capturado, usa tu precio de menú. Lo que te queda es lo que cuenta como venta en Resultados. Revisa los porcentajes contra tu estado de cuenta semanal.</p></div>`;
+  return conFechas()+tarjeta('Didi')+tarjeta('Uber')+notaAjustes('Los porcentajes de comisión, IVA y retenciones de Didi y Uber');
 }
 async function guardarPlat(t,d){
   try{t.disabled=true;
@@ -672,8 +668,30 @@ function rComidaEmp(){
     <div class="kpi"><b class="num">${filas.length?fmt(T/filas.length):'—'}</b><span>Promedio por comida</span></div><div class="kpi"><b class="num">${Object.keys(por).length}</b><span>Empleados</span></div></div>
   <div class="card"><h2>Por empleado <small>${corto(rDesde)} al ${corto(rHasta)}</small></h2>${filas.length?`<div class="dtab">${Object.entries(por).sort((a,b)=>b[1].length-a[1].length).map(([n,L])=>fila(`${ap[n]?'<b>'+esc(ap[n])+'</b> · ':''}${esc(n)}${L.some(rojo)?' <span class="pill bad">tope</span>':''}`,fmt2(L.reduce((x,f)=>x+f.total,0)),L.map(det).join(''),L.length)).join('')}</div>`:'<p class="empty">No hay comidas de empleados en estas fechas. Se piden desde el comandero: + Nueva cuenta → Comida de empleados.</p>'}</div>
   ${filas.length?`<div class="card"><h2>Día por día</h2><div class="dtab">${filas.map(f=>det({...f,hora:esc(f.hora)+' · '+esc(ap[f.nombre]||f.corto||f.nombre)})).join('')}</div></div>`:''}
-  ${COPIA?'':`<div class="card"><h2>Tope por comida</h2><div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end"><div class="field" style="margin:0"><label for="ceTope">Marcar en rojo las comidas de más de</label><input id="ceTope" inputmode="decimal" placeholder="$ (en blanco = sin tope)" value="${tope!=null?tope:''}"></div><button class="btn pri" data-cetope="1">Guardar</button></div>
+  ${notaAjustes('El tope por comida')}`;
+}
+function tarjetaComisiones(){
+  return `<div class="card"><h2>Comisión de cada plataforma</h2>
+    ${['Didi','Uber'].map(p=>{const c=platCfg(p),f=(k,l,v)=>`<label class="field" style="margin:0"><span style="font-size:12px;color:var(--muted)">${l}</span><input id="p${k}${p}" inputmode="decimal" value="${v!=null?v:''}" ${COPIA?'disabled':''}></label>`;
+      return `<h3 class="dh3" style="margin-top:12px">${p}</h3><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px">
+      ${f('c','Comisión %',c.pct)}${f('ic','IVA de la comisión %',c.iva_com)}${f('iv','IVA incluido en la venta %',c.iva_venta)}${f('ri','Retención ISR %',c.ret_isr)}${f('rv','Retención IVA %',c.ret_iva)}</div>`}).join('')}
+    ${COPIA?'':'<button class="btn" style="margin-top:12px;width:100%" data-pcfg="1">Guardar porcentajes</button>'}
+    <p class="empty" style="margin-top:8px">Se calcula como el estado de cuenta de Didi: lo cobrado al cliente (subtotal del recibo) trae IVA; se le quita para sacar la base; la comisión es el % de la base más su IVA; las retenciones de ISR e IVA son % de la base; y al final se restan los descuentos que absorbes. Si un pedido no tiene recibo capturado, usa tu precio de menú. Lo que te queda es lo que cuenta como venta en Resultados. Revisa los porcentajes contra tu estado de cuenta semanal.</p></div>`;
+}
+function tarjetaTope(){const tope=DATA.comida_emp_tope;
+  return `${COPIA?'':`<div class="card"><h2>Tope por comida</h2><div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end"><div class="field" style="margin:0"><label for="ceTope">Marcar en rojo las comidas de más de</label><input id="ceTope" inputmode="decimal" placeholder="$ (en blanco = sin tope)" value="${tope!=null?tope:''}"></div><button class="btn pri" data-cetope="1">Guardar</button></div>
     <p class="empty" style="margin-top:8px">No se descuentan de la nómina: son comidas regaladas. Para descontar una comida, al quitar la cuenta elige "Empleado" en lugar de "Comida de empleado".</p></div>`}`;
+}
+// 30.7.56: ⚙️ Ajustes — la configuración que antes estaba regada en Gastos, Cuentas quitadas, Didi y Uber y Comida de empleados
+const notaAjustes=t=>COPIA?'':`<p class="empty" style="margin:10px 2px">${t} ${/ y |, /.test(t)?'están':'está'} en <a href="#" data-go="ajustes" style="color:var(--green-2);font-weight:700">⚙️ Ajustes</a> (arriba, junto a Personal).</p>`;
+function vAjustes(){
+  if(COPIA) return '<section><p class="note">Los ajustes solo se pueden cambiar en la app en vivo.</p></section>';
+  const sec=(t,h)=>h?`<h2 class="corte-h" style="margin-top:18px">${t}</h2>${h}`:'';
+  return `<section><div class="card"><h2>⚙️ Ajustes</h2><p class="empty">Aquí está toda la configuración del sistema. Lo demás de las pestañas es para ver y revisar.</p></div>
+    ${sec('Entrada, cajeros y fotos',tarjetasCajeros())}
+    ${sec('Familia',tarjetaFamilia())}
+    ${ON('plataformas')?sec('Didi y Uber',tarjetaComisiones()):''}
+    ${ON('comandero')&&ON('personal')?sec('Comida de empleados',tarjetaTope()):''}</section>`;
 }
 function rQuitadas(){
   const q=(DATA.quitadas||[]).filter(r=>r.fecha>=rDesde&&r.fecha<=rHasta).sort((a,b)=>(b.fecha+b.abrio).localeCompare(a.fecha+a.abrio));
@@ -691,7 +709,6 @@ function rQuitadas(){
   ${porPersona(fam,'Familia por persona','','familia')}
   ${porPersona(emp,'Empleados · para descontar de nómina','Es lo que cada empleado consumió a precio de MrTienda en estas fechas. Elige las fechas de tu periodo de nómina y descarga el Excel.','empleados')}
   ${porPersona(cor,'Cortesías','','cortesias')}
-  ${COPIA?'':tarjetaFamilia()}
   <div class="card"><h2>Por motivo <small>importe a precio de MrTienda</small></h2>${q.length?bars(Object.entries(by).sort((a,b)=>T(b[1])-T(a[1])).map(([n,L])=>({n,v:T(L),sub:pl(L.length,'cuenta')}))):'<p class="empty">No hay cuentas quitadas en estas fechas.</p>'}
     <h3 class="dh3" style="margin-top:16px">Descargar en Excel para conciliar</h3>
     <div class="btns" style="margin-top:6px">${ON('plataformas')?x('plataformas','Didi y Uber')+x('didi','Solo Didi')+x('uber','Solo Uber'):''}${x('familia','Familia')}${x('empleados','Empleados')}${x('cortesias','Cortesías')}${x('todas','Todas')}</div>
@@ -1344,7 +1361,7 @@ function rGastos(){
   const provs=[...new Set(GA().movs.map(m=>m.proveedor).filter(Boolean))].slice(-60);
   const conceptosF=[...new Set(['Luz','Agua','Gas',...fj.map(f=>f.concepto)])];
   return formCompra({provs,admin:true})+`
-  ${tarjetasCajeros()}
+  ${notaAjustes('Los cajeros, la lectura de fotos con Claude, Google Drive, la llave de GitHub y la entrada con huella')}
   <div class="card"><h2>Pegar gastos de Claude <small>de tus fotos de tickets</small></h2>
     <p class="empty">Mándale a Claude la foto del ticket y te dará renglones listos. Pégalos aquí, un gasto por renglón: <b style="color:var(--ink)">2026-10-07 | Insumos y compras | Carne | 1250.50 | Costco | Restaurante</b></p>
     <div class="field"><textarea id="gT" rows="5" style="width:100%;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--ink);font:13px ui-monospace,Consolas,monospace;padding:10px">${esc(gImp||'')}</textarea></div>
@@ -2344,7 +2361,7 @@ function render(){
   const n=D.borrados.length+D.cancelados.length+D.precios.length; const dot=$('#ctlDot'); dot.hidden=!n; dot.textContent=n;
   const na=esHoy()?(DATA.abiertas||[]).length:0; const td=$('#tkDot'); td.hidden=!na; td.textContent=na;
   const open=[...document.querySelectorAll('#view details[open]')].map(d=>d.querySelector('summary')?.textContent);
-  $('#view').innerHTML= tab==='hoy'?vHoy(D):tab==='tickets'?vTickets(D):tab==='cortes'?vCortes(D):tab==='control'?vControl(D):tab==='rh'?vRH():tab==='cmd'?vComandero():vReportes();
+  $('#view').innerHTML= tab==='hoy'?vHoy(D):tab==='tickets'?vTickets(D):tab==='cortes'?vCortes(D):tab==='control'?vControl(D):tab==='rh'?vRH():tab==='cmd'?vComandero():tab==='ajustes'?vAjustes():vReportes();
   if(open.length) document.querySelectorAll('#view details').forEach(d=>{if(open.includes(d.querySelector('summary')?.textContent))d.open=true});
 }
 function irA(t){tab=t;st.tab=t;save();render();window.scrollTo(0,0)}
@@ -2466,7 +2483,9 @@ if(RHMODE){
 }else{
   if(!COPIA){const l=document.createElement('a');l.id='lnkPersonal';l.href='/personal';l.textContent='Personal ›';l.setAttribute('aria-label','Abrir Personal (Recursos Humanos)');
     l.style.cssText='color:var(--hero-ink);font:700 12px var(--body);text-decoration:none;border:1px solid rgba(255,255,255,.55);border-radius:14px;padding:4px 10px;white-space:nowrap';
-    const live=document.getElementById('live');if(live){live.parentNode.insertBefore(l,live);live.parentNode.style.flexWrap='wrap';live.parentNode.style.rowGap='6px'}}
+    const live=document.getElementById('live');if(live){live.parentNode.insertBefore(l,live);live.parentNode.style.flexWrap='wrap';live.parentNode.style.rowGap='6px'}
+    const aj=document.createElement('a');aj.id='lnkAjustes';aj.href='#';aj.textContent='⚙️ Ajustes';aj.setAttribute('aria-label','Abrir Ajustes');aj.style.cssText=l.style.cssText;
+    aj.onclick=e=>{e.preventDefault();irA('ajustes')};if(live)live.parentNode.insertBefore(aj,l)}
   cargar(); if(!COPIA) setInterval(cargar,120000);
   setTimeout(avisoSeguro,3000);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!COPIA)cargar()});

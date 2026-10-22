@@ -256,7 +256,7 @@ Ok ('Lee bien las ventas: ' + ($salida.Trim() -split "`n" | Select-Object -Last 
 if (-not $Prueba) {
   $vbs = Join-Path $Destino 'iniciar_monitor.vbs'
   $txt = "Set sh = CreateObject(""WScript.Shell"")`r`nsh.CurrentDirectory = ""$Destino""`r`nsh.Run """"""$pyw"""" """"$Destino\holandesa_monitor.py"""""", 0, False`r`n"
-  [IO.File]::WriteAllText($vbs, $txt, [Text.Encoding]::ASCII)
+  [IO.File]::WriteAllText($vbs, $txt, [Text.Encoding]::Unicode)   # UTF-16: Windows lo lee bien aunque la carpeta de Python tenga ñ o acentos
   $inicio = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\StartUp\Panel de ventas.vbs'
   Copy-Item $vbs $inicio -Force
   Ok 'Arranca solo cada vez que se prende la computadora'

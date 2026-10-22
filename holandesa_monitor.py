@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 157            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.55'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 158            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.56'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -1815,8 +1815,8 @@ class Monitor:
         if not archivo: raise ValueError('Faltan datos de la cuenta.')
         if motivo not in MOTIVOS: raise ValueError('Elige un motivo válido.')
         nota = str(nota or '').strip()[:120]
-        persona = self._persona(motivo, persona)
         ped = self.pedidos().get(archivo) or {}
+        persona = self._persona(motivo, persona, previo=ped.get('completo') or '')
         liq_g = self._liq_guardar(motivo, liq, ped=ped)   # se valida antes de tocar MrTienda
         foto = next((a for a in self.abiertas() if a['archivo'].upper() == archivo.upper() and a['ref'] == referencia), None)
         if foto is None: raise RuntimeError('La cuenta ya no está abierta o cambió. Actualiza la pantalla.')
@@ -2233,9 +2233,17 @@ class Monitor:
         if ya and self.cfg.get('comida_emp_una', True):
             if not str(d.get('autoriza') or '').strip():
                 return {'ok': False, 'autorizar': True, 'error': corto + ' ya comió hoy a las ' + ya[-1].get('hora', '') + '. Para otra comida, la encargada pone su clave.'}
+            fa = FALLOS.get('ce-autoriza', [0, 0])   # 30.7.56: 5 claves de encargada equivocadas bloquean las autorizaciones 10 minutos
+            if fa[1] > time.time(): raise ValueError('Demasiados intentos con la clave de la encargada. Espera 10 minutos.')
             enc = [x for x in rh.get('empleados', []) if x.get('activo') and x.get('puesto') == 'Encargada' and x.get('id') != e['id']]
             a = next((x for x in enc if self._firma_ok(x, d.get('autoriza'))), None)
-            if not a: raise ValueError('Esa clave no es de una encargada.')
+            if not a:
+                fa[0] += 1
+                if fa[0] >= 5:
+                    fa = [0, time.time() + 600]; log('Comida de empleados: 5 claves de encargada equivocadas; autorizaciones bloqueadas 10 minutos.')
+                FALLOS['ce-autoriza'] = fa
+                raise ValueError('Esa clave no es de una encargada.')
+            FALLOS.pop('ce-autoriza', None)
             autoriza = str(a.get('apodo') or '').strip() or a['nombre'].title().split(' ')[0]
         return {'ok': True, 'emp': {'id': e['id'], 'nombre': nom, 'corto': corto}, 'segunda': bool(ya), 'autoriza': autoriza}
 
@@ -2448,7 +2456,7 @@ class Monitor:
             if m.endswith('T'): return 'didi_t'
             return 'didi_e' if any(f.startswith('Efectivo') for f, _ in t.get('pagos', [])) else 'didi_t'
         if m.startswith('UBER'): return 'uber'
-        if t.get('adom') or (len(m) >= 3 and any(r == m or r.startswith(m) for r in dom)): return 'domicilio'
+        if t.get('adom') or (len(m) >= 3 and any(r == m or (len(m) >= 8 and r.startswith(m)) for r in dom)): return 'domicilio'
         return 'llevar' if t.get('esc') == '02' else 'comedor'
 
     def pedidos(self):
@@ -2851,7 +2859,14 @@ class Monitor:
         if not out: raise ValueError('No hay platillos para enviar.')
         return out
 
+    _ce_lock = threading.Lock()   # 30.7.56: revisar "ya comió hoy" y anotar la comida sin que se crucen dos envíos
+
     def enviar_comandero(self, mesero, d):
+        if not d.get('k') and str(d.get('canal') or '').lower() == 'empleado':
+            with self._ce_lock: return self._enviar_comandero(mesero, d)
+        return self._enviar_comandero(mesero, d)
+
+    def _enviar_comandero(self, mesero, d):
         if not self.cfg.get('comandero_escribe'): raise RuntimeError('El envío a MrTienda está apagado. Jorge lo enciende en la pestaña Comandero del panel.')
         envio = str(d.get('envio') or '')[:40]
         hechos = getattr(self, '_envios', {})
@@ -3050,8 +3065,18 @@ class Monitor:
             hoy = os.path.join(AQUI, 'respaldos_personal', 'personal_' + datetime.date.today().isoformat() + '.json')
             if not os.path.exists(hoy): shutil.copy2(RH_FILE, hoy)   # una copia por día, por si algo se borra por error
         os.replace(tmp, RH_FILE)
-        try: threading.Thread(target=self.refresh, daemon=True).start()   # 30.7.54: el panel ve al momento altas, bajas y sobrenombres
-        except Exception: pass
+        self._refresh_pronto()   # 30.7.54: el panel ve al momento altas, bajas y sobrenombres
+
+    _ref_lock = threading.RLock(); _ref_pend = [False]
+    def _refresh_pronto(self):
+        """30.7.56: muchos guardados seguidos en Personal = una sola actualización, 2 segundos después."""
+        if self._ref_pend[0]: return
+        self._ref_pend[0] = True
+        def corre():
+            self._ref_pend[0] = False
+            try: self.refresh()
+            except Exception as e: log('No pude actualizar después de guardar Personal: ' + str(e))
+        t = threading.Timer(2, corre); t.daemon = True; t.start()
 
     def rh_info(self):
         d = self.rh()
@@ -3530,7 +3555,7 @@ class Monitor:
         self.refresh()
         return {'ok': True, 'n': n}
 
-    def _persona(self, motivo, persona):
+    def _persona(self, motivo, persona, previo=''):
         persona = re.sub(r'\s+', ' ', str(persona or '')).strip()[:60]
         if motivo in CON_PERSONA and not persona: raise ValueError('Escribe de quién fue la comida.')
         if persona:   # usar siempre la misma escritura del nombre (Mónica = mónica = MONICA)
@@ -3542,6 +3567,7 @@ class Monitor:
             k = _sin_acentos(persona.lower())
             ap = self.empleados_apodo()
             persona = next((n for n in nom if _sin_acentos(n.lower()) == k), None) or next((n for n, a in ap.items() if _sin_acentos(a.lower()) == k), None)
+            if not persona and previo and _sin_acentos(str(previo).lower()) == k: persona = previo   # 30.7.56: el nombre que ya tenía (de antes o de alguien dado de baja)
             if not persona: raise ValueError('Ese nombre no está en la nómina. Tócalo en la lista; si es alguien nuevo, dalo de alta primero en Personal.')
         elif motivo in ('Empleado', 'Comida de empleado') and persona and persona not in self.empleados():
             self.cfg['empleados_extra'] = (self.cfg.get('empleados_extra') or []) + [persona]
@@ -3591,7 +3617,10 @@ class Monitor:
 
     def cambiar_motivo(self, rid, motivo, nota, persona='', liq=None):
         if motivo not in MOTIVOS: raise ValueError('Motivo no válido.')
-        persona = self._persona(motivo, persona)
+        try:
+            with open(QUITADAS_FILE, encoding='utf-8') as f: previo = next((r.get('persona') or '' for r in json.load(f) if r.get('id') == rid), '')
+        except (OSError, ValueError, AttributeError): previo = ''
+        persona = self._persona(motivo, persona, previo=previo)
         with self.q_lock:
             try:
                 with open(QUITADAS_FILE, encoding='utf-8') as f: q = json.load(f)
@@ -3609,6 +3638,10 @@ class Monitor:
         return {'ok': True}
 
     def refresh(self):
+        with self._ref_lock:   # 30.7.56: nunca dos actualizaciones al mismo tiempo (una vieja no tapa a una nueva)
+            return self._refresh()
+
+    def _refresh(self):
         t0 = time.time()
         self._touched = set()
         self.catalogs()
@@ -4244,7 +4277,7 @@ def github_probar(tok):
         raise ValueError('La llave abre el repositorio pero no puede leer los archivos. En permisos de la llave pon "Contents: Read-only".')
     return {'privado': bool(info.get('private')), 'vence': vence[:10]}
 
-_RECHAZADA = [0]   # 30.7.17: versión publicada con números disparejos que ya se rechazó (no se vuelve a bajar hasta que cambie)
+_RECHAZADA = [0, 0]   # 30.7.17 (número, cuándo); 30.7.56: se vuelve a intentar a los 30 minutos: versión publicada con números disparejos que ya se rechazó (no se vuelve a bajar hasta que cambie)
 
 def buscar_actualizacion():
     """Regresa True si instaló una versión nueva (y hay que reiniciar)."""
@@ -4254,7 +4287,7 @@ def buscar_actualizacion():
     except Exception as e:
         ESTADO_ACT.update(t=datetime.datetime.now().isoformat(timespec='minutes'), ok=False, error=str(e)[:200])
         log('No pude revisar actualizaciones: ' + str(e)); return False
-    if remota <= VERSION or remota == _RECHAZADA[0]: return False
+    if remota <= VERSION or (remota == _RECHAZADA[0] and time.time() - _RECHAZADA[1] < 1800): return False
     log(f'Hay versión nueva {remota} (tengo {VERSION}). Descargando…')
     nuevo = os.path.join(AQUI, '_nuevo'); resp = os.path.join(AQUI, '_respaldo', 'programa')
     shutil.rmtree(nuevo, ignore_errors=True); os.makedirs(nuevo, exist_ok=True)
@@ -4264,7 +4297,7 @@ def buscar_actualizacion():
         m = re.search(rb'^VERSION = (\d+)', _bajar('holandesa_monitor.py'), re.M)
         interna = int(m.group(1)) if m else 0
         if interna != remota:
-            _RECHAZADA[0] = remota
+            _RECHAZADA[0] = remota; _RECHAZADA[1] = time.time()
             raise RuntimeError(f'la versión publicada está dispareja (version.txt dice {remota} y el programa dice {interna}); no se instala')
         archivos = [a.strip() for a in _bajar('archivos.txt').decode().splitlines() if a.strip()]
         permitidos = {'holandesa_monitor.py', 'panel.html', 'detener_monitor.bat', 'iniciar_monitor.vbs', 'probar.bat', 'actualizar.bat', 'icon.png'}
