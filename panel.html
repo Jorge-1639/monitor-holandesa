@@ -2234,7 +2234,7 @@ function abrirHoja(o){
     const b=e.target.closest('[data-sh]');if(!b)return;
     if(b.dataset.sh==='cancelar'){cerrarHoja();return}
     const nota=$('#shNota').value.trim(), persona=$('#shPersona')?$('#shPersona').value.trim():'';
-    if((hoja.motivo==='Familia'||hoja.motivo==='Empleado')&&!persona){toast('Elige o escribe de quién fue la comida.');$('#shPersona').focus();return}
+    if((hoja.motivo==='Familia'||hoja.motivo==='Empleado')&&!persona){toast(hoja.motivo==='Empleado'&&Object.keys(DATA.empleados_puesto||{}).length?'Toca el nombre del empleado.':'Elige o escribe de quién fue la comida.');if($('#shPersona').type!=='hidden')$('#shPersona').focus();return}
     b.disabled=true;b.textContent='Un momento…';
     try{
       const url=hoja.modo==='quitar'?'/api/eliminar-abierta':'/api/quitada-motivo';
@@ -2279,9 +2279,17 @@ function pintarPersona(){
   const L=m==='Familia'?(DATA.familia||[]):m==='Empleado'?(DATA.empleados||[]):[...new Set((DATA.quitadas||[]).filter(r=>r.motivo==='Cortesía'&&r.persona).map(r=>r.persona))].slice(-12);
   const tit=m==='Familia'?'¿Quién de la familia?':m==='Empleado'?'¿Qué empleado?':'¿A qué cliente? (opcional)';
   const ph=m==='Familia'?'Escribe el nombre si no está (se agrega a la lista)':m==='Empleado'?'Escribe el nombre si no está':'Nombre del cliente';
+  // 30.7.53: empleados = solo los de la nómina (Personal), con nombre completo y agrupados por puesto; no se escriben a mano
+  const EP=DATA.empleados_puesto||{}, conNom=m==='Empleado'&&Object.keys(EP).length>0;
+  if(conNom){const G={};Object.keys(EP).sort((a,b)=>a.localeCompare(b)).forEach(n=>(G[EP[n]]=G[EP[n]]||[]).push(n));
+    const sel=Object.keys(EP).find(n=>n.toLowerCase()===String(prev).toLowerCase())||'';
+    box.innerHTML=`<div class="field"><label>${tit} <small>(los de la nómina)</small></label>
+      ${Object.keys(G).sort((a,b)=>a.localeCompare(b)).map(p=>`<div style="font:800 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:10px 0 4px">${esc(p)}</div><div class="seg" style="flex-wrap:wrap">${G[p].map(n=>`<button type="button" data-per="${esc(n)}" aria-pressed="${n===sel}">${esc(n)}</button>`).join('')}</div>`).join('')}
+      <input id="shPersona" type="hidden" value="${esc(sel)}">
+      <p class="empty" style="margin-top:8px">${prev&&!sel?`Antes decía <b>${esc(prev)}</b>: toca su nombre en la lista. `:''}¿No aparece? Dalo de alta en Personal y luego regresa aquí.</p></div>`;return}
   box.innerHTML=`<div class="field"><label for="shPersona">${tit}</label>
     ${L.length?`<div class="seg" style="flex-wrap:wrap;margin-bottom:8px">${L.map(n=>`<button type="button" data-per="${esc(n)}" aria-pressed="${n===prev}">${esc(n)}</button>`).join('')}</div>`:''}
-    <input id="shPersona" maxlength="40" value="${esc(prev)}" placeholder="${ph}" autocomplete="off"></div>`;
+    <input id="shPersona" maxlength="60" value="${esc(prev)}" placeholder="${ph}" autocomplete="off"></div>`;
 }
 function cerrarHoja(){const el=$('#sheet');if(el)el.remove()}
 function toast(t){const o=document.createElement('div');o.className='toast';o.textContent=t;document.body.appendChild(o);setTimeout(()=>o.remove(),3200)}

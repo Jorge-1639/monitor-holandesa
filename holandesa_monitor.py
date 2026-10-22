@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 154            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.52'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 155            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.53'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -3434,19 +3434,34 @@ class Monitor:
         return {'ok': True, 'n': n}
 
     def _persona(self, motivo, persona):
-        persona = re.sub(r'\s+', ' ', str(persona or '')).strip()[:40]
+        persona = re.sub(r'\s+', ' ', str(persona or '')).strip()[:60]
         if motivo in CON_PERSONA and not persona: raise ValueError('Escribe de quién fue la comida.')
         if persona:   # usar siempre la misma escritura del nombre (Mónica = mónica = MONICA)
             conocidos = self.familia() + self.empleados() + [r.get('persona') for r in self.quitadas() if r.get('persona')]
             persona = next((x for x in conocidos if x and x.lower() == persona.lower()), persona if persona != persona.lower() else persona.title())
         if motivo == 'Familia' and persona: self._alta_familia(persona)
-        if motivo == 'Empleado' and persona and persona not in self.empleados():
+        nom = self.empleados_nomina() if motivo == 'Empleado' else {}
+        if nom and persona:   # con nómina: el nombre tiene que ser uno de los de Personal (sin importar mayúsculas ni acentos)
+            k = _sin_acentos(persona.lower())
+            persona = next((n for n in nom if _sin_acentos(n.lower()) == k), None)
+            if not persona: raise ValueError('Ese nombre no está en la nómina. Tócalo en la lista; si es alguien nuevo, dalo de alta primero en Personal.')
+        elif motivo == 'Empleado' and persona and persona not in self.empleados():
             self.cfg['empleados_extra'] = (self.cfg.get('empleados_extra') or []) + [persona]
             with open(CONFIG_FILE, 'w', encoding='utf-8') as fh: json.dump(self.cfg, fh, ensure_ascii=False, indent=2)
         return persona if motivo in CON_PERSONA or motivo == 'Cortesía' else ''
 
+    def empleados_nomina(self):
+        """30.7.53: empleados activos de Personal, con su nombre completo tal como está en la nómina, y su puesto."""
+        out = {}
+        for e in self.rh().get('empleados', []):
+            n = re.sub(r'\s+', ' ', str(e.get('nombre') or '')).strip()
+            if e.get('activo') and n and n.lower() not in {x.lower() for x in out}: out[n] = str(e.get('puesto') or '').strip() or 'Otros'
+        return out
+
     def empleados(self):
-        rh = {e['nombre'].title() for e in self.rh()['empleados'] if e.get('activo')}
+        nom = self.empleados_nomina()
+        if nom: return sorted(nom)   # solo la nómina: lo que se escoja aquí cae directo a la nómina de esa persona
+        rh = {e['nombre'].title() for e in self.rh()['empleados'] if e.get('activo')}   # negocio sin Personal: como antes
         return sorted(set(v for v in getattr(self, 'EMP', {}).values() if v) | {x['nombre'] for x in self.cajeros() if x.get('activo')} | set(self.cfg.get('empleados_extra') or []) | rh)
 
     def familia(self):
@@ -3515,7 +3530,7 @@ class Monitor:
         out['quitadas'] = self.quitadas_liq(); out['motivos'] = MOTIVOS if modulos(self.cfg)['plataformas'] else [m for m in MOTIVOS if not m.startswith(('Didi', 'Uber'))]
         out['modulos'] = modulos(self.cfg); out['actualiza'] = self.cfg.get('actualizar_solo', True) is not False
         out['plataformas'] = {'config': self.plat_cfg(), 'pagos': self.plat_pagos()}; out['familia'] = self.familia()
-        out['empleados'] = self.empleados()
+        out['empleados'] = self.empleados(); out['empleados_puesto'] = self.empleados_nomina()
         out['gastos'] = self.gastos(); out['categorias_gasto'] = CATEGORIAS_GASTO
         out['cajeros'] = [{'id': x['id'], 'nombre': x['nombre'], 'activo': x.get('activo', True), 'alta': x.get('alta', '')} for x in self.cajeros()]
         try: ligados = {str(e.get('cod_mt') or '').strip() for e in self.rh()['empleados'] if e.get('cod_mt')}
