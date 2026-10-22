@@ -296,7 +296,22 @@ async function cargar(conMenu){
   const j=await r.json().catch(()=>({ok:false,error:'Sin respuesta de la caja'}));
   if(j.sesion===false){salir(j.error);throw new Error(j.error)}
   if(!j.ok)throw new Error(j.error||'No pude leer MrTienda');
-  S.user=j.mesero;CUENTAS=j.cuentas||[];EMPS=j.empleados_ce||[];ESCRIBE=!!j.escribe;PLAT=j.plataformas||PLAT;if(j.menu)M=j.menu;usaPlano(j.plano);S.falla='';
+  S.user=j.mesero;S.huella=!!(j.mesero&&j.mesero.solo_huella);CUENTAS=j.cuentas||[];EMPS=j.empleados_ce||[];ESCRIBE=!!j.escribe;PLAT=j.plataformas||PLAT;if(j.menu)M=j.menu;usaPlano(j.plano);S.falla='';
+}
+// 30.7.58: Jorge entra al comandero con su huella (la misma del panel), solo en la dirección segura
+const puedeHuellaC=!!(window.PublicKeyCredential&&window.isSecureContext&&navigator.credentials);
+const b64uC=b=>btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const unbC=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-s.length%4)%4)),c=>c.charCodeAt(0));
+async function huellaLogin(){
+  const post=async(u,b)=>{const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});const j=await r.json().catch(()=>({ok:false,error:'Sin respuesta de la caja'}));if(!j.ok)throw new Error(j.error||'No se pudo');return j};
+  const r=await post('/api/comandero/huella-reto');
+  const cr=await navigator.credentials.get({publicKey:{challenge:unbC(r.reto),rpId:location.hostname,timeout:60000,userVerification:'required',hints:['client-device'],allowCredentials:r.ids.map(id=>({type:'public-key',id:unbC(id),transports:['internal']}))}});
+  const j=await post('/api/comandero/huella-entrar',{id:b64uC(cr.rawId),cd:b64uC(cr.response.clientDataJSON),ad:b64uC(cr.response.authenticatorData),sig:b64uC(cr.response.signature)});
+  S.tok=j.token;S.huella=true;S.hts=Date.now();S.pinActual=null;store.set('cmd_tok',j.token);return j;
+}
+async function entrarHuella(){
+  try{await huellaLogin();S.err='';await inicio()}
+  catch(e){S.err=e&&e.name==='NotAllowedError'?'No se reconoció la huella. Intenta otra vez.':(e.message||'No se pudo con la huella');render()}
 }
 async function entrar(pin){
   try{
@@ -376,7 +391,7 @@ function ofertaDe(p){
   return null;
 }
 const recuerdaComida=n=>/S\/?\s*AGUA|SIN\s*AGUA/.test(sinAcento(n))?'🍲 Lleva la sopa (sin agua)':'🍲 Lleva la sopa y el agua';
-function salir(msg){S.tok=null;store.set('cmd_tok',null);S.user=null;S.pin='';S.view='login';S.err=msg||'';S.draft=[];clearInterval(poll);render()}
+function salir(msg){S.tok=null;S.huella=false;S.hts=0;store.set('cmd_tok',null);S.user=null;S.pin='';S.view='login';S.err=msg||'';S.draft=[];clearInterval(poll);render()}
 
 // ---- cuentas: la referencia de MrTienda dice la mesa (M 2, MESA9) o el nombre (LLEVAR, DIDI…)
 const numMesa=ref=>{const m=String(ref||'').trim().match(/^(?:M|MESA)\s*-?\s*(\d{1,2})\s*(A|B|AB)?$/i);return m?String(+m[1])+(m[2]||'').toUpperCase():null};
@@ -419,6 +434,7 @@ function render(){
       <div class="dots">${[0,1,2,3].map(i=>`<i class="${i<S.pin.length?'on':''}"></i>`).join('')}</div>
       <div class="err">${esc(S.err)}</div>
       <div class="pad">${[1,2,3,4,5,6,7,8,9].map(n=>`<button data-k="${n}">${n}</button>`).join('')}<span></span><button data-k="0">0</button><button class="ghost" data-k="del">Borrar</button></div>
+      ${puedeHuellaC?'<button class="chipbtn" data-act="huella" style="margin-top:14px;width:100%;max-width:320px;font-size:17px;padding:12px">👆 Entrar con huella</button>':''}
     </div>`;
     return;
   }
@@ -746,6 +762,7 @@ function pedirClave(titulo){return new Promise(res=>{
   $('#fk').onsubmit=e=>{e.preventDefault();if(i.value.length===4)fin(i.value)};
 })}
 async function conClave(titulo,sigue){
+  if(S.huella){try{await huellaLogin();await cargar(false);render();sigue()}catch(e){toast(e&&e.name==='NotAllowedError'?'No se reconoció la huella':(e.message||'No se pudo con la huella'))}return}
   const pin=await pedirClave(titulo);if(!pin)return;
   try{
     const r=await fetch('/api/mesero-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin})});
@@ -756,10 +773,11 @@ async function conClave(titulo,sigue){
 }
 async function enviar(btn){
   if(enviando||!S.draft.length)return;
-  const pin=S.pinActual;if(!pin)return salir('Vuelve a entrar con tu clave.');
+  const pin=S.pinActual;if(!pin&&!S.huella)return salir('Vuelve a entrar con tu clave.');
+  if(S.huella&&Date.now()-(S.hts||0)>13*60*1000){try{await huellaLogin()}catch(e){return toast('Pon tu huella para mandar la comanda')}}
   enviando=true;document.querySelectorAll('[data-act="enviar"]').forEach(b=>{b.disabled=true;b.textContent='Enviando…'});
   if(!S.envio)S.envio=Date.now().toString(36)+Math.random().toString(36).slice(2,8);
-  const body={pin,envio:S.envio,llevar:!!S.sel.llevar,items:S.draft.map(i=>({id:i.id,qty:i.qty,llevar:i.llevar,g:i.g,o:i.o,nota:i.nota}))};
+  const body={pin:pin||'',envio:S.envio,llevar:!!S.sel.llevar,items:S.draft.map(i=>({id:i.id,qty:i.qty,llevar:i.llevar,g:i.g,o:i.o,nota:i.nota}))};
   if(!S.sel.k&&S.sel.factura)body.factura=S.sel.factura;
   if(S.sel.k)body.k=S.sel.k;else if(S.sel.mesa){body.mesa=S.sel.mesa;body.pers=S.sel.pers||1}else if(S.sel.canal)Object.assign(body,S.sel.canal,{nombre:S.sel.canal.nombre||''});else body.nombre=S.sel.nombre;
   try{
@@ -811,6 +829,7 @@ document.addEventListener('click',e=>{
     const f=$('#fl');setTimeout(()=>$('#nl').focus(),50);
     f.onsubmit=ev=>{ev.preventDefault();const nm=$('#nl').value.trim();if(!nm)return;$('#sheet').innerHTML='';abrir({nombre:nm,llevar:true})};
     return}
+  if(a==='huella')return entrarHuella();
   if(a==='nueva')return conClave('Escribe tu clave para la nueva cuenta',hojaNueva);
   if(a==='nosalio'){const v=vistos();v['p|'+t.dataset.dk]=Date.now()+5*60000;guardaVistos(v);alarmaK=null;$('#alarma').hidden=true;return}
   if(a==='yasalio'){const dk=t.dataset.dk||'';if(!dk.startsWith('postre|')){const p=dk.split('|');avisaTiempo('salio',p[0],p[p.length-1])}const v=vistos();v[t.dataset.dk]=1;guardaVistos(v);alarmaK=null;$('#alarma').hidden=true;return revisarDemoras()}

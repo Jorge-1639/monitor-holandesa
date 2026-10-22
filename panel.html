@@ -684,10 +684,21 @@ function tarjetaTope(){const tope=DATA.comida_emp_tope;
 }
 // 30.7.56: ⚙️ Ajustes — la configuración que antes estaba regada en Gastos, Cuentas quitadas, Didi y Uber y Comida de empleados
 const notaAjustes=t=>COPIA?'':`<p class="empty" style="margin:10px 2px">${t} ${/ y |, /.test(t)?'están':'está'} en <a href="#" data-go="ajustes" style="color:var(--green-2);font-weight:700">⚙️ Ajustes</a> (arriba, junto a Personal).</p>`;
+// 30.7.58: cambiar la contraseña del panel
+function tarjetaClavePanel(){
+  const hay=(DATA.huellas||[]).length>0;
+  return `<div class="card"><h2>Contraseña del panel</h2>
+    <p class="empty" style="margin-top:0">${hay?'<b style="color:var(--good)">Desde el WiFi del restaurante el panel solo abre con tu huella.</b> La contraseña sirve en la computadora de la caja y por Tailscale.':'Cuando actives la huella, desde el WiFi del restaurante el panel solo abrirá con ella.'} Pon una contraseña que nadie más sepa: al cambiarla, cualquiera que haya entrado con la anterior queda fuera.</p>
+    <div class="field"><label for="cpA">Contraseña actual</label><input id="cpA" type="password" autocomplete="current-password"></div>
+    <div class="field"><label for="cpN">Nueva contraseña (8 o más, con letras y números)</label><input id="cpN" type="password" autocomplete="new-password"></div>
+    <div class="field"><label for="cpR">Repite la nueva</label><input id="cpR" type="password" autocomplete="new-password"></div>
+    <div class="btns"><button class="btn pri" data-clavep="1">Cambiar contraseña</button></div></div>`;
+}
 function vAjustes(){
   if(COPIA) return '<section><p class="note">Los ajustes solo se pueden cambiar en la app en vivo.</p></section>';
   const sec=(t,h)=>h?`<h2 class="corte-h" style="margin-top:18px">${t}</h2>${h}`:'';
   return `<section><div class="card"><h2>⚙️ Ajustes</h2><p class="empty">Aquí está toda la configuración del sistema. Lo demás de las pestañas es para ver y revisar.</p></div>
+    ${sec('Seguridad',tarjetaClavePanel())}
     ${sec('Entrada, cajeros y fotos',tarjetasCajeros())}
     ${sec('Familia',tarjetaFamilia())}
     ${ON('plataformas')?sec('Didi y Uber',tarjetaComisiones()):''}
@@ -1264,7 +1275,7 @@ function tarjetaComandero(){
       <b>${esc(m.nombre)}</b>${m.en_mrtienda?'':' <span class="pill bad">Baja en MrTienda</span>'}${DATA.candado_rol&&!m.ligado?' <span class="pill warn">Sin ligar en Personal</span>':''}
       <div style="display:flex;align-items:center;gap:8px;margin-top:6px;font-size:15px">Clave: <b class="num" style="letter-spacing:.25em;min-width:60px" id="msk-${esc(m.id)}">••••</b>${m.tiene_clave?`<button class="btn" data-msver="${esc(m.id)}" aria-label="Ver clave" style="padding:4px 10px;min-height:0"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>`:'<small style="color:var(--muted)">se podrá ver cuando vuelva a entrar o le cambies la clave</small>'}</div>
       <div class="meta" style="font-size:13px;color:var(--muted);margin-top:2px">${m.remoto?'<b>Puede usarlo fuera del restaurante (Tailscale)</b>':'Solo con el WiFi del restaurante'} · código ${esc(m.cod)} · alta ${m.alta?corto(m.alta.slice(0,10)):''}</div>
-      <div class="btns" style="margin-top:8px"><button class="btn pri" data-msenlace="${esc(m.id)}">Mandar PDF</button><button class="btn" data-msclave="${esc(m.id)}">Cambiar clave</button><button class="btn" data-msremoto="${esc(m.id)}">${m.remoto?'Quitar Tailscale':'Permitir Tailscale'}</button><button class="btn" data-msbaja="${esc(m.id)}" style="color:var(--bad)">Quitar acceso</button></div></div>`).join('')}</div>`:'<p class="empty" style="margin-top:10px">Todavía no das de alta a nadie.</p>'}
+      <div class="btns" style="margin-top:8px"><button class="btn pri" data-msenlace="${esc(m.id)}">Mandar PDF</button><button class="btn" data-msclave="${esc(m.id)}">Cambiar clave</button><button class="btn" data-mshuella="${esc(m.id)}" ${m.solo_huella?'style="border-color:var(--good);color:var(--good)"':''}>${m.solo_huella?'✓ Entra solo con huella':'Entrar solo con huella'}</button><button class="btn" data-msremoto="${esc(m.id)}">${m.remoto?'Quitar Tailscale':'Permitir Tailscale'}</button><button class="btn" data-msbaja="${esc(m.id)}" style="color:var(--bad)">Quitar acceso</button></div></div>`).join('')}</div>`:'<p class="empty" style="margin-top:10px">Todavía no das de alta a nadie.</p>'}
     ${libres.length?`<div style="display:grid;grid-template-columns:1fr 110px;gap:8px;margin-top:12px">
       <select id="msC" style="height:44px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--ink);padding:0 10px;font:15px var(--body);min-width:0"><option value="">Elige de MrTienda…</option>${libres.map(e=>`<option value="${esc(e.cod)}">${esc(e.nombre)}</option>`).join('')}</select>
       <input id="msP" inputmode="numeric" maxlength="4" placeholder="Clave" autocomplete="off" style="height:44px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--ink);padding:0 12px;font:15px var(--body);min-width:0;text-align:center;letter-spacing:.2em"></div>`:''}
@@ -2252,6 +2263,9 @@ async function accionAdmin(t,d){
       await api('/api/meseros',{accion:'candado',activo:on});toast(on?'Candado del rol encendido':'Candado del rol apagado')}
     else if(d.msenvio){const on=!DATA.comandero_escribe;if(on&&!confirm('¿Encender el envío a MrTienda? Desde ahora los pedidos del comandero abren cuentas reales en la caja.')){t.disabled=false;return}
       await api('/api/comandero-envio',{activo:on});toast(on?'Envío a MrTienda encendido':'Envío a MrTienda apagado')}
+    else if(d.mshuella){const m=(DATA.meseros||[]).find(x=>x.id===d.mshuella);const on=!(m&&m.solo_huella);   // 30.7.58
+      if(on&&!confirm('¿Este usuario es el tuyo? Desde ahora entrará al comandero SOLO con tu huella (en la dirección segura) y su clave de 4 números dejará de servir.')){t.disabled=false;return}
+      await api('/api/meseros',{accion:'solo_huella',id:d.mshuella,activo:on});toast(on?'Listo: ese usuario entra solo con tu huella':'Ese usuario vuelve a entrar con su clave');await cargar(true)}
     else if(d.msremoto){const m=(DATA.meseros||[]).find(x=>x.id===d.msremoto);const on=!(m&&m.remoto);   // sin ventana de confirmar: algunos teléfonos la bloquean
       await api('/api/meseros',{accion:'remoto',id:d.msremoto,activo:on});if(m)m.remoto=on;const sh=$('#sheet');if(sh&&!sh.innerHTML.trim())sh.remove();render();
       toast(on?(m?m.nombre:'Listo')+': ya puede usarlo fuera del restaurante (Tailscale)':(m?m.nombre:'Listo')+': solo con el WiFi del restaurante')}
@@ -2408,7 +2422,7 @@ $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(b)irA(b.dataset.tab)};
 $('#view').addEventListener('click',e=>{
-  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-cnquitar],[data-cf],[data-cfej],[data-cfguardar],[data-cfprueba],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaprobar],[data-iaquitar],[data-ghsave],[data-ghprobar],[data-ghquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes],[data-hactivar],[data-hquitar],[data-hsalir],[data-pcfg],[data-ppago],[data-pborrar],[data-cetope],[data-qd],[data-qdsave],[data-qdquitar]');if(!t)return;
+  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-cnquitar],[data-cf],[data-cfej],[data-cfguardar],[data-cfprueba],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaprobar],[data-iaquitar],[data-ghsave],[data-ghprobar],[data-ghquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes],[data-hactivar],[data-hquitar],[data-hsalir],[data-mshuella],[data-clavep],[data-pcfg],[data-ppago],[data-pborrar],[data-cetope],[data-qd],[data-qdsave],[data-qdquitar]');if(!t)return;
   const d=t.dataset;
   if(d.go) return irA(d.go);
   if(d.pm){prodModo=d.pm;return render()} if(d.pt){prodT=d.pt;return render()}
@@ -2438,7 +2452,7 @@ $('#view').addEventListener('click',e=>{
   if(d.drver){fetch('/api/drive-script',{credentials:'same-origin'}).then(r=>r.text()).then(t=>{DSCRIPT=t;render()}).catch(err=>toast(err.message));return}
   if(d.drcopiar){const ta=$('#drS');ta.select();(navigator.clipboard?navigator.clipboard.writeText(ta.value):Promise.reject()).then(()=>toast('Programa copiado')).catch(()=>{document.execCommand('copy');toast('Programa copiado')});return}
   if(d.famalta||d.fambaja){e.preventDefault();(async()=>{try{t.disabled=true;await api('/api/familia',{accion:d.famalta?'alta':'baja',nombre:d.famalta?$('#famN').value:d.fambaja});toast(d.famalta?'Agregado':'Quitado');await cargar(true)}catch(err){toast(err.message);t.disabled=false}})();return}
-  if(d.msremoto||d.msenvio||d.mscandado||d.msalta||d.msbaja||d.msclave||d.cjalta||d.cjbaja||d.cjclave||d.iasave||d.iaprobar||d.iaquitar||d.ghsave||d.ghprobar||d.ghquitar||d.leerpend||d.drconectar||d.drquitar||d.drborrar||d.drmes){e.preventDefault();accionAdmin(t,d);return}
+  if(d.mshuella||d.msremoto||d.msenvio||d.mscandado||d.msalta||d.msbaja||d.msclave||d.cjalta||d.cjbaja||d.cjclave||d.iasave||d.iaprobar||d.iaquitar||d.ghsave||d.ghprobar||d.ghquitar||d.leerpend||d.drconectar||d.drquitar||d.drborrar||d.drmes){e.preventDefault();accionAdmin(t,d);return}
   if(d.cpurl){(navigator.clipboard?navigator.clipboard.writeText(d.cpurl):Promise.reject()).then(()=>toast('Dirección copiada')).catch(()=>toast(d.cpurl));return}
   if(d.msver){e.preventDefault();const el=document.getElementById('msk-'+d.msver);if(!el)return;
     if(el.dataset.v){el.textContent='••••';delete el.dataset.v;return}
@@ -2457,6 +2471,9 @@ $('#view').addEventListener('click',e=>{
   if(d.pcfg||d.ppago||d.pborrar){e.preventDefault();guardarPlat(t,d);return}
   if(d.qd){e.preventDefault();qdAb=qdAb===d.qd?null:d.qd;const y=window.scrollY;render();window.scrollTo(0,y);return}
   if(d.qdsave||d.qdquitar){e.preventDefault();guardarDescQ(t,d);return}
+  if(d.clavep){e.preventDefault();(async()=>{const a=$('#cpA').value,n=$('#cpN').value,r=$('#cpR').value;
+    if(!a||!n)return toast('Escribe la contraseña actual y la nueva.');if(n!==r)return toast('La nueva y la repetida no son iguales.');
+    try{t.disabled=true;await api('/api/clave-panel',{actual:a,nueva:n});toast('Contraseña cambiada. Guárdala en un lugar seguro.');['cpA','cpN','cpR'].forEach(i=>$('#'+i).value='');t.disabled=false}catch(er){t.disabled=false;toast(er.message)}})();return}
   if(d.cetope){e.preventDefault();(async()=>{try{t.disabled=true;await api('/api/comida-emp',{accion:'tope',monto:$('#ceTope').value.trim()});toast('Tope guardado');await cargar(true)}catch(er){t.disabled=false;toast(er.message)}})();return}
   if(d.ct2){cmpTodos=!cmpTodos;return render()}
   if(d.mes){e.preventDefault();mesSel=d.mes;render();window.scrollTo(0,0);return}

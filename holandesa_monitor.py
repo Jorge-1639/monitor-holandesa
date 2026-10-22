@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 159            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.57'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 160            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.58'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -668,6 +668,7 @@ function autorizar() { carpeta_(); }
 # ---------------------------------------------------------------- cajeros y lectura de tickets: utilidades
 SESIONES = {}   # token -> (nombre, vence)
 SESIONES_M = {} # comandero: token -> (id del mesero, vence)
+HUELLA_M = {}   # 30.7.58: comandero: token -> cuándo se puso la huella (usuario "solo huella")
 SESIONES_R = {} # captura del rol de descansos (encargada): token -> (nombre, vence)
 FALLOS = {}     # ip -> [intentos, bloqueado_hasta]
 # ------------------------------------------------ PDF de bienvenida al comandero (sin paquetes extra)
@@ -2292,6 +2293,15 @@ class Monitor:
             if any(o is not x and o.get('activo') and verifica_pin(o, pin) for o in c): raise ValueError('Esa clave ya la tiene otra persona. Usa otra.')
             x['sal'] = secrets.token_hex(8); x['huella'] = huella_pin(x['sal'], pin); x['clave'] = pin; x['cambio_clave'] = datetime.datetime.now().isoformat(timespec='seconds')
             for t in [t for t, v in SESIONES_M.items() if v[0] == x['id']]: SESIONES_M.pop(t, None)
+        elif acc == 'solo_huella':
+            x = next((x for x in c if x.get('id') == d.get('id') and x.get('activo')), None)
+            if not x: raise RuntimeError('No encontré a ese mesero.')
+            if d.get('activo'):
+                if not huellas(): raise RuntimeError('Primero activa tu huella en el panel (dirección segura): ⚙️ Ajustes → Entrada con huella.')
+                for y in c: y['solo_huella'] = False   # solo un usuario: el de Jorge
+                x['solo_huella'] = True; x['remoto'] = True   # la huella solo funciona en la dirección segura (Tailscale)
+            else: x['solo_huella'] = False
+            for t in [t for t, v in SESIONES_M.items() if v[0] == x['id']]: SESIONES_M.pop(t, None)
         elif acc == 'remoto':
             x = next((x for x in c if x.get('id') == d.get('id') and x.get('activo')), None)
             if not x: raise RuntimeError('No encontré a ese mesero.')
@@ -2314,7 +2324,7 @@ class Monitor:
         if f[1] > ahora: raise RuntimeError('Demasiados intentos. Espera unos minutos.')
         emp = getattr(self, 'EMP', {})
         for x in self.meseros():
-            if x.get('activo') and verifica_pin(x, str(pin or '')):
+            if x.get('activo') and not x.get('solo_huella') and verifica_pin(x, str(pin or '')):   # 30.7.58: "solo huella" no entra con clave
                 if emp and x.get('cod') not in emp: raise RuntimeError('Tu usuario está dado de baja en MrTienda. Avísale a Jorge.')
                 if not x.get('remoto') and not ip_del_restaurante(ip): raise RuntimeError(FUERA_WIFI)
                 if x.get('clave') != str(pin):   # claves dadas antes de la 27.6: se aprenden al entrar
@@ -2336,6 +2346,27 @@ class Monitor:
         FALLOS[k] = f
         raise RuntimeError('Clave incorrecta.')
 
+    def login_mesero_huella(self, d, host, ip):
+        """30.7.58: Jorge entra al comandero con la huella de su teléfono (la misma del panel), sin clave."""
+        ahora = time.time(); k = 'mh:' + ip; f = FALLOS.get(k, [0, 0])
+        if f[1] > ahora: raise RuntimeError('Demasiados intentos. Espera unos minutos.')
+        try: entrar_huella(d, host)
+        except Exception:
+            f[0] += 1
+            if f[0] >= 5: f = [0, ahora + 300]
+            FALLOS[k] = f; raise
+        FALLOS.pop(k, None)
+        emp = getattr(self, 'EMP', {})
+        x = next((x for x in self.meseros() if x.get('activo') and x.get('solo_huella')), None)
+        if not x: raise RuntimeError('Ningún usuario del comandero está marcado para entrar con huella.')
+        if emp and x.get('cod') not in emp: raise RuntimeError('Tu usuario está dado de baja en MrTienda.')
+        if not x.get('remoto') and not ip_del_restaurante(ip): raise RuntimeError(FUERA_WIFI)
+        bloqueo = self.candado_rol(x.get('cod'))
+        if bloqueo: raise RuntimeError(bloqueo)
+        tok = secrets.token_urlsafe(24); SESIONES_M[tok] = (x['id'], ahora + 14 * 3600); HUELLA_M[tok] = ahora
+        log('COMANDERO: ' + emp.get(x['cod'], x['nombre']) + ' entró con huella.')
+        return {'ok': True, 'token': tok, 'nombre': emp.get(x['cod'], x['nombre']), 'cod': x['cod'], 'huella': True}
+
     def mesero_de(self, tok, ip=''):
         s_ = SESIONES_M.get(tok or '')
         if not s_ or s_[1] < time.time(): SESIONES_M.pop(tok or '', None); return None
@@ -2345,7 +2376,7 @@ class Monitor:
         if not x.get('remoto') and not ip_del_restaurante(ip): SESIONES_M.pop(tok, None); return None   # candado: solo WiFi del restaurante
         bloqueo = self.candado_rol(x.get('cod'))
         if bloqueo: SESIONES_M.pop(tok, None); return {'bloqueo': bloqueo}             # candado: rol de descansos y horario
-        return {'id': x['id'], 'cod': x['cod'], 'nombre': emp.get(x['cod'], x['nombre'])}
+        return {'id': x['id'], 'cod': x['cod'], 'nombre': emp.get(x['cod'], x['nombre']), 'solo_huella': bool(x.get('solo_huella'))}
 
     # Candado del rol de descansos (versión 27.2): el mesero ligado a un empleado de Personal solo entra
     # si ese día le toca trabajar (T) y está dentro de su horario, con tolerancia antes y después.
@@ -3674,7 +3705,7 @@ class Monitor:
         try: ligados = {str(e.get('cod_mt') or '').strip() for e in self.rh()['empleados'] if e.get('cod_mt')}
         except Exception: ligados = set()
         out['meseros'] = [{'id': x['id'], 'cod': x.get('cod', ''), 'nombre': self.EMP.get(x.get('cod'), x['nombre']), 'activo': x.get('activo', True),
-                           'en_mrtienda': x.get('cod') in self.EMP, 'alta': x.get('alta', ''), 'remoto': bool(x.get('remoto')), 'ligado': x.get('cod') in ligados, 'tiene_clave': bool(x.get('clave'))} for x in self.meseros()]
+                           'en_mrtienda': x.get('cod') in self.EMP, 'alta': x.get('alta', ''), 'remoto': bool(x.get('remoto')), 'solo_huella': bool(x.get('solo_huella')), 'ligado': x.get('cod') in ligados, 'tiene_clave': bool(x.get('clave'))} for x in self.meseros()]
         out['candado_rol'] = bool(self.cfg.get('candado_rol'))
         out['comandero_escribe'] = bool(self.cfg.get('comandero_escribe'))
         out['emp_mrtienda'] = sorted([{'cod': k, 'nombre': v} for k, v in self.EMP.items() if v], key=lambda e: e['nombre'])
@@ -3840,6 +3871,11 @@ def make_handler(mon, cfg):
                     ip = 'adm:' + self.client_address[0]; ahora = time.time(); f = FALLOS.get(ip, [0, 0])
                     if self.path in ('/api/entrar', '/api/huella/entrar') and f[1] > ahora: raise RuntimeError('Demasiados intentos. Espera unos minutos.')
                     if self.path == '/api/entrar':
+                        # 30.7.58: desde el WiFi del restaurante solo con huella; la contraseña sirve en la computadora de la caja y por Tailscale
+                        ip_ = self.client_address[0]
+                        if (huellas() and not cfg.get('clave_por_wifi') and ip_del_restaurante(ip_) and not ip_.startswith('127.') and ip_ not in ('::1',)
+                                and ip_ not in ips_locales()):
+                            raise RuntimeError('Desde el WiFi del restaurante el panel solo abre con la huella de Jorge, en la dirección segura. La contraseña sirve en la computadora de la caja.')
                         ok = secrets.compare_digest(str(d.get('usuario') or '').strip().lower(), str(cfg['usuario']).lower()) & secrets.compare_digest(str(d.get('contrasena') or ''), str(cfg['contrasena']))
                         if not ok:
                             f[0] += 1
@@ -3879,6 +3915,21 @@ def make_handler(mon, cfg):
                     d = json.loads(self.rfile.read(n).decode('utf-8'))
                     body = json.dumps(mon.login_cajero(d.get('pin'), self.client_address[0]), ensure_ascii=False).encode('utf-8')
                     return self._send(body, 'application/json; charset=utf-8')
+                except Exception as e:
+                    body = json.dumps({'ok': False, 'error': str(e)}, ensure_ascii=False).encode('utf-8')
+                    self.send_response(403); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
+            if self.path in ('/api/comandero/huella-reto', '/api/comandero/huella-entrar'):   # 30.7.58
+                try:
+                    n = min(int(self.headers.get('Content-Length', '0') or 0), 16384)
+                    d = json.loads(self.rfile.read(n).decode('utf-8') or '{}')
+                    host = self._host()
+                    if self.path.endswith('reto'):
+                        if not any(x.get('activo') and x.get('solo_huella') for x in mon.meseros()): raise RuntimeError('Ningún usuario del comandero entra con huella.')
+                        ids = [x['id'] for x in huellas() if x.get('rp') == host]
+                        if not ids: raise RuntimeError('La huella solo funciona en la dirección segura, con la huella ya activada en el panel.')
+                        out = {'ok': True, 'reto': nuevo_reto('webauthn.get'), 'ids': ids}
+                    else: out = mon.login_mesero_huella(d, host, self.client_address[0])
+                    return self._send(json.dumps(out, ensure_ascii=False).encode('utf-8'), 'application/json; charset=utf-8')
                 except Exception as e:
                     body = json.dumps({'ok': False, 'error': str(e)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(403); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
@@ -3954,7 +4005,10 @@ def make_handler(mon, cfg):
                     k_ = 'e:' + self.client_address[0]; f_ = FALLOS.get(k_, [0, 0])
                     if f_[1] > time.time(): raise ValueError('Demasiados intentos. Espera unos minutos.')
                     x_ = next((x for x in mon.meseros() if x.get('id') == m_['id'] and x.get('activo')), None)
-                    if not x_ or not verifica_pin(x_, str(d.get('pin') or '')):
+                    tok_ = self.headers.get('X-Mesero-Token') or ''
+                    if x_ and x_.get('solo_huella'):
+                        if time.time() - HUELLA_M.get(tok_, 0) > 900: raise ValueError('Pon tu huella otra vez para mandar la comanda.')
+                    elif not x_ or not verifica_pin(x_, str(d.get('pin') or '')):
                         f_[0] += 1
                         if f_[0] >= 5: f_ = [0, time.time() + 300]
                         FALLOS[k_] = f_
@@ -3980,7 +4034,7 @@ def make_handler(mon, cfg):
                 except Exception as e:
                     log('Exportar nómina: ' + traceback.format_exc())
                     return self._json({'ok': False, 'error': 'No pude armar el archivo: ' + str(e)}, 409)
-            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/log-cliente', '/api/clientes-nuevos', '/api/plano', '/api/leer-recibo', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia', '/api/github', '/api/plataformas', '/api/comida-emp'): self.send_response(404); self.end_headers(); return
+            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/log-cliente', '/api/clientes-nuevos', '/api/plano', '/api/leer-recibo', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia', '/api/github', '/api/plataformas', '/api/comida-emp', '/api/clave-panel'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return
             try:
@@ -4048,6 +4102,18 @@ def make_handler(mon, cfg):
                 elif self.path == '/api/quitada-motivo': out=mon.cambiar_motivo(d.get('id'),d.get('motivo'),d.get('nota'),d.get('persona'),d.get('liq'))
                 elif self.path == '/api/plataformas': out=mon.plataformas_accion(d)
                 elif self.path == '/api/comida-emp': out=mon.comida_emp_accion(d)
+                elif self.path == '/api/clave-panel':   # 30.7.58: Jorge cambia su contraseña del panel
+                    if not secrets.compare_digest(str(d.get('actual') or ''), str(cfg['contrasena'])): raise ValueError('La contraseña actual no es correcta.')
+                    nueva = str(d.get('nueva') or '')
+                    if len(nueva) < 8 or re.search(r'\s', nueva): raise ValueError('La nueva contraseña debe tener al menos 8 caracteres, sin espacios.')
+                    if not (re.search(r'[A-Za-z]', nueva) and re.search(r'\d', nueva)): raise ValueError('Usa letras y números en la nueva contraseña.')
+                    if nueva == cfg['contrasena']: raise ValueError('La nueva contraseña es igual a la de antes.')
+                    cfg['contrasena'] = nueva; mon.cfg['contrasena'] = nueva
+                    with open(CONFIG_FILE, 'w', encoding='utf-8') as fh: json.dump(cfg, fh, ensure_ascii=False, indent=2)
+                    actual_ = self._cookie('hol_s')
+                    for k_ in [k_ for k_ in SES_ADMIN if k_ != actual_]: SES_ADMIN.pop(k_, None)   # los demás que hayan entrado salen
+                    _ses_guardar(True); log('Se cambió la contraseña del panel; se cerraron las demás sesiones.')
+                    out = {'ok': True}
                 elif self.path == '/api/familia': out=mon.familia_accion(d)
                 else: out=mon.eliminar_abierta(d.get('archivo'),d.get('referencia'),d.get('motivo') or 'Sin clasificar',d.get('nota'),d.get('persona'),d.get('liq'))
                 body=json.dumps(out,ensure_ascii=False).encode('utf-8')
@@ -4058,6 +4124,7 @@ def make_handler(mon, cfg):
                 self.send_response(409); self.send_header('Content-Type','application/json; charset=utf-8'); self.send_header('Cache-Control','no-store'); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)
         def _por_tailscale_serve(self):
             # tailscale serve entrega la petición desde 127.0.0.1; sin esto parecería la misma computadora (WiFi)
+            if self.client_address[0] not in ('127.0.0.1', '::1'): return   # 30.7.58: alguien del WiFi no puede hacerse pasar por la dirección segura
             if self.headers.get('Tailscale-User-Login') or self.headers.get('Host', '').split(':')[0].lower().rstrip('.').endswith('.ts.net'):
                 self.client_address = ('100.64.0.1', 0)
         def do_GET(self):
