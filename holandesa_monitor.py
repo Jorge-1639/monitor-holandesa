@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 156            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.54'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 157            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.55'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -39,7 +39,8 @@ CAJEROS_FILE = os.path.join(AQUI, 'cajeros.json')       # cajeros con su clave (
 MESEROS_FILE = os.path.join(AQUI, 'meseros.json')
 PLAT_PAGOS_FILE = os.path.join(AQUI, 'plataformas_pagos.json')   # 30.7.47: lo que Didi y Uber depositaron por rango de fechas (solo en la caja)
 PEDIDOS_FILE = os.path.join(AQUI, 'comandero_pedidos.json')   # canal de cada cuenta del comandero (recoger, domicilio, Didi, Uber): solo en la caja
-CANALES = {'recoger': 'RECOGER AQUI', 'domicilio': 'SERVICIO A DOMICILIO', 'didi': 'DIDI', 'uber': 'UBER'}
+CANALES = {'recoger': 'RECOGER AQUI', 'domicilio': 'SERVICIO A DOMICILIO', 'didi': 'DIDI', 'uber': 'UBER', 'empleado': 'COMIDA EMPLEADOS'}
+COMIDAS_EMP_FILE = os.path.join(AQUI, 'comidas_empleados.json')   # 30.7.55: cada comida de empleado del comandero (quién, hora, quién firmó/autorizó): solo en la caja
 RH_FILE = os.path.join(AQUI, 'personal.json')
 EXPED_DIR = os.path.join(AQUI, 'expedientes')            # contratos y documentos de cada empleado (fotos, Word, PDF), solo en la caja
 DIAS_SEM = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
@@ -142,8 +143,8 @@ NEGOCIOS = ['Restaurante', 'Cafetería']
 PAGOS = ['Efectivo de la caja', 'Tarjeta o transferencia', 'A crédito', 'Otro']
 CATEGORIAS_GASTO = ['Insumos y compras', 'Sueldos', 'Seguro social', 'Luz', 'Agua', 'Gas', 'Renta', 'Mantenimiento', 'Comisiones', 'Otros gastos']
 RESPALDO_CUENTAS = os.path.join(AQUI, 'respaldos_cuentas')   # fuera de _respaldo: las actualizaciones no lo borran
-MOTIVOS = ['Familia', 'Empleado', 'Cortesía', 'Didi · efectivo', 'Didi · tarjeta', 'Uber · tarjeta', 'Error de captura', 'Otro', 'Sin clasificar']   # Uber siempre se paga con tarjeta
-CON_PERSONA = {'Familia', 'Empleado'}   # estos motivos piden de quién fue la comida
+MOTIVOS = ['Familia', 'Empleado', 'Comida de empleado', 'Cortesía', 'Didi · efectivo', 'Didi · tarjeta', 'Uber · tarjeta', 'Error de captura', 'Otro', 'Sin clasificar']   # Uber siempre se paga con tarjeta
+CON_PERSONA = {'Familia', 'Empleado', 'Comida de empleado'}   # 'Comida de empleado' = regalada (no se descuenta); 'Empleado' = se descuenta de nómina   # estos motivos piden de quién fue la comida
 
 
 def log(msg):
@@ -1800,7 +1801,7 @@ class Monitor:
             ped = self.pedidos()
             for a in out:
                 p_ = ped.get(a['archivo'])
-                if p_: a['canal'] = {k: p_.get(k, '') for k in ('canal', 'pedido', 'pago', 'desc', 'cobrado')}
+                if p_: a['canal'] = {k: p_.get(k, '') for k in ('canal', 'pedido', 'pago', 'desc', 'cobrado', 'nombre', 'completo', 'emp')}
         except Exception: pass
         return sorted(out, key=lambda a: (a['fecha'], a['abrio']))
 
@@ -1871,7 +1872,8 @@ class Monitor:
                                  'mesero': foto['mesero'], 'pers': foto['pers'], 'arts': foto['arts'], 'total': foto['total'],
                                  'llevar': foto['llevar'], 'items': [{'n': i['n'], 'q': i['q'], 'imp': i['imp']} for i in foto['items']],
                                  'motivo': motivo, 'persona': persona, 'nota': nota, 'respaldo': os.path.basename(bdir),
-                                 **({'liq': liq_g} if liq_g is not None else {}), **({'pedido': ped['pedido']} if ped.get('pedido') else {})})
+                                 **({'liq': liq_g} if liq_g is not None else {}), **({'pedido': ped['pedido']} if ped.get('pedido') else {}), 'archivo': archivo,
+                                 **({'ce': {k: ped.get(k) for k in ('emp', 'completo', 'segunda', 'autoriza')}} if ped.get('canal') == 'empleado' else {})})
         except Exception as e:
             log('La cuenta se quitó pero no pude anotarla en la bitácora: ' + str(e))
         self.refresh()
@@ -2170,6 +2172,83 @@ class Monitor:
 
     # ------------------------------------------------ comandero (meseros con clave de 4 números)
     # Lee de MrTienda menú, precios, variantes y cuentas abiertas; envía pedidos solo si Jorge lo enciende.
+    # ------------------------------------------------ 30.7.55: comida de empleados desde el comandero
+    def comidas_emp(self):
+        try:
+            with open(COMIDAS_EMP_FILE, encoding='utf-8') as f: c = json.load(f)
+            return c if isinstance(c, list) else []
+        except (OSError, ValueError): return []
+
+    def _anotar_comida_emp(self, reg):
+        with self.q_lock:
+            c = self.comidas_emp(); c.append(reg); c = c[-3000:]
+            tmp = COMIDAS_EMP_FILE + '.tmp'
+            with open(tmp, 'w', encoding='utf-8') as f: json.dump(c, f, ensure_ascii=False, indent=1)
+            os.replace(tmp, COMIDAS_EMP_FILE)
+
+    def _firma_ok(self, e, pin):
+        """La clave con que firma su comida: la suya de Personal o, si es mesero, la del comandero."""
+        pin = re.sub(r'\D', '', str(pin or ''))
+        if not pin: return False
+        if isinstance(e.get('firma'), dict) and verifica_pin(e['firma'], pin): return True
+        cod = str(e.get('cod_mt') or '').strip()
+        return bool(cod) and any(m.get('activo') and str(m.get('cod') or '').strip() == cod and verifica_pin(m, pin) for m in self.meseros())
+
+    def _tiene_firma(self, e):
+        cod = str(e.get('cod_mt') or '').strip()
+        return bool((e.get('firma') or {}).get('sal')) or (bool(cod) and any(m.get('activo') and str(m.get('cod') or '').strip() == cod for m in self.meseros()))
+
+    def empleados_ce(self):
+        """Lo que ve el comandero: empleados activos con sobrenombre y puesto (sin claves)."""
+        out = []
+        for e in self.rh().get('empleados', []):
+            if not e.get('activo') or not e.get('nombre'): continue
+            nom = re.sub(r'\s+', ' ', e['nombre']).strip().title()
+            out.append({'id': e['id'], 'nombre': nom, 'apodo': str(e.get('apodo') or '').strip(), 'puesto': e.get('puesto') or 'Otro', 'firma': self._tiene_firma(e)})
+        return sorted(out, key=lambda x: (x['puesto'], x['apodo'] or x['nombre']))
+
+    def ce_validar(self, d, ahora=None):
+        """Revisa que el empleado pueda pedir su comida: firma con su clave, trabaja hoy y no ha comido (o lo autoriza la encargada)."""
+        ahora = ahora or datetime.datetime.now(); rh = self.rh()
+        e = next((x for x in rh.get('empleados', []) if x.get('id') == d.get('emp') and x.get('activo')), None)
+        if not e: raise ValueError('Elige al empleado de la lista.')
+        nom = re.sub(r'\s+', ' ', e['nombre']).strip().title(); corto = str(e.get('apodo') or '').strip() or nom.split(' ')[0]
+        if not self._tiene_firma(e): raise ValueError(corto + ' todavía no tiene clave para firmar su comida. Jorge se la pone en Personal.')
+        k = 'ce:' + e['id']; f = FALLOS.get(k, [0, 0])
+        if f[1] > time.time(): raise ValueError('Demasiados intentos con la clave de ' + corto + '. Espera 5 minutos.')
+        if not self._firma_ok(e, d.get('firma')):
+            f[0] += 1
+            if f[0] >= 5: f = [0, time.time() + 300]
+            FALLOS[k] = f
+            raise ValueError('Clave incorrecta. ' + corto + ' debe poner SU clave.')
+        FALLOS.pop(k, None)
+        if self.cfg.get('comida_emp_rol', True):
+            c_, _ = rh_dia(rh, e, ahora.date())
+            if c_ != 'T':
+                txt = {'D': 'descansa', 'F': 'tiene falta', 'V': 'está de vacaciones', 'I': 'está de incapacidad'}.get(c_, 'no trabaja')
+                raise ValueError('Según el rol, hoy ' + corto + ' ' + txt + '. La comida de empleados es solo para quien trabaja.')
+        hoy = ahora.date().isoformat()
+        ya = [c for c in self.comidas_emp() if c.get('emp') == e['id'] and c.get('fecha') == hoy]
+        autoriza = ''
+        if ya and self.cfg.get('comida_emp_una', True):
+            if not str(d.get('autoriza') or '').strip():
+                return {'ok': False, 'autorizar': True, 'error': corto + ' ya comió hoy a las ' + ya[-1].get('hora', '') + '. Para otra comida, la encargada pone su clave.'}
+            enc = [x for x in rh.get('empleados', []) if x.get('activo') and x.get('puesto') == 'Encargada' and x.get('id') != e['id']]
+            a = next((x for x in enc if self._firma_ok(x, d.get('autoriza'))), None)
+            if not a: raise ValueError('Esa clave no es de una encargada.')
+            autoriza = str(a.get('apodo') or '').strip() or a['nombre'].title().split(' ')[0]
+        return {'ok': True, 'emp': {'id': e['id'], 'nombre': nom, 'corto': corto}, 'segunda': bool(ya), 'autoriza': autoriza}
+
+    def comida_emp_accion(self, d):
+        if d.get('accion') == 'tope':
+            v = self._monto(d.get('monto'), 'Monto')
+            if v is None: self.cfg.pop('comida_emp_tope', None)
+            else: self.cfg['comida_emp_tope'] = v
+            with open(CONFIG_FILE, 'w', encoding='utf-8') as fh: json.dump(self.cfg, fh, ensure_ascii=False, indent=2)
+        else: raise ValueError('Acción no válida.')
+        self.refresh()
+        return {'ok': True}
+
     def meseros(self):
         try:
             with open(MESEROS_FILE, encoding='utf-8') as f: c = json.load(f)
@@ -2688,7 +2767,7 @@ class Monitor:
         for a in self.abiertas():
             out.append({'archivo': a['archivo'], 'ref': a['ref'], 'abrio': a['abrio'], 'fecha': a['fecha'], 'mesero': a['mesero'], 'cod': a['cod'],
                         'llevar': a['llevar'], 'pers': a['pers'], 'total': a['total'],
-                        'canal': {k: v for k, v in (ped.get(a['archivo']) or {}).items() if k in ('canal', 'pedido', 'pago', 'nombre', 'desc', 'cobrado')}, 'cortes': a.get('cortes', 0),
+                        'canal': {k: v for k, v in (ped.get(a['archivo']) or {}).items() if k in ('canal', 'pedido', 'pago', 'nombre', 'desc', 'cobrado', 'completo')}, 'cortes': a.get('cortes', 0),
                         'cte': a.get('cte', ''), 'des_cte': a.get('des_cte', ''), 'factura': (ped.get(a['archivo']) or {}).get('factura', ''),
                         'items': [{'n': _dbf_txt(i['n']), 'q': i['q'], 'imp': i['imp'], 'det': _dbf_txt(i.get('det', '')), 'h': i['h'], 'llevar': i['llevar']} for i in a['items']]})
         return out
@@ -2784,7 +2863,12 @@ class Monitor:
             c_ = str(d['canal']).lower()
             if c_ not in CANALES: raise ValueError('Tipo de pedido no válido.')
             canal = {'canal': c_, 'fecha': ahora.isoformat(timespec='seconds'), 'mesero': mesero['cod']}
-            if c_ in ('didi', 'uber'):
+            if c_ == 'empleado':
+                v_ = self.ce_validar(d, ahora)
+                if not v_.get('ok'): raise ValueError(v_['error'])
+                canal.update({'emp': v_['emp']['id'], 'nombre': v_['emp']['corto'], 'completo': v_['emp']['nombre'], 'segunda': v_['segunda'], 'autoriza': v_['autoriza'],
+                              'ref': ('CE ' + _sin_acentos(v_['emp']['corto']).upper())[:10]})
+            elif c_ in ('didi', 'uber'):
                 ped = re.sub(r'[^0-9A-Za-z]', '', str(d.get('pedido') or ''))[:12].upper()   # clave completa (hasta 12); en MrTienda va solo el final
                 if not ped: raise ValueError('Escribe la clave del pedido de ' + c_.title() + '.')
                 dsc = self._monto(d.get('desc'), 'Descuentos')
@@ -2829,7 +2913,7 @@ class Monitor:
                 else:
                     ref = re.sub(r'\s+', ' ', str(d.get('nombre') or '')).strip().upper()[:10]
                     if not ref: raise ValueError('Escribe para quién es el pedido.')
-                res = _abrir_cuenta(com, pend, folios, ref, mesero['cod'], nombre, '02' if (d.get('llevar') or canal) else '01', ren, self._tc(), ahora,
+                res = _abrir_cuenta(com, pend, folios, ref, mesero['cod'], nombre, '02' if (d.get('llevar') or (canal and canal['canal'] != 'empleado')) else '01', ren, self._tc(), ahora,
                                    pers=int(d.get('pers') or 1) if str(d.get('pers') or '1').isdigit() else 1)
             with self.rows_lock:
                 self.cache = {k: v for k, v in self.cache.items() if not k[0].upper().startswith(com.upper())}
@@ -2837,6 +2921,13 @@ class Monitor:
         if canal:
             try: self._guardar_pedido(res['archivo'], {k: v for k, v in canal.items() if k != 'ref'})
             except Exception as e: log('No pude guardar el canal del pedido: ' + str(e))
+            if canal['canal'] == 'empleado':
+                try:
+                    self._anotar_comida_emp({'id': secrets.token_hex(4), 'archivo': res['archivo'], 'emp': canal['emp'], 'nombre': canal['completo'], 'corto': canal['nombre'],
+                                             'fecha': ahora.date().isoformat(), 'hora': ahora.strftime('%H:%M'), 'mesero': mesero['nombre'],
+                                             'segunda': canal['segunda'], 'autoriza': canal['autoriza']})
+                    log(f"COMIDA DE EMPLEADO: {canal['completo']} ({res['archivo']}), firmó con su clave{', 2a comida autorizada por ' + canal['autoriza'] if canal['autoriza'] else ''}")
+                except Exception as e: log('No pude anotar la comida del empleado: ' + str(e))
         if d.get('factura') in ('si', 'no'):   # respuesta a "¿Va a necesitar factura?" al mandar la cuenta nueva (30.7.13)
             try: self.factura_resp(res['archivo'], d['factura'])
             except Exception as e: log('No pude guardar si lleva factura: ' + str(e))
@@ -3120,6 +3211,10 @@ class Monitor:
                                 'tipo': txt((e.get('contrato') or {}).get('tipo'), 30), 'fecha': fecha((e.get('contrato') or {}).get('fecha')),
                                 'nota': txt((e.get('contrato') or {}).get('nota'), 200)},
                    'notas': txt(e.get('notas'), 500)}
+            fpin = re.sub(r'\D', '', str(e.get('firma_nueva') or ''))
+            if e.get('firma_nueva') not in (None, '') and len(fpin) != 4: raise ValueError('La clave para firmar la comida es de 4 números.')
+            if fpin: sal_ = secrets.token_hex(8); reg['firma'] = {'sal': sal_, 'huella': huella_pin(sal_, fpin), 'clave': fpin, 'desde': datetime.date.today().isoformat()}
+            elif e.get('firma_quitar'): reg['firma'] = {}
             x = next((x for x in d['empleados'] if x['id'] == e.get('id')), None) if e.get('id') else None
             if x: x.update(reg)   # 'archivos' (contratos subidos) no se toca aquí
             else: reg.update({'id': secrets.token_hex(4), 'activo': True, 'alta': datetime.datetime.now().isoformat(timespec='seconds')}); d['empleados'].append(reg)
@@ -3442,13 +3537,13 @@ class Monitor:
             conocidos = self.familia() + self.empleados() + [r.get('persona') for r in self.quitadas() if r.get('persona')]
             persona = next((x for x in conocidos if x and x.lower() == persona.lower()), persona if persona != persona.lower() else persona.title())
         if motivo == 'Familia' and persona: self._alta_familia(persona)
-        nom = self.empleados_nomina() if motivo == 'Empleado' else {}
+        nom = self.empleados_nomina() if motivo in ('Empleado', 'Comida de empleado') else {}
         if nom and persona:   # con nómina: el nombre tiene que ser uno de los de Personal (sin importar mayúsculas ni acentos)
             k = _sin_acentos(persona.lower())
             ap = self.empleados_apodo()
             persona = next((n for n in nom if _sin_acentos(n.lower()) == k), None) or next((n for n, a in ap.items() if _sin_acentos(a.lower()) == k), None)
             if not persona: raise ValueError('Ese nombre no está en la nómina. Tócalo en la lista; si es alguien nuevo, dalo de alta primero en Personal.')
-        elif motivo == 'Empleado' and persona and persona not in self.empleados():
+        elif motivo in ('Empleado', 'Comida de empleado') and persona and persona not in self.empleados():
             self.cfg['empleados_extra'] = (self.cfg.get('empleados_extra') or []) + [persona]
             with open(CONFIG_FILE, 'w', encoding='utf-8') as fh: json.dump(self.cfg, fh, ensure_ascii=False, indent=2)
         return persona if motivo in CON_PERSONA or motivo == 'Cortesía' else ''
@@ -3539,6 +3634,8 @@ class Monitor:
         out['modulos'] = modulos(self.cfg); out['actualiza'] = self.cfg.get('actualizar_solo', True) is not False
         out['plataformas'] = {'config': self.plat_cfg(), 'pagos': self.plat_pagos()}; out['familia'] = self.familia()
         out['empleados'] = self.empleados(); out['empleados_puesto'] = self.empleados_nomina(); out['empleados_apodo'] = self.empleados_apodo()
+        desde_ce = (datetime.date.today() - datetime.timedelta(days=400)).isoformat()
+        out['comidas_emp'] = [c for c in self.comidas_emp() if c.get('fecha', '') >= desde_ce]; out['comida_emp_tope'] = self.cfg.get('comida_emp_tope')
         out['gastos'] = self.gastos(); out['categorias_gasto'] = CATEGORIAS_GASTO
         out['cajeros'] = [{'id': x['id'], 'nombre': x['nombre'], 'activo': x.get('activo', True), 'alta': x.get('alta', '')} for x in self.cajeros()]
         try: ligados = {str(e.get('cod_mt') or '').strip() for e in self.rh()['empleados'] if e.get('cod_mt')}
@@ -3784,7 +3881,7 @@ def make_handler(mon, cfg):
                     if not isinstance(e, (ValueError, PermissionError, RuntimeError)): log('Rol de descansos: ' + traceback.format_exc())
                     body = json.dumps({'ok': False, 'error': str(e), 'sesion': not isinstance(e, PermissionError)}, ensure_ascii=False).encode('utf-8')
                     self.send_response(409); self.send_header('Content-Type', 'application/json; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
-            if self.path in ('/api/comandero/cliente-aplicar', '/api/comandero/leer-constancia', '/api/comandero/cliente-nuevo', '/api/comandero/factura-resp', '/api/comandero/leer-recibo'):   # factura (30.7.12)
+            if self.path in ('/api/comandero/cliente-aplicar', '/api/comandero/leer-constancia', '/api/comandero/cliente-nuevo', '/api/comandero/factura-resp', '/api/comandero/leer-recibo', '/api/comandero/ce-validar'):   # factura (30.7.12); comida de empleados (30.7.55)
                 m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'), self.client_address[0])
                 try:
                     if m_ and m_.get('bloqueo'): raise PermissionError(m_['bloqueo'])
@@ -3795,6 +3892,7 @@ def make_handler(mon, cfg):
                     if self.path.endswith('aplicar'): out = mon.cliente_aplicar(m_, d)
                     elif self.path.endswith('constancia'): out = mon.leer_constancia(str(d.get('foto') or ''))
                     elif self.path.endswith('leer-recibo'): out = mon.leer_recibo_plat(str(d.get('foto') or ''))
+                    elif self.path.endswith('ce-validar'): out = mon.ce_validar(d)
                     elif self.path.endswith('factura-resp'):
                         if not any(a['archivo'] == str(d.get('k') or '') and a['cod'] == m_['cod'] for a in mon.abiertas()): raise RuntimeError('Esa cuenta ya no está abierta o es de otro mesero.')
                         out = mon.factura_resp(str(d.get('k')), d.get('factura'))
@@ -3849,7 +3947,7 @@ def make_handler(mon, cfg):
                 except Exception as e:
                     log('Exportar nómina: ' + traceback.format_exc())
                     return self._json({'ok': False, 'error': 'No pude armar el archivo: ' + str(e)}, 409)
-            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/log-cliente', '/api/clientes-nuevos', '/api/plano', '/api/leer-recibo', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia', '/api/github', '/api/plataformas'): self.send_response(404); self.end_headers(); return
+            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/log-cliente', '/api/clientes-nuevos', '/api/plano', '/api/leer-recibo', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia', '/api/github', '/api/plataformas', '/api/comida-emp'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return
             try:
@@ -3916,6 +4014,7 @@ def make_handler(mon, cfg):
                 elif self.path == '/api/gastos': out=mon.gasto_accion(d)
                 elif self.path == '/api/quitada-motivo': out=mon.cambiar_motivo(d.get('id'),d.get('motivo'),d.get('nota'),d.get('persona'),d.get('liq'))
                 elif self.path == '/api/plataformas': out=mon.plataformas_accion(d)
+                elif self.path == '/api/comida-emp': out=mon.comida_emp_accion(d)
                 elif self.path == '/api/familia': out=mon.familia_accion(d)
                 else: out=mon.eliminar_abierta(d.get('archivo'),d.get('referencia'),d.get('motivo') or 'Sin clasificar',d.get('nota'),d.get('persona'),d.get('liq'))
                 body=json.dumps(out,ensure_ascii=False).encode('utf-8')
@@ -4014,7 +4113,7 @@ def make_handler(mon, cfg):
                     body = json.dumps({'ok': False, 'sesion': False, 'error': m_['bloqueo'] if m_ else 'Tu sesión terminó. Vuelve a entrar con tu clave.' if ip_del_restaurante(self.client_address[0]) else FUERA_WIFI}, ensure_ascii=False).encode('utf-8')
                     self.send_response(401); self.send_header('Content-Type', 'application/json'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
                 try:
-                    out = {'ok': True, 'mesero': m_, 'cuentas': mon.cuentas_comandero(), 'hora': datetime.datetime.now().strftime('%H:%M'), 'escribe': bool(mon.cfg.get('comandero_escribe')), 'plataformas': mon.plat_cfg()}
+                    out = {'ok': True, 'mesero': m_, 'cuentas': mon.cuentas_comandero(), 'hora': datetime.datetime.now().strftime('%H:%M'), 'escribe': bool(mon.cfg.get('comandero_escribe')), 'plataformas': mon.plat_cfg(), 'empleados_ce': mon.empleados_ce() if mon.cfg.get('comida_emp', True) else []}
                     if 'menu=1' in self.path: out['menu'] = mon.menu_comandero()
                     out['plano'] = mon.plano_actual()
                     body = json.dumps(out, ensure_ascii=False, separators=(',', ':')).encode('utf-8')

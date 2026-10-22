@@ -100,6 +100,7 @@ button:focus-visible{outline:2px solid var(--green-2);outline-offset:2px}
 .k-llevar{border-color:#5aa9e6!important}.k-llevar b,.opciones .k-llevar span{color:#2f8fd8!important}
 .k-dom{border-color:#5fb880!important}.k-dom b,.opciones .k-dom span{color:#2e9b5c!important}
 .k-didi{border-color:#f26a1b!important}.k-didi b,.k-didi span,.opciones .k-didi span{color:#f26a1b!important}
+.k-emp{border-color:#8b5cf6!important}.k-emp b,.k-emp span,.opciones .k-emp span{color:#6d28d9!important}
 .k-uber{border-color:#06934a!important}.k-uber b,.k-uber span,.opciones .k-uber span{color:#06934a!important}
 .mesa.c1{border:2px solid #e0a800!important;background:#fff7d6!important}
 .mesa.c2{border:2px solid #c62828!important;background:#fde4e2!important}
@@ -295,7 +296,7 @@ async function cargar(conMenu){
   const j=await r.json().catch(()=>({ok:false,error:'Sin respuesta de la caja'}));
   if(j.sesion===false){salir(j.error);throw new Error(j.error)}
   if(!j.ok)throw new Error(j.error||'No pude leer MrTienda');
-  S.user=j.mesero;CUENTAS=j.cuentas||[];ESCRIBE=!!j.escribe;PLAT=j.plataformas||PLAT;if(j.menu)M=j.menu;usaPlano(j.plano);S.falla='';
+  S.user=j.mesero;CUENTAS=j.cuentas||[];EMPS=j.empleados_ce||[];ESCRIBE=!!j.escribe;PLAT=j.plataformas||PLAT;if(j.menu)M=j.menu;usaPlano(j.plano);S.falla='';
 }
 async function entrar(pin){
   try{
@@ -489,7 +490,8 @@ function grupos(){
   if(resto.length)G.push({n:'Otros',c:'#5d6e62',list:resto});
   return G;
 }
-const CANAL_TXT={recoger:'Para llevar',domicilio:'Domicilio',didi:'Didi',uber:'Uber'};
+const CANAL_TXT={recoger:'Para llevar',domicilio:'Domicilio',didi:'Didi',uber:'Uber',empleado:'Comida empleado'};
+let EMPS=[];   // 30.7.55: empleados de la nómina para la comida de empleados (sin claves)
 let PLAT={};   // 30.7.47: % de comisión de Didi y Uber (lo pone Jorge en el panel)
 function platCalc(p,cobrado,desc){   // 30.7.49: como el estado de cuenta de Didi: cobrado con IVA 8% → base; comisión 30% + IVA; retenciones ISR e IVA; menos lo que absorbes
   const c=Object.assign({pct:30,iva_com:8,iva_venta:8,ret_isr:2.5,ret_iva:8},PLAT[p]||{}),r=x=>Math.round(x*100)/100;
@@ -501,8 +503,8 @@ function platPaga(k,total){
   if(x.neto==null)return `<p class="empty" style="margin-top:6px">${p}: la comisión la pone Jorge en el panel.</p>`;
   return `<div class="total num" style="font-size:15px;opacity:.9"><span>Te queda de ${p} <small style="font-weight:500">(${cob!=null?'recibo '+money(cob):'sin recibo: precio de menú'} − comisión e IVA ${money(x.com+x.ivc)} − retenciones ${money(x.ri+x.rv)} − otros ${money(d)})</small></span><span>${money(x.neto)}</span></div>`}
 function hojaNueva(){
-  const ops=[['comedor','Comedor','Elige la mesa'],['recoger','Para llevar','Recoge aquí'],['domicilio','Servicio a domicilio','Busca al cliente'],['didi','Didi','Clave y forma de pago'],['uber','Uber','Clave del pedido']];
-  $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Nueva cuenta</h2><div class="opciones">${ops.map(([c,t,d])=>`<button class="k ${({comedor:'k-comedor',recoger:'k-llevar',domicilio:'k-dom',didi:'k-didi',uber:'k-uber'})[c]}" data-nueva="${c}"><span>${t}</span><small>${d}</small></button>`).join('')}</div></div></div>`;
+  const ops=[['comedor','Comedor','Elige la mesa'],['recoger','Para llevar','Recoge aquí'],['domicilio','Servicio a domicilio','Busca al cliente'],['didi','Didi','Clave y forma de pago'],['uber','Uber','Clave del pedido']].concat(EMPS.length?[['empleado','Comida de empleados','Firma con su clave']]:[]);
+  $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Nueva cuenta</h2><div class="opciones">${ops.map(([c,t,d])=>`<button class="k ${({comedor:'k-comedor',recoger:'k-llevar',domicilio:'k-dom',didi:'k-didi',uber:'k-uber',empleado:'k-emp'})[c]}" data-nueva="${c}"><span>${t}</span><small>${d}</small></button>`).join('')}</div></div></div>`;
 }
 function hojaPersonas(m){
   $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Mesa ${esc(mesaTxt(m))} · ¿cuántas personas?</h2><div class="mesas">${[1,2,3,4,5,6,7,8,9,10,12,15].map(n=>`<button class="mesa" data-mesa="${esc(m)}" data-pers="${n}"><b>${n}</b><span>${n===1?'persona':'personas'}</span></button>`).join('')}</div></div></div>`;
@@ -514,7 +516,37 @@ function hojaMesas(){
 const nuevoLlevar=()=>[['recoger','+ Llevar','Recoge aquí'],['domicilio','+ Domicilio','A su casa'],['didi','+ Didi','Pedido Didi'],['uber','+ Uber','Pedido Uber']]
   .map(([c,b,t])=>`<button class="mesa llevar" data-canal="${c}"><b>${b}</b><span>${t}</span></button>`).join('');
 const canalDe=c=>c&&c.canal&&c.canal.canal?c.canal:null;
-const canalTxt=k=>{const x=k&&(k.canal?k:null);if(!x)return '';return x.canal==='didi'?'Didi · '+x.pedido+' · '+(x.pago==='efectivo'?'Efectivo':'Tarjeta'):x.canal==='uber'?'Uber · '+x.pedido:CANAL_TXT[x.canal]+' · '+(x.nombre||'')};
+const canalTxt=k=>{const x=k&&(k.canal?k:null);if(!x)return '';return x.canal==='didi'?'Didi · '+x.pedido+' · '+(x.pago==='efectivo'?'Efectivo':'Tarjeta'):x.canal==='uber'?'Uber · '+x.pedido:x.canal==='empleado'?'Comida de '+(x.nombre||'empleado'):CANAL_TXT[x.canal]+' · '+(x.nombre||'')};
+// 30.7.55: comida de empleados — se elige al empleado de la nómina y él firma con SU clave
+function hojaEmpleado(){
+  const G={};EMPS.forEach(e=>(G[e.puesto]=G[e.puesto]||[]).push(e));
+  $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Comida de empleados · ¿para quién?</h2>
+    ${Object.keys(G).sort().map(p=>`<div class="section" style="margin:12px 0 6px">${esc(p)}</div><div class="opciones">${G[p].map(e=>`<button class="k k-emp" data-ceemp="${esc(e.id)}" ${e.firma?'':'disabled style="opacity:.5"'}><span>${esc(e.apodo||e.nombre.split(' ')[0])}</span><small>${esc(e.nombre)}${e.firma?'':' · sin clave'}</small></button>`).join('')}</div>`).join('')}
+    <p class="empty" style="margin-top:10px">Si alguien sale "sin clave", Jorge se la pone en Personal.</p></div></div>`;
+  $('#sheet .sheet').addEventListener('click',ev=>{const b=ev.target.closest('[data-ceemp]');if(b&&!b.disabled)hojaFirma(EMPS.find(e=>e.id===b.dataset.ceemp))});
+}
+function hojaFirma(e){
+  if(!e)return;const corto=e.apodo||e.nombre.split(' ')[0];let pideAut=false;
+  $('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><form class="sheet" id="fce"><h2>Comida de ${esc(corto)}</h2><p class="empty" style="margin-top:-4px">${esc(e.nombre)}</p>
+    <label for="ceP" style="font-weight:600;font-size:18px">${esc(corto)}, escribe TU clave para firmar</label>
+    <input id="ceP" class="search" type="password" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="••••" style="margin-top:4px;font-size:22px;letter-spacing:.4em;text-align:center">
+    <div id="ceAut" hidden><label for="ceA" style="font-weight:600">Clave de la encargada para autorizar</label><input id="ceA" class="search" type="password" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="••••" style="margin-top:4px;font-size:22px;letter-spacing:.4em;text-align:center"></div>
+    <p id="ceErr" class="err2" hidden></p><button class="big" type="submit">Firmar y continuar</button>
+    <button type="button" class="chipbtn" style="width:100%;margin-top:8px" data-act="cerrar">Cancelar</button></form></div>`;
+  setTimeout(()=>$('#ceP').focus(),50);
+  $('#fce').onsubmit=async ev=>{ev.preventDefault();const err=m=>{const x=$('#ceErr');x.textContent=m;x.hidden=false};
+    const firma=$('#ceP').value.replace(/\D/g,''),autoriza=pideAut?$('#ceA').value.replace(/\D/g,''):'';
+    if(firma.length!==4)return err('La clave es de 4 números.');if(pideAut&&autoriza.length!==4)return err('Falta la clave de la encargada.');
+    const bt=$('#fce button[type=submit]');bt.disabled=true;bt.textContent='Revisando…';
+    try{const r=await fetch('/api/comandero/ce-validar',{method:'POST',headers:{'Content-Type':'application/json','X-Mesero-Token':S.tok||''},body:JSON.stringify({emp:e.id,firma,autoriza})});
+      const j=await r.json().catch(()=>({ok:false,error:'Sin respuesta de la caja'}));
+      if(j.sesion===false)return salir(j.error);
+      if(j.autorizar){pideAut=true;$('#ceAut').hidden=false;err(j.error);setTimeout(()=>$('#ceA').focus(),50);return}
+      if(!j.ok)return err(j.error||'No se pudo.');
+      const sel={llevar:false,canal:{canal:'empleado',emp:e.id,firma,autoriza,nombre:j.emp.corto,completo:j.emp.nombre}};sel.nombre='CE '+j.emp.corto;
+      $('#sheet').innerHTML='';abrir(sel);
+    }catch(x){err('No hay conexión con la caja.')}finally{if(bt.isConnected){bt.disabled=false;bt.textContent='Firmar y continuar'}}};
+}
 function hojaCanal(c){
   const campo=(id,lbl,ph,extra)=>`<label for="${id}" style="font-weight:600">${lbl}</label><input id="${id}" class="search" style="margin-top:0" autocomplete="off" placeholder="${ph}" ${extra||''}>`;
   let body='';
@@ -538,7 +570,7 @@ function hojaCanal(c){
 }
 // ---- factura: buscar al cliente en MrTienda o capturarlo (foto de la constancia o a mano), revisar y aplicar a la cuenta (30.7.12)
 // barra de factura en la cuenta: a nombre de (azul) · necesita factura (naranja parpadeando) · no necesita (gris, chiquito) · sin preguntar
-const sinFactura=c=>{const k=c&&canalDe(c);return k&&['didi','uber'].includes(k.canal)};
+const sinFactura=c=>{const k=c&&canalDe(c);return k&&['didi','uber','empleado'].includes(k.canal)};
 const conCliente=c=>c&&c.cte&&c.cte!=='007482';
 function factBar(c){if(!c||sinFactura(c))return '';
   if(conCliente(c))return `<button class="factbar si" data-act="factura">🧾 Factura a nombre de <b>${esc(c.des_cte||c.cte)}</b><small>Cambiar</small></button>`;
@@ -658,7 +690,7 @@ async function buscarCte(){
   }catch(e){out.innerHTML=`<p class="err2" style="margin:0">${esc(e.message)}</p>`}
 }
 function tile(c){
-  const n=numMesa(c.ref), m=mia(c), kc=canalDe(c), cls=(S.filtro==='todas'&&!m?'other':'')+' k '+(n?'k-comedor':kc?{recoger:'k-llevar',domicilio:'k-dom',didi:'k-didi',uber:'k-uber'}[kc.canal]:c.llevar?'k-llevar':'k-comedor');
+  const n=numMesa(c.ref), m=mia(c), kc=canalDe(c), cls=(S.filtro==='todas'&&!m?'other':'')+' k '+(n?'k-comedor':kc?{recoger:'k-llevar',domicilio:'k-dom',didi:'k-didi',uber:'k-uber',empleado:'k-emp'}[kc.canal]:c.llevar?'k-llevar':'k-comedor');
   const ct=c.cortes||0;
   return `<button class="mesa ${cls} ${ct>=2?'c2':ct===1?'c1':''}" data-k="${esc(c.archivo)}">${ct>=2?`<span class="ctag">Hace ${ct} cortes</span>`:ct===1?'<span class="ctag">Corte anterior</span>':''}<b>${esc(n?mesaTxt(n):(canalDe(c)&&canalDe(c).nombre?canalDe(c).nombre:(c.ref||'Sin nombre')))}</b>${n?'':`<span>${canalDe(c)?esc(canalDe(c).canal==='didi'?'Didi · '+(canalDe(c).pago==='efectivo'?'Efectivo':'Tarjeta'):CANAL_TXT[canalDe(c).canal]):(c.llevar?'Para llevar':'Cuenta')}</span>`}<span>${esc(c.mesero)} · ${esc(c.abrio)}</span>${c.factura==='si'&&!conCliente(c)?'<span style="color:#c25a00;font-weight:700"><i class="foco"></i>Factura</span>':''}<span class="t num">${money(c.total)}</span></button>`;
 }
@@ -762,7 +794,7 @@ document.addEventListener('click',e=>{
   if(d.libre1){return hojaPersonas(d.libre1)}
   if(d.mapalibre&&S.view==='mesas'){const id=d.mapalibre;return conClave('Escribe tu clave para abrir la mesa '+id,()=>elegirMesa(id))}
   if(d.pers){$('#sheet').innerHTML='';return abrir({mesa:d.mesa,pers:+d.pers})}
-  if(d.nueva){return d.nueva==='comedor'?hojaMesas():hojaCanal(d.nueva)}
+  if(d.nueva){return d.nueva==='comedor'?hojaMesas():d.nueva==='empleado'?hojaEmpleado():hojaCanal(d.nueva)}
   if(d.canal&&S.view==='mesas'){return hojaCanal(d.canal)}
   if(d.modo){S.modo=d.modo;return render()}
   if(d.im){cur.modo=d.im;return drawSheet()}
@@ -797,7 +829,7 @@ document.addEventListener('click',e=>{
   if(a==='cuenta'){S.view='cuenta';return render()}
   if(a==='enviar'){
     if(!ESCRIBE){$('#sheet').innerHTML=`<div class="veil" data-act="cerrar"><div class="sheet"><h2>Todavía no se envía</h2><p style="margin:0">El envío a MrTienda está apagado. El pedido se tiene que capturar en la caja.</p><p style="margin:0" class="empty">Tus platillos siguen en la cuenta como "Nuevo" para que los captures.</p><button class="big" data-act="cerrar">Entendido</button></div></div>`;return}
-    if(!S.sel.k&&S.draft.length&&!S.sel.factura&&!(S.sel.canal&&['didi','uber'].includes(S.sel.canal.canal)))
+    if(!S.sel.k&&S.draft.length&&!S.sel.factura&&!(S.sel.canal&&['didi','uber','empleado'].includes(S.sel.canal.canal)))
       return preguntaFactura(r=>{S.sel.factura=r;enviar(t)});
     return enviar(t)}
 });

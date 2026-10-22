@@ -317,8 +317,8 @@ const nomT=t=>t==='1'?'Mañana':t==='2'?'Tarde':'Turno '+t;
 const ORD=['Efectivo','Efectivo (dólares)','Tarjeta crédito','Tarjeta débito','Tarjeta crédito/débito','Transferencia'];
 const ordF=o=>Object.entries(o).sort((a,b)=>{const i=ORD.indexOf(a[0]),j=ORD.indexOf(b[0]);return (i<0?99:i)-(j<0?99:j)});
 const dur=m=>m==null?'':m<60?m+' min':Math.floor(m/60)+' h '+String(m%60).padStart(2,'0')+' min';
-const MOTIVOS_INFO={'Familia':'Comida de la familia','Empleado':'Se descuenta de nómina','Cortesía':'Cupón o regalo a cliente','Didi · efectivo':'Pedido Didi pagado en efectivo','Didi · tarjeta':'Pedido Didi pagado con tarjeta','Uber · efectivo':'Pedido Uber en efectivo','Uber · tarjeta':'Pedido Uber con tarjeta','Error de captura':'Se capturó por error','Otro':'Otro motivo','Sin clasificar':'Sin motivo todavía'};
-const pillMot=m=>`<span class="pill ${m==='Familia'||m==='Empleado'||m==='Cortesía'?'gold':m.startsWith('Didi')||m.startsWith('Uber')?'good':m==='Error de captura'?'warn':'mut'}">${esc(m)}</span>`;
+const MOTIVOS_INFO={'Familia':'Comida de la familia','Empleado':'Se descuenta de nómina','Comida de empleado':'Regalada · no se descuenta','Cortesía':'Cupón o regalo a cliente','Didi · efectivo':'Pedido Didi pagado en efectivo','Didi · tarjeta':'Pedido Didi pagado con tarjeta','Uber · efectivo':'Pedido Uber en efectivo','Uber · tarjeta':'Pedido Uber con tarjeta','Error de captura':'Se capturó por error','Otro':'Otro motivo','Sin clasificar':'Sin motivo todavía'};
+const pillMot=m=>`<span class="pill ${m==='Familia'||m==='Empleado'||m==='Comida de empleado'||m==='Cortesía'?'gold':m.startsWith('Didi')||m.startsWith('Uber')?'good':m==='Error de captura'?'warn':'mut'}">${esc(m)}</span>`;
 const st={};try{Object.assign(st,JSON.parse(localStorage.getItem('hol_v20')||'{}'))}catch(e){}
 const save=()=>{try{localStorage.setItem('hol_v20',JSON.stringify(st))}catch(e){}};
 const RHMODE=!COPIA&&location.pathname.startsWith('/personal');   // app aparte de Recursos Humanos (mismo programa, otro ícono)
@@ -569,7 +569,7 @@ function vControl(D){
 }
 
 // ---------- REPORTES
-const REPS=[['historial','Historial'],['quitadas','Cuentas quitadas'],['plataformas','Didi y Uber'],['cajeras','Cajeras'],['meseros','Meseros'],['mes','Por mes'],['calor','Horas y días'],['compara','Comparativos'],['compras','Compras'],['resultados','Resultados'],['gastos','Gastos'],['tardadas','Comandas tardadas']];
+const REPS=[['historial','Historial'],['quitadas','Cuentas quitadas'],['plataformas','Didi y Uber'],['comidaemp','Comida de empleados'],['cajeras','Cajeras'],['meseros','Meseros'],['mes','Por mes'],['calor','Horas y días'],['compara','Comparativos'],['compras','Compras'],['resultados','Resultados'],['gastos','Gastos'],['tardadas','Comandas tardadas']];
 // ---- Didi y Uber (cuentas quitadas) como opción en los reportes; la familia nunca cuenta como venta
 let incPlat=!!st.plat, RD=null;
 const esPlat=r=>/^(Didi|Uber)/.test(r.motivo||'');
@@ -592,8 +592,8 @@ function vReportes(){
   if(rDesde>rHasta){const t=rDesde;rDesde=rHasta;rHasta=t}
   RD=datosRep();
   const usaPlat=['historial','mes','calor','compara','resultados'].includes(repModo);
-  const head=segBtns('rp',REPS.filter(([k])=>(k!=='plataformas'||ON('plataformas'))&&(k!=='tardadas'||ON('comandero'))),repModo)+(usaPlat&&ON('plataformas')?`<div class="seg"><button data-plat="1" aria-pressed="${incPlat}">${incPlat?'✓ ':''}Incluir Didi y Uber</button></div>`:'');
-  const fn={historial:rHist,quitadas:rQuitadas,plataformas:rPlat,cajeras:rCajeras,meseros:rMeseros,calor:rCalor,compara:rCompara,mes:rMes,resultados:rResultados,gastos:rGastos,compras:rCompras,tardadas:rTardadas}[repModo]||rHist;
+  const head=segBtns('rp',REPS.filter(([k])=>(k!=='plataformas'||ON('plataformas'))&&(k!=='tardadas'||ON('comandero'))&&(k!=='comidaemp'||(ON('comandero')&&ON('personal')))),repModo)+(usaPlat&&ON('plataformas')?`<div class="seg"><button data-plat="1" aria-pressed="${incPlat}">${incPlat?'✓ ':''}Incluir Didi y Uber</button></div>`:'');
+  const fn={historial:rHist,quitadas:rQuitadas,plataformas:rPlat,comidaemp:rComidaEmp,cajeras:rCajeras,meseros:rMeseros,calor:rCalor,compara:rCompara,mes:rMes,resultados:rResultados,gastos:rGastos,compras:rCompras,tardadas:rTardadas}[repModo]||rHist;
   return '<section>'+head+fn()+'</section>';
 }
 const conFechas=()=>`<div class="card">${selectorFechas('r',rDesde,rHasta)}</div>`;
@@ -655,6 +655,25 @@ async function guardarPlat(t,d){
     else if(d.pborrar){if(!confirm('¿Borrar este pago?')){t.disabled=false;return}await api('/api/plataformas',{accion:'pago_borrar',id:d.pborrar});toast('Pago borrado')}
     await cargar(true);
   }catch(e){t.disabled=false;toast(e.message)}
+}
+// 30.7.55: comida de empleados — qué comió cada quien, a qué hora, quién firmó; en rojo lo que pasa del tope
+function rComidaEmp(){
+  const tope=DATA.comida_emp_tope, Q=DATA.quitadas||[], A=DATA.abiertas||[], en=f=>f>=rDesde&&f<=rHasta;
+  const filas=(DATA.comidas_emp||[]).filter(c=>en(c.fecha)).map(c=>{const q=Q.find(r=>r.archivo&&r.archivo===c.archivo),a=A.find(x=>x.archivo===c.archivo);
+    return {...c,items:(q||a||{}).items||[],total:(q||a||{}).total||0,estado:q?(q.motivo==='Comida de empleado'?'ok':'otro:'+q.motivo):a?'abierta':'nada'}});
+  const ya=new Set(filas.map(f=>f.archivo));
+  Q.filter(r=>r.motivo==='Comida de empleado'&&en(r.fecha)&&!(r.archivo&&ya.has(r.archivo))).forEach(r=>filas.push({fecha:r.fecha,hora:r.abrio||'',nombre:r.persona||'Sin nombre',corto:'',items:r.items||[],total:r.total||0,estado:'ok',manual:true}));
+  filas.sort((a,b)=>(b.fecha+b.hora).localeCompare(a.fecha+a.hora));
+  const T=filas.reduce((x,f)=>x+f.total,0), por={};filas.forEach(f=>(por[f.nombre]=por[f.nombre]||[]).push(f));
+  const ap=DATA.empleados_apodo||{}, rojo=f=>tope&&f.total>tope;
+  const det=f=>linea(`${corto(f.fecha)} · ${esc(f.hora)}${f.segunda?` <span class="pill warn">2ª comida${f.autoriza?' · autorizó '+esc(f.autoriza):''}</span>`:''}${rojo(f)?' <span class="pill bad">Pasa del tope</span>':''}${f.estado==='abierta'?' <span class="pill warn">Falta quitarla</span>':f.estado==='nada'?' <span class="pill bad">No se encontró la cuenta</span>':f.estado.startsWith('otro:')?` <span class="pill warn">Se quitó como ${esc(f.estado.slice(5))}</span>`:''}`,
+    `<span style="color:${rojo(f)?'var(--bad)':'inherit'}">${fmt2(f.total)}</span>`,(f.items.length?esc(f.items.map(i=>i.q+' '+i.n).join(', ')):'Sin platillos')+(f.mesero?' · pidió '+esc(f.mesero):'')+(f.manual?' · quitada en el panel':''));
+  return conFechas()+`<div class="kpis"><div class="kpi"><b class="num">${filas.length}</b><span>Comidas</span></div><div class="kpi"><b class="num">${fmt(T)}</b><span>A precio de menú</span></div>
+    <div class="kpi"><b class="num">${filas.length?fmt(T/filas.length):'—'}</b><span>Promedio por comida</span></div><div class="kpi"><b class="num">${Object.keys(por).length}</b><span>Empleados</span></div></div>
+  <div class="card"><h2>Por empleado <small>${corto(rDesde)} al ${corto(rHasta)}</small></h2>${filas.length?`<div class="dtab">${Object.entries(por).sort((a,b)=>b[1].length-a[1].length).map(([n,L])=>fila(`${ap[n]?'<b>'+esc(ap[n])+'</b> · ':''}${esc(n)}${L.some(rojo)?' <span class="pill bad">tope</span>':''}`,fmt2(L.reduce((x,f)=>x+f.total,0)),L.map(det).join(''),L.length)).join('')}</div>`:'<p class="empty">No hay comidas de empleados en estas fechas. Se piden desde el comandero: + Nueva cuenta → Comida de empleados.</p>'}</div>
+  ${filas.length?`<div class="card"><h2>Día por día</h2><div class="dtab">${filas.map(f=>det({...f,hora:esc(f.hora)+' · '+esc(ap[f.nombre]||f.corto||f.nombre)})).join('')}</div></div>`:''}
+  ${COPIA?'':`<div class="card"><h2>Tope por comida</h2><div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end"><div class="field" style="margin:0"><label for="ceTope">Marcar en rojo las comidas de más de</label><input id="ceTope" inputmode="decimal" placeholder="$ (en blanco = sin tope)" value="${tope!=null?tope:''}"></div><button class="btn pri" data-cetope="1">Guardar</button></div>
+    <p class="empty" style="margin-top:8px">No se descuentan de la nómina: son comidas regaladas. Para descontar una comida, al quitar la cuenta elige "Empleado" en lugar de "Comida de empleado".</p></div>`}`;
 }
 function rQuitadas(){
   const q=(DATA.quitadas||[]).filter(r=>r.fecha>=rDesde&&r.fecha<=rHasta).sort((a,b)=>(b.fecha+b.abrio).localeCompare(a.fecha+a.abrio));
@@ -1572,6 +1591,7 @@ function rhForm(e){
   return `<div class="card" id="rhForm"><h2>${e.id?'Expediente':'Nuevo empleado'} <small>${e.id&&e.alta?'alta '+rhCorta(e.alta.slice(0,10)):''}</small></h2>
     ${rhIn('rfNom','Nombre completo (como en la nómina)',e.nombre,'autocomplete="off" style="text-transform:uppercase"')}
     ${rhIn('rfApo','Sobrenombre (opcional, ej. Pepe)',e.apodo||'','autocomplete="off" maxlength="20"')}
+    ${rhIn('rfFir','Clave para firmar su comida (4 números)','',`inputmode="numeric" maxlength="4" autocomplete="off" placeholder="${e.firma&&e.firma.sal?'Ya tiene clave · escribe otra para cambiarla':e.cod_mt?'Si la dejas vacía, usa su clave del comandero':'Sin clave: no podrá pedir su comida'}"`)}
     ${rhSel('rfPue','Puesto',RH.puestos.map(p=>[p,p]),e.puesto||'Mesero')}
     ${rhSel('rfMt','Usuario en MrTienda (para el comandero y sus ventas)',mt,e.cod_mt||'')}
     ${rhIn('rfIng','Fecha de ingreso',e.ingreso,'type="date"')}
@@ -2122,7 +2142,7 @@ document.addEventListener('click',async e=>{
     if(t.tagName==='BUTTON')t.disabled=true;
     if(a==='guardar'){const g=id=>($('#'+id)||{}).value||'';
       const hz=rhLeeHorario();if(hz.some(x=>x&&(!x[0]||!x[1]))){toast('Falta la hora de entrada o de salida de algún día que trabaja.');t.disabled=false;return}
-      await rhApi({accion:'emp_guardar',emp:{id:d.id,nombre:g('rfNom'),apodo:g('rfApo'),puesto:g('rfPue'),cod_mt:g('rfMt'),ingreso:g('rfIng'),diario:rhPagoForm()==='hora'?'':g('rfDia'),pago:rhPagoForm(),tarifa:rhPagoForm()==='hora'?g('rfTar'):'',resta_comida:!!($('#rfRc')||{}).checked,paga_prima:!!($('#rfPd')||{}).checked,prima_siempre:!!($('#rfPs')||{}).checked,paga_extra:!!($('#rfPx')||{}).checked,incentivo:g('rfInc'),comida_min:g('rfCom'),horario:hz,telefono:g('rfTel'),nss:g('rfNss'),curp:g('rfCurp'),rfc:g('rfRfc'),domicilio:g('rfDom'),notas:g('rfNot'),contrato:{estado:g('rfCe'),tipo:g('rfCt'),fecha:g('rfCf'),nota:g('rfCn')}}});
+      await rhApi({accion:'emp_guardar',emp:{id:d.id,nombre:g('rfNom'),apodo:g('rfApo'),firma_nueva:g('rfFir'),puesto:g('rfPue'),cod_mt:g('rfMt'),ingreso:g('rfIng'),diario:rhPagoForm()==='hora'?'':g('rfDia'),pago:rhPagoForm(),tarifa:rhPagoForm()==='hora'?g('rfTar'):'',resta_comida:!!($('#rfRc')||{}).checked,paga_prima:!!($('#rfPd')||{}).checked,prima_siempre:!!($('#rfPs')||{}).checked,paga_extra:!!($('#rfPx')||{}).checked,incentivo:g('rfInc'),comida_min:g('rfCom'),horario:hz,telefono:g('rfTel'),nss:g('rfNss'),curp:g('rfCurp'),rfc:g('rfRfc'),domicilio:g('rfDom'),notas:g('rfNot'),contrato:{estado:g('rfCe'),tipo:g('rfCt'),fecha:g('rfCf'),nota:g('rfCn')}}});
       rhEdit=null;toast('Expediente guardado')}
     else if(a==='baja'){if(!confirm('¿Dar de baja a este empleado? Su expediente se conserva.')){t.disabled=false;return}await rhApi({accion:'emp_baja',id:d.id});rhEdit=null;toast('Dado de baja')}
     else if(a==='reactivar'){await rhApi({accion:'emp_baja',id:d.id,reactivar:true});toast('Reactivado')}
@@ -2236,7 +2256,7 @@ function abrirHoja(o){
     const b=e.target.closest('[data-sh]');if(!b)return;
     if(b.dataset.sh==='cancelar'){cerrarHoja();return}
     const nota=$('#shNota').value.trim(), persona=$('#shPersona')?$('#shPersona').value.trim():'';
-    if((hoja.motivo==='Familia'||hoja.motivo==='Empleado')&&!persona){toast(hoja.motivo==='Empleado'&&Object.keys(DATA.empleados_puesto||{}).length?'Toca el nombre del empleado.':'Elige o escribe de quién fue la comida.');if($('#shPersona').type!=='hidden')$('#shPersona').focus();return}
+    if((hoja.motivo==='Familia'||hoja.motivo==='Empleado'||hoja.motivo==='Comida de empleado')&&!persona){toast(hoja.motivo!=='Familia'&&Object.keys(DATA.empleados_puesto||{}).length?'Toca el nombre del empleado.':'Elige o escribe de quién fue la comida.');if($('#shPersona').type!=='hidden')$('#shPersona').focus();return}
     b.disabled=true;b.textContent='Un momento…';
     try{
       const url=hoja.modo==='quitar'?'/api/eliminar-abierta':'/api/quitada-motivo';
@@ -2276,13 +2296,13 @@ function calcLiq(){
 }
 function pintarPersona(){
   const box=$('#shPer');if(!box)return;const m=hoja.motivo;
-  if(m!=='Familia'&&m!=='Empleado'&&m!=='Cortesía'){box.innerHTML='';return}
+  if(m!=='Familia'&&m!=='Empleado'&&m!=='Comida de empleado'&&m!=='Cortesía'){box.innerHTML='';return}
   const prev=$('#shPersona')?$('#shPersona').value:(hoja.persona||'');
   const L=m==='Familia'?(DATA.familia||[]):m==='Empleado'?(DATA.empleados||[]):[...new Set((DATA.quitadas||[]).filter(r=>r.motivo==='Cortesía'&&r.persona).map(r=>r.persona))].slice(-12);
   const tit=m==='Familia'?'¿Quién de la familia?':m==='Empleado'?'¿Qué empleado?':'¿A qué cliente? (opcional)';
   const ph=m==='Familia'?'Escribe el nombre si no está (se agrega a la lista)':m==='Empleado'?'Escribe el nombre si no está':'Nombre del cliente';
   // 30.7.53: empleados = solo los de la nómina (Personal), con nombre completo y agrupados por puesto; no se escriben a mano
-  const EP=DATA.empleados_puesto||{}, conNom=m==='Empleado'&&Object.keys(EP).length>0;
+  const EP=DATA.empleados_puesto||{}, conNom=(m==='Empleado'||m==='Comida de empleado')&&Object.keys(EP).length>0;
   if(conNom){const G={};Object.keys(EP).sort((a,b)=>a.localeCompare(b)).forEach(n=>(G[EP[n]]=G[EP[n]]||[]).push(n));
     const sel=Object.keys(EP).find(n=>n.toLowerCase()===String(prev).toLowerCase())||'';
     box.innerHTML=`<div class="field"><label>${tit} <small>(los de la nómina)</small></label>
@@ -2333,7 +2353,7 @@ $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(b)irA(b.dataset.tab)};
 $('#view').addEventListener('click',e=>{
-  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-cnquitar],[data-cf],[data-cfej],[data-cfguardar],[data-cfprueba],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaprobar],[data-iaquitar],[data-ghsave],[data-ghprobar],[data-ghquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes],[data-hactivar],[data-hquitar],[data-hsalir],[data-pcfg],[data-ppago],[data-pborrar]');if(!t)return;
+  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-cnquitar],[data-cf],[data-cfej],[data-cfguardar],[data-cfprueba],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaprobar],[data-iaquitar],[data-ghsave],[data-ghprobar],[data-ghquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes],[data-hactivar],[data-hquitar],[data-hsalir],[data-pcfg],[data-ppago],[data-pborrar],[data-cetope]');if(!t)return;
   const d=t.dataset;
   if(d.go) return irA(d.go);
   if(d.pm){prodModo=d.pm;return render()} if(d.pt){prodT=d.pt;return render()}
@@ -2380,10 +2400,11 @@ $('#view').addEventListener('click',e=>{
   if(d.fcsave&&CAPMODE){e.preventDefault();guardarCompra(t,false).then(()=>{toast('Compra guardada ✓');window.scrollTo(0,0);return cargarCaptura()}).catch(err=>{toast(err.message);t.disabled=false;t.textContent='Guardar'});return}
   if(d.gimp||d.gdel||d.fsave||d.fcsave||d.rcsave||d.rcdel){e.preventDefault();guardarGasto(t,d);return}
   if(d.pcfg||d.ppago||d.pborrar){e.preventDefault();guardarPlat(t,d);return}
+  if(d.cetope){e.preventDefault();(async()=>{try{t.disabled=true;await api('/api/comida-emp',{accion:'tope',monto:$('#ceTope').value.trim()});toast('Tope guardado');await cargar(true)}catch(er){t.disabled=false;toast(er.message)}})();return}
   if(d.ct2){cmpTodos=!cmpTodos;return render()}
   if(d.mes){e.preventDefault();mesSel=d.mes;render();window.scrollTo(0,0);return}
-  if(d.quitar!=null){e.preventDefault();const a=(DATA.abiertas||[])[+d.quitar];if(a){const k=a.canal||{},mot=k.canal==='didi'?(k.pago==='efectivo'?'Didi · efectivo':'Didi · tarjeta'):k.canal==='uber'?'Uber · tarjeta':null;
-    abrirHoja({modo:'quitar',archivo:a.archivo,ref:a.ref??a.mesa,cuenta:a.mesa,total:a.total,motivo:mot,nota:k.pedido?'Pedido '+k.pedido:'',desc:k.desc!==''&&k.desc!=null?k.desc:null,cobrado:k.cobrado!==''&&k.cobrado!=null?k.cobrado:null})}return}
+  if(d.quitar!=null){e.preventDefault();const a=(DATA.abiertas||[])[+d.quitar];if(a){const k=a.canal||{},mot=k.canal==='didi'?(k.pago==='efectivo'?'Didi · efectivo':'Didi · tarjeta'):k.canal==='uber'?'Uber · tarjeta':k.canal==='empleado'?'Comida de empleado':null;
+    abrirHoja({modo:'quitar',archivo:a.archivo,ref:a.ref??a.mesa,cuenta:a.mesa,total:a.total,motivo:mot,nota:k.pedido?'Pedido '+k.pedido:'',desc:k.desc!==''&&k.desc!=null?k.desc:null,cobrado:k.cobrado!==''&&k.cobrado!=null?k.cobrado:null,persona:k.canal==='empleado'?(k.completo||''):''})}return}
   if(d.motivo){e.preventDefault();const r=(DATA.quitadas||[]).find(x=>x.id===d.motivo);if(r)abrirHoja({modo:'motivo',id:r.id,cuenta:r.cuenta,total:r.total,motivo:r.motivo==='Sin clasificar'?null:r.motivo,nota:r.nota,persona:r.persona,desc:r.liq&&r.liq.capturado?r.liq.desc:null,comision:r.liq&&r.liq.manual?r.liq.comision:null,cobrado:r.liq&&!r.liq.sin_cobrado?r.liq.cobrado:null});return}
 });
 $('#view').addEventListener('change',e=>{const id=e.target.id,v=e.target.value;if(!v)return;
