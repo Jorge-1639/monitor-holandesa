@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 160            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.58'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 161            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.59'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -975,6 +975,14 @@ def ip_del_restaurante(ip):
     if a.version == 6 and a in ipaddress.ip_network('fd7a:115c:a1e0::/48'): return False  # Tailscale IPv6
     return a.is_loopback or a.is_private
 FUERA_WIFI = 'El comandero solo funciona conectado al WiFi del restaurante.'
+FUERA_TS = 'Tu usuario del comandero no tiene permiso de entrar por Tailscale. Jorge lo activa en el panel → Comandero → "Permitir Tailscale".'
+def fuera_msg(ip):   # 30.7.59: por Tailscale el aviso dice qué permiso falta, no "solo WiFi"
+    try:
+        import ipaddress; a = ipaddress.ip_address((ip or '').split('%')[0])
+        if (a.version == 4 and a in ipaddress.ip_network('100.64.0.0/10')) or (a.version == 6 and a in ipaddress.ip_network('fd7a:115c:a1e0::/48')): return FUERA_TS
+    except ValueError: pass
+    return FUERA_WIFI
+SESION_FIN = 'Tu sesión terminó. Vuelve a entrar con tu clave o con tu huella.'
 def huella_pin(sal, pin): return hashlib.sha256((sal + ':' + pin).encode()).hexdigest()
 def verifica_pin(c, pin): return bool(c.get('sal')) and secrets.compare_digest(c.get('huella', ''), huella_pin(c['sal'], pin))
 def sesion(tok):
@@ -1099,6 +1107,23 @@ def _ses_cargar():
         with open(SES_FILE, encoding='utf-8') as f: d = json.load(f)
         SES_ADMIN.update({k: float(v) for k, v in d.items() if isinstance(v, (int, float)) and v > time.time()})
     except (OSError, ValueError): pass
+SESM_FILE = os.path.join(AQUI, 'sesiones_comandero.json')   # 30.7.59: solo existe unos segundos, mientras se reinicia por una actualización
+def _sesm_guardar():
+    try:
+        ahora = time.time()
+        with open(SESM_FILE, 'w', encoding='utf-8') as f:
+            json.dump({k: [v[0], v[1], HUELLA_M.get(k, 0)] for k, v in SESIONES_M.items() if v[1] > ahora}, f)
+    except OSError: pass
+def _sesm_cargar():
+    try:
+        with open(SESM_FILE, encoding='utf-8') as f: d = json.load(f)
+        for k, v in d.items():
+            if isinstance(v, list) and len(v) == 3 and float(v[1]) > time.time():
+                SESIONES_M[k] = (v[0], float(v[1]))
+                if v[2]: HUELLA_M[k] = float(v[2])
+    except (OSError, ValueError, TypeError): pass
+    try: os.remove(SESM_FILE)   # se usa una sola vez
+    except OSError: pass
 def nueva_sesion_admin(minutos):
     t = secrets.token_urlsafe(32); SES_ADMIN[t] = time.time() + minutos * 60
     for k in [k for k, v in SES_ADMIN.items() if v < time.time()]: SES_ADMIN.pop(k, None)
@@ -2326,7 +2351,7 @@ class Monitor:
         for x in self.meseros():
             if x.get('activo') and not x.get('solo_huella') and verifica_pin(x, str(pin or '')):   # 30.7.58: "solo huella" no entra con clave
                 if emp and x.get('cod') not in emp: raise RuntimeError('Tu usuario está dado de baja en MrTienda. Avísale a Jorge.')
-                if not x.get('remoto') and not ip_del_restaurante(ip): raise RuntimeError(FUERA_WIFI)
+                if not x.get('remoto') and not ip_del_restaurante(ip): raise RuntimeError(fuera_msg(ip))
                 if x.get('clave') != str(pin):   # claves dadas antes de la 27.6: se aprenden al entrar
                     try:
                         c_ = self.meseros()
@@ -2360,7 +2385,7 @@ class Monitor:
         x = next((x for x in self.meseros() if x.get('activo') and x.get('solo_huella')), None)
         if not x: raise RuntimeError('Ningún usuario del comandero está marcado para entrar con huella.')
         if emp and x.get('cod') not in emp: raise RuntimeError('Tu usuario está dado de baja en MrTienda.')
-        if not x.get('remoto') and not ip_del_restaurante(ip): raise RuntimeError(FUERA_WIFI)
+        if not x.get('remoto') and not ip_del_restaurante(ip): raise RuntimeError(fuera_msg(ip))
         bloqueo = self.candado_rol(x.get('cod'))
         if bloqueo: raise RuntimeError(bloqueo)
         tok = secrets.token_urlsafe(24); SESIONES_M[tok] = (x['id'], ahora + 14 * 3600); HUELLA_M[tok] = ahora
@@ -2373,7 +2398,7 @@ class Monitor:
         x = next((x for x in self.meseros() if x.get('id') == s_[0] and x.get('activo')), None)
         emp = getattr(self, 'EMP', {})
         if not x or (emp and x.get('cod') not in emp): SESIONES_M.pop(tok, None); return None
-        if not x.get('remoto') and not ip_del_restaurante(ip): SESIONES_M.pop(tok, None); return None   # candado: solo WiFi del restaurante
+        if not x.get('remoto') and not ip_del_restaurante(ip): SESIONES_M.pop(tok, None); return {'bloqueo': fuera_msg(ip)}   # candado: solo WiFi del restaurante
         bloqueo = self.candado_rol(x.get('cod'))
         if bloqueo: SESIONES_M.pop(tok, None); return {'bloqueo': bloqueo}             # candado: rol de descansos y horario
         return {'id': x['id'], 'cod': x['cod'], 'nombre': emp.get(x['cod'], x['nombre']), 'solo_huella': bool(x.get('solo_huella'))}
@@ -3998,7 +4023,7 @@ def make_handler(mon, cfg):
                 m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'), self.client_address[0])
                 try:
                     if m_ and m_.get('bloqueo'): raise PermissionError(m_['bloqueo'])
-                    if not m_: raise PermissionError('Tu sesion termino. Vuelve a entrar con tu clave.' if ip_del_restaurante(self.client_address[0]) else FUERA_WIFI)
+                    if not m_: raise PermissionError(SESION_FIN)
                     n = min(int(self.headers.get('Content-Length', '0') or 0), 65536)
                     d = json.loads(self.rfile.read(n).decode('utf-8'))
                     # la clave se pide en cada envío: así nadie manda comandas con el teléfono de otro mesero
@@ -4210,7 +4235,7 @@ def make_handler(mon, cfg):
             if p0 == '/api/comandero':
                 m_ = mon.mesero_de(self.headers.get('X-Mesero-Token'), self.client_address[0])
                 if not m_ or m_.get('bloqueo'):
-                    body = json.dumps({'ok': False, 'sesion': False, 'error': m_['bloqueo'] if m_ else 'Tu sesión terminó. Vuelve a entrar con tu clave.' if ip_del_restaurante(self.client_address[0]) else FUERA_WIFI}, ensure_ascii=False).encode('utf-8')
+                    body = json.dumps({'ok': False, 'sesion': False, 'error': m_['bloqueo'] if m_ else SESION_FIN}, ensure_ascii=False).encode('utf-8')
                     self.send_response(401); self.send_header('Content-Type', 'application/json'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
                 try:
                     out = {'ok': True, 'mesero': m_, 'cuentas': mon.cuentas_comandero(), 'hora': datetime.datetime.now().strftime('%H:%M'), 'escribe': bool(mon.cfg.get('comandero_escribe')), 'plataformas': mon.plat_cfg(), 'empleados_ce': mon.empleados_ce() if mon.cfg.get('comida_emp', True) else []}
@@ -4403,6 +4428,7 @@ def _lanzar(args):
 
 def reiniciar():
     log('Reiniciando con la versión nueva…')
+    _sesm_guardar()   # 30.7.59: los que están en el comandero siguen dentro después de la actualización
     _lanzar([_pythonw(), os.path.join(AQUI, 'holandesa_monitor.py'), '--esperar'])
     os._exit(0)
 
@@ -4469,6 +4495,7 @@ def main():
         log('No existe la carpeta ' + cfg['carpeta_mrtienda'] + '. Corrígela en config.json'); sys.exit(1)
     mon = Monitor(cfg)
     _ses_cargar()   # quien ya había entrado al panel sigue dentro después de una actualización
+    _sesm_cargar()  # 30.7.59: y quien estaba en el comandero también
     mon.carga_prestamos_excel()
     try: mon.borrar_fotos()
     except Exception as e: log('No pude borrar las fotos viejas: ' + str(e))

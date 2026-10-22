@@ -319,7 +319,7 @@ async function entrar(pin){
     const j=await r.json();
     if(!j.ok){S.err=j.error||'Clave incorrecta';return render()}
     S.tok=j.token;S.pinActual=pin;S.err='';await inicio();
-  }catch(e){S.err='No hay conexión con la caja. ¿Estás en el WiFi del restaurante?';render()}
+  }catch(e){S.err=location.hostname.endsWith('.ts.net')?'No hay conexión con la caja. Revisa que Tailscale esté conectado en tu teléfono y que la computadora de la caja esté prendida.':'No hay conexión con la caja. ¿Estás en el WiFi del restaurante?';render()}
 }
 async function inicio(){
   S.view='cargando';render();
