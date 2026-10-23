@@ -435,7 +435,7 @@ function render(){
     app.innerHTML=`<div class="login">
       <img class="logo" src="${LOGO}" alt="La Holandesa">
       <h1 class="brand">Comandero</h1>
-      ${puedeHuellaC&&store.get('hol_huella')==='1'?'<div class="hbox"><p>¿Quieres entrar con huella?</p><button data-act="huella">👆 Sí, entrar con huella</button></div><p style="margin:0;color:var(--muted)">o escribe tu clave</p>':'<p style="margin:0;font-weight:600">Escribe tu clave</p>'}
+      ${puedeHuellaC?'<div class="hbox"><p>¿Quieres entrar con huella?</p><button data-act="huella">👆 Sí, entrar con huella</button></div><p style="margin:0;color:var(--muted)">o escribe tu clave</p>':'<p style="margin:0;font-weight:600">Escribe tu clave</p>'}
       <div class="dots">${[0,1,2,3].map(i=>`<i class="${i<S.pin.length?'on':''}"></i>`).join('')}</div>
       <div class="err">${esc(S.err)}</div>
       <div class="pad">${[1,2,3,4,5,6,7,8,9].map(n=>`<button data-k="${n}">${n}</button>`).join('')}<button class="op" data-k="clr" aria-label="Borrar todo">C</button><button data-k="0">0</button><button class="op" data-k="del" aria-label="Borrar uno">⌫</button></div>
