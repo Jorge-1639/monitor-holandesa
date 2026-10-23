@@ -14,17 +14,17 @@
 <style>
 /* Layout: one-hand phone app; sticky top bar, scrolling content, sticky bottom action bar */
 :root{
-  --bg:#f2f6fb; --surface:#ffffff; --ink:#13202e; --muted:#5b6b7c; --line:#d9e3ee;
+  --bg:#f2f6fb; --key:#e9edf2; --surface:#ffffff; --ink:#13202e; --muted:#5b6b7c; --line:#d9e3ee;
   --green:#2f6db3; --green-2:#3f82c9; --green-soft:#e3eefa; --orange:#e2711d; --orange-soft:#fdebdc;
   --bad:#b3322a; --bad-bg:#fbe5e2; --on-green:#ffffff;
   --display:"Archivo","Arial Narrow",system-ui,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#0e141b; --surface:#16202b; --ink:#e6eef7; --muted:#97a6b6; --line:#263446;
+  --bg:#0e141b; --key:#223041; --surface:#16202b; --ink:#e6eef7; --muted:#97a6b6; --line:#263446;
   --green:#86b6ea; --green-2:#6aa2df; --green-soft:#1b2c40; --orange:#f39a52; --orange-soft:#3a2614;
   --bad:#f08b80; --bad-bg:#3a1a17; --on-green:#0e1611; color-scheme:dark}}
 :root[data-theme="dark"]{
-  --bg:#0e141b; --surface:#16202b; --ink:#e6eef7; --muted:#97a6b6; --line:#263446;
+  --bg:#0e141b; --key:#223041; --surface:#16202b; --ink:#e6eef7; --muted:#97a6b6; --line:#263446;
   --green:#86b6ea; --green-2:#6aa2df; --green-soft:#1b2c40; --orange:#f39a52; --orange-soft:#3a2614;
   --bad:#f08b80; --bad-bg:#3a1a17; --on-green:#0e1611; color-scheme:dark}
 *{box-sizing:border-box}
@@ -48,9 +48,14 @@ button:focus-visible{outline:2px solid var(--green-2);outline-offset:2px}
 .dots{display:flex;gap:12px;justify-content:center;height:18px}
 .dots i{width:14px;height:14px;border-radius:50%;border:2px solid var(--green)}
 .dots i.on{background:var(--green)}
-.pad{display:grid;grid-template-columns:repeat(3,72px);gap:12px;justify-content:center}
-.pad button{height:64px;border-radius:50%;border:1px solid var(--line);background:var(--surface);font:700 24px var(--display)}
-.pad button.ghost{border:0;background:none;font:600 14px var(--body);color:var(--muted)}
+/* 30.7.60: teclado cuadrado como calculadora (pedido de Jorge): teclas grandes que el dedo sí atina */
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;width:100%;max-width:380px;padding:6px;background:var(--line);border-radius:10px}
+.pad button{height:72px;border-radius:6px;border:0;background:var(--key);color:var(--ink);font:500 32px var(--display);touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.pad button:active{background:var(--green-soft)}
+.pad button.op{color:var(--green);font:700 22px var(--body)}
+.hbox{width:100%;max-width:380px;border:2px solid var(--green);border-radius:10px;padding:12px;background:var(--green-soft)}
+.hbox p{margin:0 0 8px;font-weight:700;font-size:17px}
+.hbox button{width:100%;height:56px;border:0;border-radius:6px;background:var(--green);color:var(--on-green);font:700 18px var(--body)}
 .err{color:var(--bad);font-weight:600;min-height:22px;font-size:14px}
 
 /* top bar */
@@ -213,7 +218,7 @@ textarea{width:100%;border:1px solid var(--line);background:var(--bg);color:var(
 @keyframes alCa{0%,100%{background:#7a5600}50%{background:#b8860b}}
 @media (prefers-reduced-motion:reduce){.recuerda,.alarma{animation:none!important}}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:90px;z-index:20;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px}
-@media (max-width:360px){.mesas{grid-template-columns:repeat(2,1fr)}.pad{grid-template-columns:repeat(3,64px)}.pad button{height:58px}}
+@media (max-width:360px){.mesas{grid-template-columns:repeat(2,1fr)}.pad button{height:64px}}
 </style>
 <style>
 .aviso{background:var(--orange-soft);color:var(--ink);font-size:13px;line-height:1.35;padding:9px 12px;border-radius:10px;margin-top:12px}
@@ -430,11 +435,10 @@ function render(){
     app.innerHTML=`<div class="login">
       <img class="logo" src="${LOGO}" alt="La Holandesa">
       <h1 class="brand">Comandero</h1>
-      <p style="margin:0;font-weight:600">Escribe tu clave</p>
+      ${puedeHuellaC?'<div class="hbox"><p>¿Quieres entrar con huella?</p><button data-act="huella">👆 Sí, entrar con huella</button></div><p style="margin:0;color:var(--muted)">o escribe tu clave</p>':'<p style="margin:0;font-weight:600">Escribe tu clave</p>'}
       <div class="dots">${[0,1,2,3].map(i=>`<i class="${i<S.pin.length?'on':''}"></i>`).join('')}</div>
       <div class="err">${esc(S.err)}</div>
-      <div class="pad">${[1,2,3,4,5,6,7,8,9].map(n=>`<button data-k="${n}">${n}</button>`).join('')}<span></span><button data-k="0">0</button><button class="ghost" data-k="del">Borrar</button></div>
-      ${puedeHuellaC?'<button class="chipbtn" data-act="huella" style="margin-top:14px;width:100%;max-width:320px;font-size:17px;padding:12px">👆 Entrar con huella</button>':''}
+      <div class="pad">${[1,2,3,4,5,6,7,8,9].map(n=>`<button data-k="${n}">${n}</button>`).join('')}<button class="op" data-k="clr" aria-label="Borrar todo">C</button><button data-k="0">0</button><button class="op" data-k="del" aria-label="Borrar uno">⌫</button></div>
     </div>`;
     return;
   }
@@ -800,6 +804,7 @@ document.addEventListener('click',e=>{
   const t=e.target.closest('button,[data-act]');if(!t)return;
   const d=t.dataset;
   if(S.view==='login'&&d.k){const k=d.k;
+    if(k==='clr'){S.pin='';S.err='';return render()}
     if(k==='del'){S.pin=S.pin.slice(0,-1);S.err='';return render()}
     if(S.pin.length<4)S.pin+=k;
     if(S.pin.length===4){const pin=S.pin;S.pin='';render();return entrar(pin)}
