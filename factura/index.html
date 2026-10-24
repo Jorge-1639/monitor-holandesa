@@ -148,6 +148,7 @@ footer{color:var(--muted);font-size:13px;text-align:center}
   <h2>Revise y envíe</h2>
   <p class="hint">Toque el botón verde y se abrirá WhatsApp con su solicitud lista. Solo presione enviar.</p>
   <pre id="resumen"></pre>
+  <p class="note" id="notaCsf" hidden>Opcional: después de enviar, mande en el mismo chat una foto de su <strong>Constancia de Situación Fiscal</strong>. Así su factura sale sin errores.</p>
   <a class="primary" id="btnWa" href="#" target="_blank" rel="noopener">Enviar por WhatsApp</a>
   <button class="secondary" type="button" id="btnCopiar">Copiar texto</button>
   <p class="hint">Si WhatsApp no se abre, copie el texto y mándelo al <strong>646 178 5544</strong>. Le enviaremos su factura a su correo.</p>
@@ -240,6 +241,7 @@ footer{color:var(--muted);font-size:13px;text-align:center}
     $("resumen").innerHTML = L.map(([k,x]) => k ? "<b>"+esc(k)+":</b> "+esc(x) : "<b>"+esc(x)+"</b>").join("\n");
     $("resumen").dataset.texto = texto;
     $("btnWa").href = "https://wa.me/"+WA+"?text="+encodeURIComponent(texto);
+    $("notaCsf").hidden = (modo!=="no");
     $("form").hidden = true; $("paso3").hidden = false;
     $("paso3").scrollIntoView({behavior:"smooth"});
   });
