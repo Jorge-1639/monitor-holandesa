@@ -223,26 +223,29 @@ footer{color:var(--muted);font-size:13px;text-align:center}
     }catch(err){}
 
     const [y,m,d] = v.fecha.split("-");
-    const L = ["SOLICITUD DE FACTURA",
-      "Tipo: " + (modo==="si" ? "Cliente registrado" : "Cliente nuevo"),
-      "Ticket: " + v.ticket,
-      "Fecha: " + d+"/"+m+"/"+y];
-    if(v.total) L.push("Total: $" + v.total.replace(/[^\d.]/g,""));
-    L.push("Nombre: " + v.nombre);
-    if(v.rfc) L.push("RFC: " + v.rfc);
+    const opt = id => { const o=$(id).selectedOptions[0]; return o ? o.textContent.replace(" · "," - ") : $(id).value; };
+    const L = [["", "SOLICITUD DE FACTURA"],
+      ["Tipo", modo==="si" ? "Cliente registrado" : "Cliente nuevo"],
+      ["Ticket", v.ticket],
+      ["Fecha de consumo", d+"/"+m+"/"+y]];
+    if(v.total) L.push(["Total", "$" + v.total.replace(/[^\d.]/g,"")]);
+    L.push(["Nombre", v.nombre]);
+    if(v.rfc) L.push(["RFC", v.rfc]);
     if(modo==="no"){
-      L.push("CP: " + v.cp, "Regimen: " + v.regimen, "Uso CFDI: " + v.uso);
+      L.push(["Código postal fiscal", v.cp], ["Régimen fiscal", opt("regimen")], ["Uso de CFDI", opt("uso")]);
     }
-    L.push("Correo: " + v.correo);
-    const texto = L.join("\n");
-    $("resumen").textContent = texto;
+    L.push(["Correo", v.correo]);
+    const texto = L.map(([k,x]) => k ? "*"+k+":* "+x : "*"+x+"*").join("\n");
+    const esc = t => t.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+    $("resumen").innerHTML = L.map(([k,x]) => k ? "<b>"+esc(k)+":</b> "+esc(x) : "<b>"+esc(x)+"</b>").join("\n");
+    $("resumen").dataset.texto = texto;
     $("btnWa").href = "https://wa.me/"+WA+"?text="+encodeURIComponent(texto);
     $("form").hidden = true; $("paso3").hidden = false;
     $("paso3").scrollIntoView({behavior:"smooth"});
   });
 
   $("btnCopiar").onclick = ()=>{
-    const t = $("resumen").textContent, b = $("btnCopiar");
+    const t = $("resumen").dataset.texto || $("resumen").textContent, b = $("btnCopiar");
     const ok = ()=>{ b.textContent="Texto copiado"; setTimeout(()=>b.textContent="Copiar texto",2000); };
     const sel = ()=>{ const r=document.createRange(); r.selectNodeContents($("resumen")); const s=getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent="Texto seleccionado, cópielo"; };
     try{ navigator.clipboard.writeText(t).then(ok, sel); }catch(e){ sel(); }
