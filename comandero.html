@@ -812,7 +812,8 @@ document.addEventListener('click',e=>{
   if(d.f){S.filtro=d.f;return render()}
   if(d.k&&S.view==='mesas'){const k=d.k;if(!cuentaDe(k))return;
     return conClave('Escribe tu clave para agregar a esta cuenta',()=>{const c=cuentaDe(k);if(!c)return;
-      if(!mia(c)){toast('Esa cuenta es de '+c.mesero);return}abrir({k:c.archivo,llevar:c.llevar})})}
+      if(!mia(c)&&!S.huella){toast('Esa cuenta es de '+c.mesero);return}   // 30.7.64: el administrador (entra con huella) puede agregar a cualquier cuenta
+      if(!mia(c))toast('Vas a agregar a la cuenta de '+c.mesero);abrir({k:c.archivo,llevar:c.llevar})})}
   if(d.libre){return elegirMesa(d.libre)}
   if(d.libre1){return hojaPersonas(d.libre1)}
   if(d.mapalibre&&S.view==='mesas'){const id=d.mapalibre;return conClave('Escribe tu clave para abrir la mesa '+id,()=>elegirMesa(id))}

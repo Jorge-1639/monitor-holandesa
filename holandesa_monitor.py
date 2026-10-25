@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 165            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.63'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 166            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.64'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -2665,7 +2665,7 @@ class Monitor:
             if k_ is None: raise RuntimeError('Esa cuenta ya no está abierta (¿ya la cobraron?).')
             rec = bytearray(pb[phl + k_*prl:phl + (k_+1)*prl])
             if _campo(rec, pfl, 'PAGADO') in (b'T', b't'): raise RuntimeError('Esa cuenta ya está pagada.')
-            if _campo(rec, pfl, 'COD_VENDED').decode('latin-1').strip() != mesero['cod']: raise RuntimeError('Esa cuenta es de otro mesero.')
+            if _campo(rec, pfl, 'COD_VENDED').decode('latin-1').strip() != mesero['cod'] and not mesero.get('solo_huella'): raise RuntimeError('Esa cuenta es de otro mesero.')
             enc = os.path.join(com, archivo + '.ENC')
             _respaldar([pend, enc], archivo + '_CTE')
             vals = {'COD_CTE': cod, 'DES_CTE': nombre.encode('latin-1'), 'SOLICITA': contacto.encode('latin-1')}
@@ -2965,7 +2965,14 @@ class Monitor:
         with self.write_lock:
             if d.get('k'):
                 archivo = re.sub(r'[^A-Za-z0-9]', '', str(d['k']))[:11]
-                res = _agregar_a_cuenta(com, pend, archivo, mesero['cod'], ren, self._tc(), ahora)
+                cod_cta = mesero['cod']
+                if mesero.get('solo_huella'):   # 30.7.64: el administrador (Jorge, con huella) agrega a la cuenta de cualquier mesero; la cuenta sigue siendo de ese mesero
+                    due = next((a for a in self.abiertas() if a['archivo'].upper() == archivo.upper()), None)
+                    if due and due.get('cod'):
+                        cod_cta = due['cod']
+                        for r in ren: r['COD_VENDED'] = cod_cta
+                        if cod_cta != mesero['cod']: d['_ajena'] = due.get('mesero') or cod_cta
+                res = _agregar_a_cuenta(com, pend, archivo, cod_cta, ren, self._tc(), ahora)
             else:
                 if d.get('mesa'):
                     # mesa del plano: 3, 7 o con lado 1A / 1B, o juntas 1AB (versión 30.7.9)
@@ -2988,7 +2995,7 @@ class Monitor:
                                    pers=int(d.get('pers') or 1) if str(d.get('pers') or '1').isdigit() else 1)
             with self.rows_lock:
                 self.cache = {k: v for k, v in self.cache.items() if not k[0].upper().startswith(com.upper())}
-        log(f'COMANDERO: {mesero["nombre"]} {"agregó a" if d.get("k") else "abrió"} {res["ref"]} ({res["archivo"]}) · {len(ren)} renglones · ${res["agregado"]:.2f}. Respaldo: {res["respaldo"]}')
+        log(f'COMANDERO: {mesero["nombre"]} {"agregó a" if d.get("k") else "abrió"} {res["ref"]} ({res["archivo"]}){" (cuenta de " + str(d["_ajena"]) + ")" if d.get("_ajena") else ""} · {len(ren)} renglones · ${res["agregado"]:.2f}. Respaldo: {res["respaldo"]}')
         if canal:
             try: self._guardar_pedido(res['archivo'], {k: v for k, v in canal.items() if k != 'ref'})
             except Exception as e: log('No pude guardar el canal del pedido: ' + str(e))
@@ -4004,7 +4011,7 @@ def make_handler(mon, cfg):
                     elif self.path.endswith('leer-recibo'): out = mon.leer_recibo_plat(str(d.get('foto') or ''))
                     elif self.path.endswith('ce-validar'): out = mon.ce_validar(d)
                     elif self.path.endswith('factura-resp'):
-                        if not any(a['archivo'] == str(d.get('k') or '') and a['cod'] == m_['cod'] for a in mon.abiertas()): raise RuntimeError('Esa cuenta ya no está abierta o es de otro mesero.')
+                        if not any(a['archivo'] == str(d.get('k') or '') and (a['cod'] == m_['cod'] or m_.get('solo_huella')) for a in mon.abiertas()): raise RuntimeError('Esa cuenta ya no está abierta o es de otro mesero.')
                         out = mon.factura_resp(str(d.get('k')), d.get('factura'))
                     else: out = mon.cliente_nuevo(m_, d)
                     return self._send(json.dumps(out, ensure_ascii=False).encode('utf-8'), 'application/json; charset=utf-8')
