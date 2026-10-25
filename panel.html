@@ -1947,7 +1947,7 @@ function rhResumen(){
   const F=A.map(e=>rhResFila(e));
   const S=k=>F.reduce((a,f)=>a+f[k],0), sin=F.filter(f=>!f.g).length;
   const fila=(l,v,neg,b)=>`<tr${b?' class="tt"':''}><td>${b?'<b>'+l+'</b>':l}</td><td class="r">${neg&&v?'−':''}${b?'<b>'+fmt2(v)+'</b>':fmt2(v)}</td></tr>`;
-  const cel=(f,k)=>{const ed=k in f.aj;return `<td class="r" style="padding:3px 2px"><input class="rsin num" data-emp="${f.e.id}" data-k="${k}" value="${f[k]?f[k].toFixed(2):''}" placeholder="0" inputmode="decimal" title="${ed?'Cambiado por ti; automático: '+fmt2(f.auto[k]):'Automático'}" style="width:78px;text-align:right;padding:5px 6px;border-radius:7px;border:1px solid ${ed?'#d97706':'var(--line)'};background:${ed?'#fff7e6':'var(--surface)'};font:600 13px var(--body);color:var(--ink)"></td>`};
+  const cel=(f,k)=>{const ed=k in f.aj;return `<td class="r" style="padding:3px 2px"><button class="num" data-rh="resdet" data-emp="${f.e.id}" data-k="${k}" title="Toca para ver de dónde viene" style="cursor:pointer;width:84px;min-height:34px;text-align:right;padding:5px 6px;border-radius:7px;border:1px solid ${ed?'#d97706':'var(--line)'};background:${ed?'#fff7e6':'var(--surface)'};font:600 13px var(--body);color:${f[k]?'var(--ink)':'var(--muted)'}">${f[k]?fmt2(f[k]):'0'}</button></td>`};
   const fin=rhMas(rhSem,6),en=x=>x.fecha>=rhSem&&x.fecha<=fin;
   const sinD=(RH.comidas||[]).filter(c=>en(c)&&rhComidaEmp(c)&&rhDC(c).monto==null), sinQ=[...(RH.comidas||[]).filter(c=>en(c)&&!rhComidaEmp(c)).map(c=>'comida de '+(c.persona||'sin nombre')),...(RH.vales_caja||[]).filter(v=>en(v)&&!rhQuien(v.ref)).map(v=>v.ref+' '+fmt2(+v.monto||0))];
   const avisos=(sinD.length?`<p class="note" style="margin-bottom:12px"><b>${sinD.length===1?'1 comida de empleado no tiene':sinD.length+' comidas de empleados no tienen'} descuento</b> (${sinD.map(c=>esc(rhComidaEmp(c).nombre.split(' ')[0])+' '+fmt2(+c.total||0)).join(', ')}), así que no se descuenta${sinD.length===1?'':'n'}. Ponle el descuento en <a href="#" data-rhtab="vp">Préstamos y vales</a> → Vales de comida.</p>`:'')+
@@ -1961,10 +1961,50 @@ function rhResumen(){
     ${fila('Efectivo a pagar',S('ef'),false,true)}</tbody></table>
     <div class="btns"><a class="btn pri" data-rh="resberenice" href="#">Mandar el efectivo a Berenice por WhatsApp</a></div></div>
   <div class="card"><h2>Por empleado <small>desliza para ver todo</small></h2>
-    <p class="empty" style="margin-top:0">La columna <b>Nómina</b> viene de la pestaña Nómina y no se cambia aquí. Lo demás sí: escribe la cantidad (por ejemplo la transferencia) y se guarda sola al salir del cuadro. Los anticipos (vales de la semana) y los vales de comida se ponen solos. Si borras el cuadro, vuelve a lo automático. En <span style="background:#fff7e6;border:1px solid #d97706;border-radius:5px;padding:0 4px">anaranjado</span> lo que cambiaste tú.</p>
+    <p class="empty" style="margin-top:0">La columna <b>Nómina</b> viene de la pestaña Nómina y no se cambia aquí. Lo demás sí: <b>toca cualquier cantidad</b> para ver de dónde viene (de qué corte, si lo capturaste tú o salió solo, y el estado de cuenta del préstamo) y para cambiarla. Los anticipos (vales de la semana) y los vales de comida se ponen solos. Si borras el cuadro, vuelve a lo automático. En <span style="background:#fff7e6;border:1px solid #d97706;border-radius:5px;padding:0 4px">anaranjado</span> lo que cambiaste tú.</p>
     <div class="tscroll"><table class="tk num" style="font-size:12.5px"><thead><tr><th>Empleado</th><th class="r">Nómina</th>${RS_K.map(([,l])=>`<th class="r">${l}</th>`).join('')}<th class="r">Efectivo</th></tr></thead><tbody>
     ${F.map((f,ix)=>(ix&&(F[ix-1].e.puesto||'Otro')===(f.e.puesto||'Otro')?'':`<tr><td colspan="9" style="font-weight:900;text-transform:uppercase;letter-spacing:.08em;padding-top:12px;color:#1d4ed8">${esc(RH_NOM_TIT[f.e.puesto]||f.e.puesto||'Otros')}</td></tr>`)+`<tr><td>${esc(f.e.nombre.split(' ').slice(0,2).join(' '))}${f.g?'':' <small style="color:var(--warn)">sin guardar</small>'}</td><td class="r"><b>${fmt2(f.b)}</b></td>${RS_K.map(([k])=>cel(f,k)).join('')}<td class="r"><b>${fmt2(f.ef)}</b></td></tr>`).join('')}
-    <tr class="tt"><td>Total</td><td class="r">${fmt2(S('b'))}</td>${RS_K.map(([k])=>`<td class="r">${fmt2(S(k))}</td>`).join('')}<td class="r">${fmt2(S('ef'))}</td></tr></tbody></table></div></div>`;
+    <tr class="tt"><td>Total</td><td class="r">${fmt2(S('b'))}</td>${RS_K.map(([k])=>`<td class="r">${fmt2(S(k))}</td>`).join('')}<td class="r">${fmt2(S('ef'))}</td></tr></tbody></table></div></div>`+(rhResDet?rhResDetalle(rhResDet):'');
+}
+// ---- desglose de una cantidad del Resumen: de dónde viene cada peso
+let rhResDet=null;
+function rhResDetalle(o){
+  const e=rhEmp(o.emp); if(!e)return '';
+  const f=rhResFila(e), c=rhNomCalc(e,rhSem), k=o.k, lab=(RS_K.find(x=>x[0]===k)||[,''])[1].replace(' (+)',''), ed=k in f.aj, fin=rhMas(rhSem,6), en=x=>x.fecha>=rhSem&&x.fecha<=fin;
+  const tb=filas=>filas.length?`<table class="ledger num" style="font-size:13px;margin-top:6px"><tbody>${filas.join('')}</tbody></table>`:'<p class="empty" style="margin:6px 0">No hay movimientos esta semana.</p>';
+  const tr=(a,b,m)=>`<tr><td style="white-space:nowrap;vertical-align:top;padding-right:8px">${a}</td><td>${b}</td><td class="r" style="vertical-align:top">${fmt2(m)}</td></tr>`;
+  const dia=s=>{const d=rhPd(s);return ['dom','lun','mar','mié','jue','vie','sáb'][d.getDay()]+' '+rhCorta(s)};
+  let cuerpo='', origen='';
+  if(k==='vales'){
+    const man=(RH.vales||[]).filter(v=>v.tipo!=='comida'&&v.emp===e.id&&en(v)), caja=(RH.vales_caja||[]).filter(v=>en(v)&&rhQuien(v.ref)===e);
+    cuerpo=tb([...caja.map(v=>tr(dia(v.fecha)+(v.hora?'<br><small>'+esc(v.hora)+'</small>':''),`<b>Caja de MrTienda${v.turno?' · Corte '+v.turno:''}</b>${v.cajero?' ('+esc(v.cajero)+')':''}<br><small style="color:var(--muted)">La cajera lo capturó como: "${esc(v.ref)}"</small>`,+v.monto||0)),
+      ...man.map(v=>tr(dia(v.fecha),`<b>Capturado por ti en Personal</b>${v.nota?'<br><small style="color:var(--muted)">'+esc(v.nota)+'</small>':''}`,+v.monto))]);
+    origen='Los anticipos salen solos: los de la caja (salidas de MrTienda que digan VALE y el nombre) y los que registras en Préstamos y vales.';
+  }else if(k==='abono'){
+    const p=rhPrest(e.id), contado=('abono' in f.aj)||c.g, antes=Math.round(((p.saldo||0)+(contado?f.abono:0))*100)/100, despues=Math.max(0,Math.round((antes-f.abono)*100)/100);
+    cuerpo=p.P.length?`<table class="ledger num" style="font-size:13.5px;margin-top:6px"><tbody>
+        <tr><td>Debía antes de esta semana</td><td class="r"><b>${fmt2(antes)}</b></td></tr>
+        <tr><td>Descuento por semana</td><td class="r">${fmt2(p.sug||0)}</td></tr>
+        <tr><td>Se le descuenta esta semana</td><td class="r"><b>−${fmt2(f.abono)}</b></td></tr>
+        <tr class="tt"><td><b>Queda debiendo</b></td><td class="r"><b>${fmt2(despues)}</b></td></tr></tbody></table>
+      <b style="display:block;margin-top:12px;font-size:13px">Estado de cuenta</b>${rhEdoCuenta(e,p)}
+      ${!contado?'<p class="empty" style="margin-top:6px">El saldo baja cuando guardas la nómina de esta semana.</p>':''}`:'<p class="empty" style="margin:6px 0">No tiene préstamos registrados.</p>';
+    origen=ed?'':c.g?'Viene de la nómina guardada de esta semana (cuadro "Abono préstamo").':p.P.length?'Sale solo: es el descuento por semana de su préstamo (o lo que le queda, si debe menos).':'';
+  }else if(k==='comida'){
+    const C=(RH.comidas||[]).filter(x=>en(x)&&rhComidaEmp(x)===e), V=(RH.vales||[]).filter(v=>v.tipo==='comida'&&v.emp===e.id&&en(v));
+    cuerpo=tb([...C.map(x=>{const d=rhDC(x);return tr(dia(x.fecha)+(x.abrio?'<br><small>'+esc(x.abrio)+'</small>':''),`<b>Comida de empleado</b>${x.cuenta?' · cuenta '+esc(x.cuenta):''}<br><small style="color:var(--muted)">Consumió ${fmt2(+x.total||0)} · ${d.monto==null?'sin descuento todavía':d.pct!=null?'descuento '+d.pct+'%':'descuento en pesos'}</small>`,d.monto||0)}),
+      ...V.map(v=>tr(dia(v.fecha),`<b>Capturado por ti</b>${v.consumo?'<br><small style="color:var(--muted)">Consumió '+fmt2(+v.consumo)+'</small>':''}`,+v.monto))]);
+    origen='Salen de las cuentas quitadas en Ventas con motivo "Empleado"; el descuento lo pones tú en Préstamos y vales → Vales de comida.';
+  }else if(k==='transfer'||k==='otros'){
+    origen=ed?'':c.g?'Viene de la nómina guardada de esta semana.':'Todavía no se ha capturado.';
+  }else if(k==='grat'){origen=ed?'':'Se captura aquí.'}
+  const est=ed?`<p class="note" style="margin:8px 0 0;background:#fff7e6;color:#9a4a00"><b>Cambiado por ti aquí en el Resumen.</b> Lo automático era ${fmt2(f.auto[k])}.</p>`:(origen?`<p class="note" style="margin:8px 0 0;background:var(--surface-2);color:var(--ink)">${origen}</p>`:'');
+  return `<div class="rhmodal" data-rh="rescerrar"><div class="rhmodal-in" role="dialog" aria-modal="true">
+    <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline"><b style="font-size:16px">${esc(e.nombre)}</b><b class="num" style="font-size:18px">${fmt2(f[k])}</b></div>
+    <small style="color:var(--muted)">${esc(lab)} · semana del ${rhCorta(rhSem)} al ${rhCorta(fin)}</small>
+    ${est}${cuerpo}
+    <div style="border-top:1px solid var(--line);margin-top:12px;padding-top:10px"><div style="display:flex;gap:8px;align-items:flex-end"><div class="field" style="margin:0;flex:1"><label>Cambiar la cantidad</label><input id="rdVal" inputmode="decimal" value="${f[k]?f[k].toFixed(2):''}" placeholder="0"></div><button class="btn pri" data-rh="resguardar">Guardar</button></div>
+    <div class="btns" style="margin-top:8px">${ed?'<button class="btn" data-rh="resauto">Volver a lo automático</button>':''}${k==='abono'&&rhPrest(e.id).P.length&&!(ed&&+f.aj.abono===0)?`<button class="btn" data-rh="nodesc" data-id="${e.id}" style="color:var(--bad)">No se descontó</button>`:''}<button class="btn" data-rh="rescerrar">Cerrar</button></div></div></div></div>`;
 }
 // Hoja de nómina para firmar (Excel): sueldo, séptimo, horas extra, prima, incentivo y extras de cada quien; sin descuentos
 function rhFirmaDatos(){
@@ -2053,7 +2093,7 @@ function rhEdoCuenta(e,p){
   new Set([...Object.keys(RH.nominas||{}),...Object.keys(AJ)]).forEach(s=>{const aj=(AJ[s]||{})[e.id]||{},v='abono' in aj?+aj.abono:+((((RH.nominas||{})[s]||{})[e.id]||{}).abono||0);if(v>0)M.push({f:rhMas(s,6),t:'Abono en nómina · semana del '+rhCorta(s),m:-v,sem:s})});
   M.sort((a,b)=>a.f.localeCompare(b.f)||(b.m-a.m)); let sal=0;
   return `<div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-top:10px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline"><b>${esc(e.nombre)}</b><b class="num" style="color:${p.saldo?'var(--bad)':'var(--good)'}">${p.saldo?'Debe '+fmt2(p.saldo):'Pagado'}</b></div>
-    <table class="ledger num" style="font-size:13px;margin-top:6px"><tbody>${M.map(x=>{sal+=x.m;return `<tr><td style="white-space:nowrap">${rhCorta(x.f)}</td><td>${esc(x.t)}${x.del?` <a href="#" data-rh="${x.del}" data-id="${x.id}" style="color:var(--bad);font-size:12px">borrar</a>`:''}${x.sem?` <a href="#" data-rh="nodesc" data-id="${e.id}" data-sem="${x.sem}" style="color:var(--bad);font-size:12px">no se descontó</a>`:''}</td><td class="r" style="color:${x.m<0?'var(--good)':'var(--bad)'}">${x.m<0?'−':'+'}${fmt2(Math.abs(x.m))}</td><td class="r"><b>${fmt2(Math.round(sal*100)/100)}</b></td></tr>`}).join('')}</tbody></table>
+    <table class="ledger num" style="font-size:13px;margin-top:6px"><tbody>${M.map(x=>{sal+=x.m;return `<tr><td style="white-space:nowrap;padding-right:8px;vertical-align:top">${rhCorta(x.f)}</td><td>${esc(x.t)}${x.del?` <a href="#" data-rh="${x.del}" data-id="${x.id}" style="color:var(--bad);font-size:12px">borrar</a>`:''}${x.sem?` <a href="#" data-rh="nodesc" data-id="${e.id}" data-sem="${x.sem}" style="color:var(--bad);font-size:12px">no se descontó</a>`:''}</td><td class="r" style="color:${x.m<0?'var(--good)':'var(--bad)'}">${x.m<0?'−':'+'}${fmt2(Math.abs(x.m))}</td><td class="r"><b>${fmt2(Math.round(sal*100)/100)}</b></td></tr>`}).join('')}</tbody></table>
     ${p.sug?`<small style="color:var(--muted)">Abono por semana: ${fmt2(p.sug)}</small>`:''}</div>`;
 }
 let rhEdoAb=null;   // empleado con el estado de cuenta abierto
@@ -2080,7 +2120,7 @@ function rhEdoDetalle(e,p,f,sems){
       <div class="note" style="margin-top:8px;background:var(--surface-2);color:var(--ink)">Semana del ${rhCorta(rhSem)} al ${rhCorta(rhMas(rhSem,6))}: ${quitado?'<b>no se le descuenta</b>':'se le descuentan <b>'+fmt2(f.abono)+'</b>'}
         <div class="btns" style="margin-top:6px">${quitado?`<button class="btn" data-rh="sidesc" data-id="${e.id}">Sí se descontó</button>`:`<button class="btn" data-rh="nodesc" data-id="${e.id}" style="color:var(--bad)">No se descontó</button>`}</div></div>`:''}
     <b style="display:block;margin-top:10px;font-size:13px">Anticipos (vales de la semana) · últimas 4 semanas</b>
-    ${ant.length?`<table class="ledger num" style="font-size:13px"><tbody>${ant.map(x=>`<tr><td style="white-space:nowrap">${rhCorta(x.f)}</td><td>${esc(x.t)}</td><td class="r">${fmt2(x.m)}</td></tr>`).join('')}</tbody></table>`:'<p class="empty" style="margin:4px 0">Sin anticipos.</p>'}
+    ${ant.length?`<table class="ledger num" style="font-size:13px"><tbody>${ant.map(x=>`<tr><td style="white-space:nowrap;padding-right:8px;vertical-align:top">${rhCorta(x.f)}</td><td>${esc(x.t)}</td><td class="r">${fmt2(x.m)}</td></tr>`).join('')}</tbody></table>`:'<p class="empty" style="margin:4px 0">Sin anticipos.</p>'}
     <p class="empty" style="margin:6px 0 0">Los anticipos se descuentan completos en la nómina de su semana.</p></div>`;
 }
 function rhValesPrest(){
@@ -2196,6 +2236,8 @@ document.addEventListener('click',async e=>{
   if(a==='nomrecalc'){const e_=rhEmp(d.id),c=rhNomCalc(e_,rhSem).calc;document.querySelectorAll(`.rhn[data-emp="${d.id}"]`).forEach(i=>{const k=i.dataset.k;if(k==='transfer'||k==='nota')return;if(i.type==='checkbox')i.checked=!!c[k];else if(k in c)i.value=c[k]||''});
     const i0=document.querySelector(`.rhn[data-emp="${d.id}"]`);if(i0)i0.dispatchEvent(new Event('input',{bubbles:true}));toast('Recalculado. Revisa y dale Guardar.');return}
   if(a==='edoabrir'){if(e.target.closest('input,button,a:not([data-rh="edoabrir"])'))return;rhEdoAb=rhEdoAb===d.id?null:d.id;render();return}
+  if(a==='resdet'){rhResDet={emp:d.emp,k:d.k};render();return}
+  if(a==='rescerrar'){if(t.classList.contains('rhmodal')&&e.target!==t)return;rhResDet=null;render();return}
   if(a==='nomocultar'){st.rhNomOcultar=1;save();render();return}
   if(a==='exportar'){rhExportar(t,d.tipo||($('#rhExpTipo')||{}).value||'completa',d.fmt);return}
   if(a==='resberenice'){window.open('https://wa.me/?text='+encodeURIComponent(rhMsgBerenice()),'_blank');return}
@@ -2241,6 +2283,9 @@ document.addEventListener('click',async e=>{
       await rhApi({accion:'comida_desc',id:rhComAb,monto:m,pct:p,emp:em});rhComAb=null;toast(q?'Descuento quitado':'Descuento guardado; ya pasa a su nómina')}
     else if(a==='valecomida'){await rhApi({accion:'vale_alta',tipo:'comida',emp:$('#rcEmp').value,monto:$('#rcDes').value,consumo:$('#rcCon').value,fecha:$('#rcFec').value});toast('Vale de comida registrado')}
     else if(a==='borrarprest'||a==='borrarvale'||a==='borrarabono'){if(!confirm('¿Borrar este registro?'))return;await rhApi({accion:a==='borrarprest'?'prestamo_borrar':a==='borrarabono'?'abono_borrar':'vale_borrar',id:d.id});toast('Borrado')}
+    else if(a==='resguardar'||a==='resauto'){const raw=a==='resauto'?'':String(($('#rdVal')||{}).value||'').replace(/[$,\s]/g,'');
+      if(raw!==''&&isNaN(+raw)){toast('Escribe solo números.');t.disabled=false;return}
+      await rhApi({accion:'res_aj',semana:rhSem,emp:rhResDet.emp,k:rhResDet.k,valor:raw===''?null:+raw});toast(raw===''?'Vuelve a lo automático':'Guardado');rhResDet=null}
     else if(a==='semab'){await rhApi({accion:'prestamo_semanal',emp:d.id,abono:($('#rhSemAb_'+d.id)||{}).value||0});toast('Descuento por semana guardado')}
     else if(a==='nodesc'||a==='sidesc'){const s_=d.sem||rhSem;if(a==='nodesc'&&!confirm('¿Marcar que la semana del '+rhCorta(s_)+' no se le descontó el préstamo?')){t.disabled=false;return}
       await rhApi({accion:'res_aj',semana:s_,emp:d.id,k:'abono',valor:a==='nodesc'?0:null});toast(a==='nodesc'?'Quitado: esa semana no se le descuenta':'Vuelve a descontarse')}

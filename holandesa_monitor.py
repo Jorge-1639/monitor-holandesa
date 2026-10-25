@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 164            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.62'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 165            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.63'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -3251,9 +3251,10 @@ class Monitor:
         try: data = json.loads(self.json)
         except ValueError: return out
         for f, D in (data.get('detalle') or {}).items():
+            cajeros = {c.get('turno'): c.get('cajero', '') for c in (D.get('cortes') or []) if isinstance(c, dict)}
             for m in D.get('salidas', []) if isinstance(D.get('salidas'), list) else []:
                 if (m.get('cat') or '') == 'Vales' or re.match(r'^\s*VALE', str(m.get('ref') or ''), re.I):
-                    out.append({'fecha': f, 'ref': m.get('ref', ''), 'monto': m.get('importe', 0), 'hora': m.get('hora', '')})
+                    out.append({'fecha': f, 'ref': m.get('ref', ''), 'monto': m.get('importe', 0), 'hora': m.get('hora', ''), 'turno': m.get('turno'), 'cajero': cajeros.get(m.get('turno'), '')})
         return out
 
     def rh_accion(self, a):
