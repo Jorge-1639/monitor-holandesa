@@ -1659,6 +1659,8 @@ function rhForm(e){
     ${rhIn('rfApo','Sobrenombre (opcional, ej. Pepe)',e.apodo||'','autocomplete="off" maxlength="20"')}
     ${rhIn('rfFir','Clave para firmar su comida (4 números)','',`inputmode="numeric" maxlength="4" autocomplete="off" placeholder="${e.firma&&e.firma.sal?'Ya tiene clave · escribe otra para cambiarla':e.cod_mt?'Si la dejas vacía, usa su clave del comandero':'Sin clave: no podrá pedir su comida'}"`)}
     ${rhSel('rfPue','Puesto',RH.puestos.map(p=>[p,p]),e.puesto||'Mesero')}
+    <label style="display:flex;align-items:center;gap:8px;margin:6px 0 4px;font-weight:600"><input type="checkbox" id="rfCm" ${e.cubre_mesero?'checked':''} style="width:20px;height:20px">También cubre turno de mesera / mesero</label>
+    <p class="empty" style="margin:0 0 8px">Para la encargada o el cajero que también atiende mesas: en la Auditoría del rol cuenta con los meseros. En la nómina sigue en su puesto.</p>
     ${rhSel('rfMt','Usuario en MrTienda (para el comandero y sus ventas)',mt,e.cod_mt||'')}
     ${rhIn('rfIng','Fecha de ingreso',e.ingreso,'type="date"')}
     <h2 style="margin-top:20px">Sueldo</h2>
@@ -1799,7 +1801,7 @@ function auditarRol(E,dia,ok){   // E: empleados {id,nombre,puesto}; dia(e,i) ->
     const wd=AUD_SEM[i], lv=wd>=1&&wd<=5, sd=wd===6||wd===0;
     const aplica=r=>r==='T'||(r==='LV'&&lv)||(r==='SD'&&sd);
     for(const [p,R] of Object.entries(AUD_REGLAS)){
-      const G=E.filter(e=>e.puesto===p); if(!G.length)continue;
+      const G=E.filter(e=>e.puesto===p||(p==='Mesero'&&e.cubre_mesero)); if(!G.length)continue;   // la encargada que también cubre turno de mesera cuenta con los meseros
       const turnos=R.turnos.filter(t=>aplica(t.req));
       // entrada efectiva: si Jorge aceptó que entre a otra hora en lugar de un turno, cuenta como ese turno
       const tr=G.map(e=>({e,x:dia(e,i)})).filter(o=>o.x&&o.x.c==='T'&&o.x.h&&o.x.h[0]).map(o=>{
@@ -2279,7 +2281,7 @@ document.addEventListener('click',async e=>{
     if(t.tagName==='BUTTON')t.disabled=true;
     if(a==='guardar'){const g=id=>($('#'+id)||{}).value||'';
       const hz=rhLeeHorario();if(hz.some(x=>x&&(!x[0]||!x[1]))){toast('Falta la hora de entrada o de salida de algún día que trabaja.');t.disabled=false;return}
-      await rhApi({accion:'emp_guardar',emp:{id:d.id,nombre:g('rfNom'),apodo:g('rfApo'),firma_nueva:g('rfFir'),puesto:g('rfPue'),cod_mt:g('rfMt'),ingreso:g('rfIng'),diario:rhPagoForm()==='hora'?'':g('rfDia'),pago:rhPagoForm(),tarifa:rhPagoForm()==='hora'?g('rfTar'):'',resta_comida:!!($('#rfRc')||{}).checked,paga_prima:!!($('#rfPd')||{}).checked,prima_siempre:!!($('#rfPs')||{}).checked,paga_extra:!!($('#rfPx')||{}).checked,incentivo:g('rfInc'),comida_min:g('rfCom'),horario:hz,telefono:g('rfTel'),nss:g('rfNss'),curp:g('rfCurp'),rfc:g('rfRfc'),domicilio:g('rfDom'),notas:g('rfNot'),contrato:{estado:g('rfCe'),tipo:g('rfCt'),fecha:g('rfCf'),nota:g('rfCn')}}});
+      await rhApi({accion:'emp_guardar',emp:{id:d.id,nombre:g('rfNom'),apodo:g('rfApo'),firma_nueva:g('rfFir'),puesto:g('rfPue'),cod_mt:g('rfMt'),ingreso:g('rfIng'),diario:rhPagoForm()==='hora'?'':g('rfDia'),pago:rhPagoForm(),tarifa:rhPagoForm()==='hora'?g('rfTar'):'',resta_comida:!!($('#rfRc')||{}).checked,paga_prima:!!($('#rfPd')||{}).checked,prima_siempre:!!($('#rfPs')||{}).checked,paga_extra:!!($('#rfPx')||{}).checked,cubre_mesero:!!($('#rfCm')||{}).checked,incentivo:g('rfInc'),comida_min:g('rfCom'),horario:hz,telefono:g('rfTel'),nss:g('rfNss'),curp:g('rfCurp'),rfc:g('rfRfc'),domicilio:g('rfDom'),notas:g('rfNot'),contrato:{estado:g('rfCe'),tipo:g('rfCt'),fecha:g('rfCf'),nota:g('rfCn')}}});
       rhEdit=null;toast('Expediente guardado')}
     else if(a==='baja'){if(!confirm('¿Dar de baja a este empleado? Su expediente se conserva.')){t.disabled=false;return}await rhApi({accion:'emp_baja',id:d.id});rhEdit=null;toast('Dado de baja')}
     else if(a==='reactivar'){await rhApi({accion:'emp_baja',id:d.id,reactivar:true});toast('Reactivado')}

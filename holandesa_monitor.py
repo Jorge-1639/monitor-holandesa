@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 169            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.67'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 170            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.68'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -3193,7 +3193,7 @@ class Monitor:
         emps = sorted([e for e in d['empleados'] if e.get('activo', True)], key=lambda e: (ORDEN_ROL.index(e['puesto']) if e.get('puesto') in ORDEN_ROL else 99, e.get('nombre', '')))
         pagados = {k for k, v in (d['nominas'].get(lun) or {}).items() if v.get('pagada')}
         return {'ok': True, 'semana': lun, 'hoy': hoy.isoformat(),
-                'empleados': [{'id': e['id'], 'nombre': e.get('nombre', ''), 'puesto': e.get('puesto', ''), 'descanso': e.get('descanso', ''),
+                'empleados': [{'id': e['id'], 'nombre': e.get('nombre', ''), 'puesto': e.get('puesto', ''), 'cubre_mesero': bool(e.get('cubre_mesero')), 'descanso': e.get('descanso', ''),
                                'horario': horario_texto(rh_base(e)), 'base': base_sem(rh_base(e)), 'comida': int(e.get('comida_min') or 0), 'pagada': e['id'] in pagados} for e in emps],
                 'rol': d['roles'].get(lun) or {}, 'meta': d['roles_meta'].get(lun) or {}, 'aud_ok': {k: {} for k in d.get('aud_ok', {})}, 'horas': (d.get('roles_h') or {}).get(lun) or {},
                 'anterior_tiene': bool(d['roles'].get((datetime.date.fromisoformat(lun) - datetime.timedelta(days=7)).isoformat()))}
@@ -3291,7 +3291,7 @@ class Monitor:
             except ValueError: raise ValueError('Revisa los minutos de comida.')
             reg = {'nombre': nombre, 'apodo': txt(e.get('apodo'), 20).title(), 'puesto': puesto, 'cod_mt': txt(e.get('cod_mt'), 6), 'ingreso': fecha(e.get('ingreso')),
                    'diario': diario, 'incentivo': num(e.get('incentivo')), 'comida_min': comida_min, 'horario': base,
-                   'pago': 'hora' if e.get('pago') == 'hora' else 'dia', 'tarifa': num(e.get('tarifa')), 'resta_comida': bool(e.get('resta_comida')), 'paga_prima': bool(e.get('paga_prima')), 'prima_siempre': bool(e.get('prima_siempre')), 'paga_extra': e.get('paga_extra') is not False,
+                   'pago': 'hora' if e.get('pago') == 'hora' else 'dia', 'tarifa': num(e.get('tarifa')), 'resta_comida': bool(e.get('resta_comida')), 'paga_prima': bool(e.get('paga_prima')), 'prima_siempre': bool(e.get('prima_siempre')), 'paga_extra': e.get('paga_extra') is not False, 'cubre_mesero': bool(e.get('cubre_mesero')),
                    'sueldo': round(diario * len(trab), 2) if diario else num(e.get('sueldo')),
                    'telefono': txt(e.get('telefono'), 20), 'nss': txt(e.get('nss'), 15), 'curp': txt(e.get('curp'), 18).upper(), 'rfc': txt(e.get('rfc'), 13).upper(),
                    'domicilio': txt(e.get('domicilio'), 160), 'entrada': comunes[0][0][0] if comunes else '', 'salida': comunes[0][0][1] if comunes else '',

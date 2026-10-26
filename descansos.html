@@ -187,7 +187,7 @@ function auditarRol(E,dia,ok){   // E: empleados {id,nombre,puesto}; dia(e,i) ->
     const wd=AUD_SEM[i], lv=wd>=1&&wd<=5, sd=wd===6||wd===0;
     const aplica=r=>r==='T'||(r==='LV'&&lv)||(r==='SD'&&sd);
     for(const [p,R] of Object.entries(AUD_REGLAS)){
-      const G=E.filter(e=>e.puesto===p); if(!G.length)continue;
+      const G=E.filter(e=>e.puesto===p||(p==='Mesero'&&e.cubre_mesero)); if(!G.length)continue;   // la encargada que también cubre turno de mesera cuenta con los meseros
       const turnos=R.turnos.filter(t=>aplica(t.req));
       // entrada efectiva: si Jorge aceptó que entre a otra hora en lugar de un turno, cuenta como ese turno
       const tr=G.map(e=>({e,x:dia(e,i)})).filter(o=>o.x&&o.x.c==='T'&&o.x.h&&o.x.h[0]).map(o=>{
