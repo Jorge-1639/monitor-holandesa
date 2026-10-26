@@ -1575,7 +1575,9 @@ function rhBase(e){ // horario base de la semana: [entra, sale] o null si descan
   const d=RH_DIAS_L.indexOf(e.descanso);return RH_DIAS_L.map((_,i)=>i===d?null:[e.entrada||'',e.salida||'']);
 }
 function rhHoras(h,comida){ // horas pagadas de un día: de la entrada a la salida, menos la comida que no se paga
-  if(!h)return 0;const a=rhHm(h[0]),b=rhHm(h[1]);if(a==null||b==null)return 0;let m=b-a;if(m<=0)m+=1440;return Math.max(0,(m-(+comida||0))/60);
+  if(!h)return 0;const a=rhHm(h[0]),b=rhHm(h[1]);if(a==null||b==null)return 0;let m=b-a;if(m<=0)m+=1440;
+  const c=m<480?(+comida||0):0;   // 26-oct (Jorge): la comida solo se resta los días de menos de 8 horas; turno completo de 8 h no se le resta
+  return Math.max(0,(m-c)/60);
 }
 const rhHtxt=n=>{const h=Math.floor(n+1e-9),m=Math.round((n-h)*60);return h+(m?':'+String(m).padStart(2,'0'):'')+' h'};
 // cómo suena el nombre: BERENISE = BERENICE, ANTUAN ≈ ANTOINE, VALERIA = BALERIA, YESICA = JESSICA…
@@ -1674,7 +1676,8 @@ function rhForm(e){
     <div style="display:grid;grid-template-columns:54px 1fr 1fr 40px;gap:4px;font-size:12px;color:var(--muted)"><span>Descansa</span><span>Entra</span><span>Sale</span><span style="text-align:right">Pagado</span></div>
     ${filas}
     <div class="btns" style="margin-top:8px"><button class="btn" data-rh="copialunes">Copiar el lunes a martes–viernes</button></div>
-    <label style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:14px;font-weight:600"><input type="checkbox" id="rfRc" ${e.resta_comida?'checked':''} style="width:20px;height:20px">Restarle la comida (medio turno)</label>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:14px;font-weight:600"><input type="checkbox" id="rfRc" ${e.resta_comida?'checked':''} style="width:20px;height:20px">Restarle la comida los días de menos de 8 horas</label>
+    <p class="empty" style="margin:2px 0 0 28px">Si ese día trabaja 8 horas o más, no se le resta aunque esté marcada.</p>
     <div id="rfComW" ${e.resta_comida?'':'hidden'}>${rhIn('rfCom','Minutos de comida que se le restan por día',comida,'inputmode="numeric" placeholder="Ej. 30"')}</div>
     <p class="empty" style="margin-top:4px">Solo a quien trabaja medio turno. En la nómina de cada semana puedes cambiarlo.</p>
     <div id="rfRes" class="note" style="background:var(--surface-2);color:var(--ink)"></div>
@@ -1925,7 +1928,7 @@ function rhNomina(){
     const inp=(k,l,hint='')=>`<div class="field" style="margin-top:8px"><label>${l}${hint?` <small style="color:var(--muted)">${hint}</small>`:''}</label><input class="rhn" data-emp="${e.id}" data-k="${k}" inputmode="decimal" value="${v[k]||''}"></div>`;
     const hsSin=rhHorasSem(e,rhSem,false).t, hsCon=rhHorasSem(e,rhSem,true).t, mins=+e.comida_min||30;
     const horas=`<div class="note" style="background:var(--surface-2);color:var(--ink);margin:10px 0 0">Horas del rol: <b id="rh_hs_${e.id}">${rhHtxt(c.resta?hsCon:hsSin)}</b>${c.porHora?` × ${fmt2(c.tar)} por hora`:''}
-      <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-weight:600"><input type="checkbox" class="rhn rhrc" data-emp="${e.id}" data-k="resta_comida" data-sin="${hsSin}" data-con="${hsCon}" data-tar="${c.porHora?c.tar:0}" data-th="${c.th||0}" data-dsin="${rhHorasSem(e,rhSem,false).dom}" data-dcon="${rhHorasSem(e,rhSem,true).dom}" ${c.resta?'checked':''} style="width:20px;height:20px">Restar ${mins} min de comida por día</label></div>`;
+      <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-weight:600"><input type="checkbox" class="rhn rhrc" data-emp="${e.id}" data-k="resta_comida" data-sin="${hsSin}" data-con="${hsCon}" data-tar="${c.porHora?c.tar:0}" data-th="${c.th||0}" data-dsin="${rhHorasSem(e,rhSem,false).dom}" data-dcon="${rhHorasSem(e,rhSem,true).dom}" ${c.resta?'checked':''} style="width:20px;height:20px">Restar ${mins} min de comida (solo días de menos de 8 h)</label></div>`;
     return tit+`<div class="card"><h2>${esc(e.nombre)} <small>${esc(e.puesto)} · ${c.t} días${c.f?` · <b style="color:var(--bad)">${c.f} ${c.f===1?'falta':'faltas'}</b>`:''}${c.g?(v.pagada?' · <span class="pill good">Pagada</span>':' · <span class="pill mut">Guardada</span>'):''}</small></h2>${horas}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
         ${inp('base',c.porHora?'Sueldo por horas':+e.diario?'Sueldo':'Nómina completa',c.porHora?'':+e.diario?'('+(c.parcial.length?(+c.diasPag.toFixed(2))+' días':(c.t+c.vac))+' × '+fmt2(+e.diario)+')'+(c.parcial.length?'<br><span style="color:var(--warn)">por horas: '+esc(c.parcial.join(', '))+'</span>':''):c.f?'(menos faltas)':'')}${inp('incentivo','Incentivo',+e.incentivo&&c.calc.incentivo<+e.incentivo-0.005?'(proporcional, como el séptimo)':'')}
