@@ -1786,10 +1786,11 @@ let rhAud=false;   // auditoría del rol encendida
 const AUD_REGLAS={
   'Cocinero':{tit:'Cocineros',turnos:[{e:'06:30',s:'14:30',req:'LV'},{e:'07:30',s:'15:30',req:'SD'},{e:'09:00',s:'17:00',req:'T'},{e:'12:30',s:'20:30',req:'T'}],suplente:'MOISES'},   // sáb y dom el primer turno es 7:30–3:30
   'Mesero':{tit:'Meseros',turnos:[{e:'07:30',s:'15:30',req:'T'},{e:'09:00',s:'17:00',req:'T'},{e:'15:00',s:'20:30',req:'T'}]},
-  'Ayudante general':{tit:'Ayudantes generales',turnos:[{e:'07:00',s:'14:45',req:'LV'},{e:'14:00',s:'20:30',req:'LV'},{e:'08:00',s:'20:30',req:'SD'}]}
+  'Ayudante general':{tit:'Ayudantes generales',turnos:[{e:'06:45',s:'15:00',req:'LV'},{e:'14:00',s:'20:30',req:'LV'},{e:'08:00',s:'20:00',req:'SD'}],unoSD:true}   // 26-oct: Martín 6:45–3:00; sáb y dom uno descansa y el otro 8:00–8:00
 };
 // excepciones fijas: Ángel los viernes sale a las 2:00 pm porque va a la escuela (día como getDay: 5 = viernes)
-const AUD_EXC=[{nom:'ANGEL',wd:5,sale:'14:00'}];
+// 26-oct: Ángel entra a las 8:30 todos los días (cuenta como el turno de las 9:00)
+const AUD_EXC=[{nom:'ANGEL',wd:5,sale:'14:00'}], AUD_ENT=[{nom:'ANGEL',entra:'08:30',cubre:'09:00'}];
 const AUD_SEM=[2,3,4,5,6,0,1], AUD_DIAS=['Martes','Miércoles','Jueves','Viernes','Sábado','Domingo','Lunes'];
 const audH=v=>{const m=/^(\d{1,2}):(\d{2})$/.exec(String(v||''));if(!m)return '';const H=+m[1];return (H%12||12)+':'+m[2]+(H<12?' am':' pm')};
 const audN=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase();
@@ -1805,6 +1806,9 @@ function auditarRol(E,dia,ok){   // E: empleados {id,nombre,puesto}; dia(e,i) ->
       const turnos=R.turnos.filter(t=>aplica(t.req));
       // entrada efectiva: si Jorge aceptó que entre a otra hora en lugar de un turno, cuenta como ese turno
       const tr=G.map(e=>({e,x:dia(e,i)})).filter(o=>o.x&&o.x.c==='T'&&o.x.h&&o.x.h[0]).map(o=>{
+        const xe=AUD_ENT.find(x=>audN(o.e.nombre).startsWith(x.nom)&&turnos.some(t=>t.e===x.cubre));
+        if(xe){if(o.x.h[0]===xe.entra||esOk(o.e.id,'ent',o.x.h[0],xe.entra)){if(o.x.h[0]!==xe.entra)acept.push(o.e.id+'|'+i);return {...o,ent:xe.cubre}}
+          return {...o,ent:o.x.h[0],malaEnt:xe}}
         const a=turnos.find(t=>t.e!==o.x.h[0]&&esOk(o.e.id,'ent',o.x.h[0],t.e));if(a)acept.push(o.e.id+'|'+i);return {...o,ent:a?a.e:o.x.h[0]}});
       const desc=G.filter(e=>{const x=dia(e,i);return x&&x.c!=='T'});
       const sup=R.suplente?G.find(e=>audN(e.nombre).startsWith(R.suplente)):null;
@@ -1814,20 +1818,22 @@ function auditarRol(E,dia,ok){   // E: empleados {id,nombre,puesto}; dia(e,i) ->
       for(const o of tr){
         const t=R.turnos.find(t=>t.e===o.ent&&aplica(t.req));
         const nom=o.e.nombre.split(' ')[0];
+        if(o.malaEnt){items.push({i,nivel:'error',emp:o.e.id,tipo:'ent',val:o.ent,esp:o.malaEnt.entra,txt:`${nom} entra a las ${audH(o.ent)}; él entra a las ${audH(o.malaEnt.entra)}.`});malos.add(o.e.id+'|'+i);continue}
         if(!t){const cerca=turnos.slice().sort((a,b)=>Math.abs(audM(a.e)-audM(o.ent))-Math.abs(audM(b.e)-audM(o.ent)))[0];
           items.push({i,nivel:'error',emp:o.e.id,tipo:'ent',val:o.ent,esp:cerca?cerca.e:'',txt:`${nom} entra a las ${audH(o.ent)}: no corresponde a ningún turno de ${R.tit.toLowerCase()}${cerca?' (el más cercano es '+audH(cerca.e)+')':''}.`});malos.add(o.e.id+'|'+i);continue}
         const esSup=sup&&o.e.id===sup.id&&t.e==='06:30', hayDesc=R.suplente&&desc.some(e=>!sup||e.id!==sup.id);
         const exc=AUD_EXC.find(x=>x.wd===wd&&audN(o.e.nombre).startsWith(x.nom));
-        const sal=exc?exc.sale:t.e==='06:30'&&R.suplente&&hayDesc?'12:30':t.s;   // con descanso, el de las 6:30 (el suplente) sale 12:30; sin descanso sale 2:30
+        const sal=exc?exc.sale:t.s;   // 26-oct: el de las 6:30 sale 2:30 siempre (también Moisés cuando suple)
         if(sal&&o.x.h[1]&&o.x.h[1]!==sal){
           if(esOk(o.e.id,'sal',o.x.h[1],sal)){acept.push(o.e.id+'|'+i);continue}
-          items.push({i,nivel:'aviso',emp:o.e.id,tipo:'sal',val:o.x.h[1],esp:sal,txt:`${nom} sale a las ${audH(o.x.h[1])}; ${esSup||sal==='12:30'?'cuando hay descanso debe salir':'su turno termina'} a las ${audH(sal)}.`});malos.add(o.e.id+'|'+i)}
+          items.push({i,nivel:'aviso',emp:o.e.id,tipo:'sal',val:o.x.h[1],esp:sal,txt:`${nom} sale a las ${audH(o.x.h[1])}; su turno termina a las ${audH(sal)}.`});malos.add(o.e.id+'|'+i)}
       }
+      if(R.unoSD&&sd&&tr.length>1)items.push({i,nivel:'aviso',txt:`${R.tit}: el ${AUD_DIAS[i].toLowerCase()} trabaja solo uno (8:00 a 8:00) y el otro descansa; hoy trabajan ${tr.length}.`});
       if(sup&&lv){
         const otros=desc.filter(e=>e.id!==sup.id), supT=tr.find(o=>o.e.id===sup.id);
-        if(otros.length&&!supT)items.push({i,nivel:'error',txt:`Descansa ${otros.map(e=>e.nombre.split(' ')[0]).join(' y ')}: ${sup.nombre.split(' ')[0]} debe suplir (entra 6:30 y sale 12:30).`});
+        if(otros.length&&!supT)items.push({i,nivel:'error',txt:`Descansa ${otros.map(e=>e.nombre.split(' ')[0]).join(' y ')}: ${sup.nombre.split(' ')[0]} debe suplir (entra 6:30 y sale 2:30).`});
         if(otros.length&&supT&&supT.ent!=='06:30'){items.push({i,nivel:'error',txt:`${sup.nombre.split(' ')[0]} suple: debe entrar a las 6:30 (está a las ${audH(supT.x.h[0])}).`});malos.add(sup.id+'|'+i)}
-        if(!otros.length&&supT)items.push({i,nivel:'aviso',txt:`${sup.nombre.split(' ')[0]} trabaja pero ningún cocinero descansa ese día (sin descanso, el de las 6:30 sale a las 2:30).`});
+        if(!otros.length&&supT)items.push({i,nivel:'aviso',txt:`${sup.nombre.split(' ')[0]} trabaja pero ningún cocinero descansa ese día (solo suple cuando descansa Tere, Luis o Gerardo).`});
       }
     }
   }
