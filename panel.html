@@ -1896,8 +1896,11 @@ function rhNomCalc(e,sem){
   // por día: días trabajados y vacaciones × sueldo diario; prima dominical 25% si trabajó domingo; incentivo proporcional a los días trabajados
   // por día: si en el rol se le pusieron menos horas que las de su horario (ej. día que se cerró y se le pagan 6 h de 8), ese día se paga en proporción
   const rr=rhRolDe(e,sem), b0=rhBase(e), hsRaw=((RH.roles_h||{})[sem]||{})[e.id]; let diasPag=vac, parcial=[];
-  rr.d.forEach((c_,i)=>{if(c_!=='T')return;const bh=rhHoras(b0[SEM_IDX[i]],0),hh=rhHoras(rr.h[i],0);
-    if(Array.isArray(hsRaw)&&hsRaw[i]&&bh>0&&hh>0&&hh<bh-0.01){diasPag+=hh/bh;parcial.push(SEM_DIAS[i]+' '+rhHtxt(hh)+' de '+rhHtxt(bh))}else diasPag+=1});
+  // 26-oct (Jorge): por día, un día de menos de 8 horas se paga en proporción: sueldo diario ÷ 8 × horas (con la comida restada si aplica);
+  // el séptimo día y el incentivo bajan solos porque salen de lo pagado (equivale a horas de la semana ÷ 48)
+  const comD=resta?(+e.comida_min||30):0;
+  rr.d.forEach((c_,i)=>{if(c_!=='T')return;const hh=rhHoras(rr.h[i],comD);
+    if(hh>0&&hh<8-0.01){diasPag+=hh/8;parcial.push(SEM_DIAS[i]+' '+rhHtxt(hh)+' de 8 h')}else diasPag+=1});
   diasPag=Math.round(diasPag*1000)/1000;
   const base=porHora?Math.round(Math.min(hs.t,48)*tar*100)/100:d?Math.round(d*diasPag*100)/100:Math.round(((+e.sueldo||0)-f*rhDiario(e))*100)/100;
     // prima dominical: 25% del sueldo diario; con "aunque descanse el domingo" se paga siempre (por día)
