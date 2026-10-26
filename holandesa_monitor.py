@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 174            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.72'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 175            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.73'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -128,8 +128,9 @@ PROMPT_RECIBO_PLAT = '''Lee la foto de este recibo de pedido de Didi Food o Uber
 {"plataforma": "didi o uber", "pedido": "", "subtotal": 0, "descuento_entrega": 0, "otros_restaurante": 0, "efectivo": 0, "total_app": 0}
 Reglas: pedido = el número o clave del pedido (en Didi el que va con #, ej. 792006; en Uber el código corto arriba, ej. C176B), sin # ni espacios. subtotal = el renglón Subtotal (en Uber, si no hay Subtotal, el Importe pagado). descuento_entrega = el renglón "Descuento de la tarifa de entrega" como número positivo (0 si no viene). otros_restaurante = otros descuentos que diga que paga la tienda o el restaurante (no "Platform discount" ni "Tarifa de servicio"); 0 si no hay. efectivo = el renglón "Pago en efectivo" (0 si no viene). total_app = "Pago de DiDi Food" o "Importe pagado". Solo números, sin signo de pesos. No inventes: lo que no se vea, 0.'''
 
-PROMPT_CONSTANCIA = '''Lee la foto de esta Constancia de Situación Fiscal del SAT (o del papel con datos de facturación que dio el cliente) y responde SOLO con un objeto JSON, sin texto antes ni después, con esta forma:
-{"rfc": "", "razon_social": "", "cp": "", "regimen": "", "calle": "", "no_ext": "", "no_int": "", "colonia": "", "localidad": "", "municipio": "", "estado": "", "correo": "", "telefono": ""}
+PROMPT_CONSTANCIA = '''Lee la foto de esta Constancia de Situación Fiscal del SAT, o del papel con datos de facturación que dio el cliente, o de la pantalla o captura del mensaje de WhatsApp "SOLICITUD DE FACTURA" que manda la página del restaurante (trae renglones como "Nombre:", "RFC:", "Código postal fiscal:", "Régimen fiscal: 612 - ...", "Uso de CFDI: G03 - ...", "Correo:"; los asteriscos son negritas de WhatsApp, ignóralos; "Nombre" es la razón social). Responde SOLO con un objeto JSON, sin texto antes ni después, con esta forma:
+{"rfc": "", "razon_social": "", "cp": "", "regimen": "", "uso": "", "calle": "", "no_ext": "", "no_int": "", "colonia": "", "localidad": "", "municipio": "", "estado": "", "correo": "", "telefono": ""}
+uso: SOLO la clave del uso de CFDI si viene escrita (ej. G03, S01, G01, CP01); si no viene, déjalo vacío. En un mensaje de WhatsApp no tomes el número de teléfono del chat ni la hora como datos del cliente.
 Reglas: rfc en mayúsculas sin espacios. razon_social: la denominación o razón social; si es persona física, nombre completo (nombre y apellidos) en mayúsculas, sin régimen de capital. cp: el código postal del domicilio fiscal (5 números). regimen: SOLO la clave de 3 números del catálogo del SAT (601 General de Ley Personas Morales, 603 Personas Morales con Fines no Lucrativos, 605 Sueldos y Salarios, 606 Arrendamiento, 608 Demás ingresos, 612 Personas Físicas con Actividades Empresariales y Profesionales, 616 Sin obligaciones fiscales, 621 Incorporación Fiscal, 622 Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras, 625 Plataformas Tecnológicas, 626 Régimen Simplificado de Confianza); si tiene varios, el primero de la lista. estado: nombre completo en mayúsculas (ej. BAJA CALIFORNIA). Lo que no se vea, déjalo vacío; no inventes.'''
 
 PROMPT_TICKET = '''Eres el capturista de compras de un restaurante en Ensenada, México. Lee la foto de este ticket o factura de compra y responde SOLO con un objeto JSON, sin texto antes ni después, con esta forma:
@@ -2718,8 +2719,9 @@ class Monitor:
         a, z = txt.find('{'), txt.rfind('}')
         if a < 0 or z < a: raise RuntimeError('No se entendió la foto. Intenta otra más clara o escribe los datos.')
         j = json.loads(txt[a:z + 1])
-        out = {k: str(j.get(k) or '').strip()[:120] for k in ('rfc', 'razon_social', 'cp', 'regimen', 'calle', 'no_ext', 'no_int', 'colonia', 'localidad', 'municipio', 'estado', 'correo', 'telefono')}
+        out = {k: str(j.get(k) or '').strip()[:120] for k in ('rfc', 'razon_social', 'cp', 'regimen', 'uso', 'calle', 'no_ext', 'no_int', 'colonia', 'localidad', 'municipio', 'estado', 'correo', 'telefono')}
         out['rfc'] = re.sub(r'[^A-Z0-9&Ñ]', '', out['rfc'].upper())[:13]; out['cp'] = re.sub(r'\D', '', out['cp'])[:5]; out['regimen'] = re.sub(r'\D', '', out['regimen'])[:3]
+        out['uso'] = out['uso'].upper().replace(' ', '') if re.fullmatch(r'[A-Z]{1,2}\d{2}', out['uso'].upper().replace(' ', '')) else ''
         try: out['existentes'] = self.clientes_buscar(out['rfc'])['clientes'] if len(out['rfc']) >= 12 else []
         except Exception: out['existentes'] = []
         return {'ok': True, 'datos': out}

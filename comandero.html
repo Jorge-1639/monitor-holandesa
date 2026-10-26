@@ -616,7 +616,9 @@ function hojaFactura(){const c=cuentaDe(S.sel&&S.sel.k);if(!c)return toast('Prim
     <div style="display:flex;gap:8px"><input id="fq" class="search" style="margin-top:0;flex:1" autocomplete="off" placeholder="RFC, nombre o teléfono" autocapitalize="characters"><button class="chipbtn" data-fact="buscar">Buscar</button></div>
     <div id="fout"></div>
     <div class="section" style="margin-top:14px">¿No está? Cliente nuevo</div>
-    <div class="modo small" style="grid-template-columns:1fr 1fr;margin-top:0"><button type="button" data-fact="foto">📷 Foto de la constancia</button><button type="button" data-fact="mano">✍️ Escribir los datos</button></div>
+    <p class="empty" style="margin:0 0 6px">¿El cliente ya mandó sus datos por WhatsApp? Tómale foto al mensaje o elige la captura de pantalla.</p>
+    <div class="modo small" style="grid-template-columns:1fr 1fr;margin-top:0"><button type="button" data-fact="foto">📷 Foto (WhatsApp o constancia)</button><button type="button" data-fact="galeria">🖼️ Elegir captura</button></div>
+    <button type="button" class="chipbtn" style="width:100%;margin-top:8px;padding:12px" data-fact="mano">✍️ Escribir los datos a mano</button>
     <input type="file" id="ffoto" accept="image/*" capture="environment" hidden></div></div>`;
   const q=$('#fq');q.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();facBuscar()}});setTimeout(()=>q.focus(),60);
   $('#ffoto').onchange=e=>{const f=e.target.files&&e.target.files[0];if(f)facFoto(f)};
@@ -661,7 +663,7 @@ function facNuevo(d,aviso){d=d||{};FACT.nuevo=d;
       <label class="w">Uso de CFDI<select id="fn_uso">${selOpts(USOS,d.uso||'G03')}</select></label></div>
     <p id="ferr" class="err2" hidden></p>
     <button class="big" data-fact="revisar">Revisar con el cliente</button>
-    <div style="display:flex;gap:8px;margin-top:8px"><button class="chipbtn" data-fact="foto">📷 Otra foto</button><button class="chipbtn" data-fact="volver">‹ Buscar</button></div>`}
+    <div style="display:flex;gap:8px;margin-top:8px"><button class="chipbtn" data-fact="foto">📷 Otra foto</button><button class="chipbtn" data-fact="galeria">🖼️ Captura</button><button class="chipbtn" data-fact="volver">‹ Buscar</button></div>`}
 function facLeeForm(){const d={};CAMPOS_N.forEach(([k])=>d[k]=($('#fn_'+k).value||'').trim());d.regimen=$('#fn_regimen').value;d.uso=$('#fn_uso').value;d.rfc=d.rfc.toUpperCase().replace(/[^A-Z0-9&Ñ]/g,'');return d}
 function facRevisar(){const d=facLeeForm(),err=m=>{const e=$('#ferr');e.textContent=m;e.hidden=false};
   if(!d.razon_social)return err('Falta la razón social.');if(!/^[A-Z&Ñ]{3,4}\d{6}[A-Z0-9]{3}$/.test(d.rfc))return err('Revisa el RFC: deben ser 12 (empresa) o 13 (persona) letras y números.');
@@ -678,9 +680,9 @@ async function facEnviar(btn){btn.disabled=true;btn.textContent='Enviando…';
   try{await apiM('/api/comandero/cliente-nuevo',{k:FACT.k,datos:FACT.nuevo});$('#sheet').innerHTML='';toast('Datos enviados a la caja para darlo de alta en Mr. Tienda')}
   catch(e){btn.disabled=false;btn.textContent='✅ Están bien: enviar a Mr. Tienda';const x=$('#ferr');x.textContent=e.message;x.hidden=false}}
 async function facFoto(file){
-  $('#fsh').innerHTML='<h2>🧾 Leyendo la constancia…</h2><p class="empty">Esto tarda unos segundos.</p>';
+  $('#fsh').innerHTML='<h2>🧾 Leyendo los datos…</h2><p class="empty">Esto tarda unos segundos.</p>';
   try{const b64=await new Promise((ok,no)=>{const im=new Image(),u=URL.createObjectURL(file);im.onload=()=>{const m=1600,k=Math.min(1,m/Math.max(im.width,im.height)),cv=document.createElement('canvas');cv.width=Math.round(im.width*k);cv.height=Math.round(im.height*k);cv.getContext('2d').drawImage(im,0,0,cv.width,cv.height);URL.revokeObjectURL(u);ok(cv.toDataURL('image/jpeg',.82))};im.onerror=()=>no(new Error('No pude abrir la foto'));im.src=u});
-    const j=await apiM('/api/comandero/leer-constancia',{foto:b64}),d=j.datos;d._foto=1;d.uso='G03';
+    const j=await apiM('/api/comandero/leer-constancia',{foto:b64}),d=j.datos;d._foto=1;d.uso=d.uso||'G03';
     const ya=(d.existentes||[])[0];
     if(ya){FACT.lista=d.existentes;facNuevo(d,`<p class="frev" style="margin:0">Ese RFC ya está en Mr. Tienda como <b style="min-width:0">${esc(ya.nombre)}</b>. <button class="chipbtn" data-fsel="0">Usar ese cliente</button></p>`);return}
     facNuevo(d,'<p class="empty" style="margin:0">Revisa lo que se leyó y completa lo que falte (lo amarillo). El RFC casi siempre lo da el cliente.</p>')}
@@ -689,7 +691,7 @@ document.addEventListener('click',e=>{const t=e.target.closest('[data-fact],[dat
   if(t.dataset.fsel!=null)return facExistente(FACT.lista[+t.dataset.fsel]);
   const a=t.dataset.fact;
   if(a==='buscar')return facBuscar();if(a==='volver')return hojaFactura();
-  if(a==='foto'){const f=$('#ffoto')||Object.assign(document.createElement('input'),{type:'file',accept:'image/*',id:'ffoto',hidden:true});f.setAttribute('capture','environment');if(!f.isConnected){$('#fsh').appendChild(f);f.onchange=ev=>{const x=ev.target.files&&ev.target.files[0];if(x)facFoto(x)}}f.value='';return f.click()}
+  if(a==='foto'||a==='galeria'){const f=$('#ffoto')||Object.assign(document.createElement('input'),{type:'file',accept:'image/*',id:'ffoto',hidden:true});if(a==='foto')f.setAttribute('capture','environment');else f.removeAttribute('capture');if(!f.isConnected){$('#fsh').appendChild(f);f.onchange=ev=>{const x=ev.target.files&&ev.target.files[0];if(x)facFoto(x)}}f.value='';return f.click()}
   if(a==='mano')return facNuevo({});if(a==='aplicar')return facAplicar(t);if(a==='revisar')return facRevisar();
   if(a==='corregir')return facNuevo(FACT.nuevo);if(a==='enviar')return facEnviar(t)},true);
 async function leeRecibo(file){const msg=$('#cnLee');if(msg){msg.hidden=false;msg.textContent='Leyendo el recibo…'}
