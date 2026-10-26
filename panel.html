@@ -1875,7 +1875,7 @@ function rhHorasSem(e,sem,resta){ // horas de la semana según el rol (días T c
 function rhNomCalc(e,sem){
   const r=rhRolDe(e,sem).d, f=r.filter(c=>c==='F').length, t=r.filter(c=>c==='T').length, g=(RH.nominas[sem]||{})[e.id];
   const vs=rhValesSem(e,sem), valesM=vs.man, valesC=vs.caja, comidas=vs.comidas, sinDesc=vs.sinDesc;
-  const pr=rhPrest(e.id), abonoSug=Math.min(pr.saldo+(g?g.abono:0),pr.sug||0);
+  const pr=rhPrest(e.id), ps=rhPrestSem(e.id,sem), abonoSug=Math.round(Math.min(ps.saldo,ps.sug||0)*100)/100;   // solo con lo que debía al empezar ESA semana (un préstamo nuevo no se cobra en semanas anteriores)
   const vac=r.filter(c=>c==='V').length, prog=rhBase(e).filter(Boolean).length||1, dom=r[SEM_DOM]==='T', d=+e.diario||0;
   const porHora=e.pago==='hora', tar=+e.tarifa||0, resta=g&&'resta_comida' in g?!!g.resta_comida:!!e.resta_comida, hs=rhHorasSem(e,sem,resta);
   // por hora: horas del rol × pago por hora (la comida se resta solo si se marca); prima dominical 25% de lo del domingo
@@ -1981,10 +1981,10 @@ function rhResDetalle(o){
       ...man.map(v=>tr(dia(v.fecha),`<b>Capturado por ti en Personal</b>${v.nota?'<br><small style="color:var(--muted)">'+esc(v.nota)+'</small>':''}`,+v.monto))]);
     origen='Los anticipos salen solos: los de la caja (salidas de MrTienda que digan VALE y el nombre) y los que registras en Préstamos y vales.';
   }else if(k==='abono'){
-    const p=rhPrest(e.id), contado=('abono' in f.aj)||c.g, antes=Math.round(((p.saldo||0)+(contado?f.abono:0))*100)/100, despues=Math.max(0,Math.round((antes-f.abono)*100)/100);
+    const p=rhPrest(e.id), ps=rhPrestSem(e.id,rhSem), contado=('abono' in f.aj)||c.g, antes=ps.saldo, despues=Math.max(0,Math.round((antes-f.abono)*100)/100);
     cuerpo=p.P.length?`<table class="ledger num" style="font-size:13.5px;margin-top:6px"><tbody>
         <tr><td>Debía antes de esta semana</td><td class="r"><b>${fmt2(antes)}</b></td></tr>
-        <tr><td>Descuento por semana</td><td class="r">${fmt2(p.sug||0)}</td></tr>
+        <tr><td>Descuento por semana</td><td class="r">${fmt2(ps.sug||0)}</td></tr>
         <tr><td>Se le descuenta esta semana</td><td class="r"><b>−${fmt2(f.abono)}</b></td></tr>
         <tr class="tt"><td><b>Queda debiendo</b></td><td class="r"><b>${fmt2(despues)}</b></td></tr></tbody></table>
       <b style="display:block;margin-top:12px;font-size:13px">Estado de cuenta</b>${rhEdoCuenta(e,p)}
@@ -2075,6 +2075,14 @@ function rhPrest(id){
   const abN=[...sems].reduce((a,s)=>{const aj=(AJ[s]||{})[id]||{};return a+('abono' in aj?+aj.abono:(((RH.nominas||{})[s]||{})[id]||{}).abono||0)},0);
   const AM=(RH.abonos||[]).filter(x=>x.emp===id), ab=abN+AM.reduce((a,x)=>a+(+x.monto||0),0);
   return {P,AM,pres,ab,saldo:Math.max(0,Math.round((pres-ab)*100)/100),sug:P.length?P[P.length-1].abono_sugerido||0:0};
+}
+// lo que debía al empezar la semana `sem`: préstamos hasta el fin de esa semana, menos abonos de nómina de semanas anteriores y abonos sueltos hasta esa semana
+function rhPrestSem(id,sem){
+  const fin=rhMas(sem,6), P=(RH.prestamos||[]).filter(p=>p.emp===id&&String(p.fecha||'')<=fin).sort((a,b)=>String(a.fecha).localeCompare(String(b.fecha)));
+  const AJ=RH.res_aj||{}, sems=new Set([...Object.keys(RH.nominas||{}),...Object.keys(AJ)].filter(s=>s<sem));
+  const abN=[...sems].reduce((a,s)=>{const aj=(AJ[s]||{})[id]||{};return a+('abono' in aj?+aj.abono:+((((RH.nominas||{})[s]||{})[id]||{}).abono||0))},0);
+  const abM=(RH.abonos||[]).filter(x=>x.emp===id&&String(x.fecha||'')<=fin).reduce((a,x)=>a+(+x.monto||0),0);
+  return {saldo:Math.max(0,Math.round((P.reduce((a,p)=>a+(+p.monto||0),0)-abN-abM)*100)/100),sug:P.length?+P[P.length-1].abono_sugerido||0:0,n:P.length};
 }
 let rhComAb=null;   // comida de empleado abierta en Vales de comida
 function rhComDetalle(c,q,x,op){
