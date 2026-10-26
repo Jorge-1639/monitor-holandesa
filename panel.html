@@ -1875,7 +1875,7 @@ function rhHorasSem(e,sem,resta){ // horas de la semana según el rol (días T c
 function rhNomCalc(e,sem){
   const r=rhRolDe(e,sem).d, f=r.filter(c=>c==='F').length, t=r.filter(c=>c==='T').length, g=(RH.nominas[sem]||{})[e.id];
   const vs=rhValesSem(e,sem), valesM=vs.man, valesC=vs.caja, comidas=vs.comidas, sinDesc=vs.sinDesc;
-  const pr=rhPrest(e.id), ps=rhPrestSem(e.id,sem), abonoSug=Math.round(Math.min(ps.saldo,ps.sug||0)*100)/100;   // solo con lo que debía al empezar ESA semana (un préstamo nuevo no se cobra en semanas anteriores)
+  const pr=rhPrest(e.id), ps=rhPrestSem(e.id,sem), abonoSug=ps.sug||0;   // solo con lo que debía al empezar ESA semana (un préstamo nuevo no se cobra en semanas anteriores)
   const vac=r.filter(c=>c==='V').length, prog=rhBase(e).filter(Boolean).length||1, dom=r[SEM_DOM]==='T', d=+e.diario||0;
   const porHora=e.pago==='hora', tar=+e.tarifa||0, resta=g&&'resta_comida' in g?!!g.resta_comida:!!e.resta_comida, hs=rhHorasSem(e,sem,resta);
   // por hora: horas del rol × pago por hora (la comida se resta solo si se marca); prima dominical 25% de lo del domingo
@@ -1984,7 +1984,8 @@ function rhResDetalle(o){
     const p=rhPrest(e.id), ps=rhPrestSem(e.id,rhSem), contado=('abono' in f.aj)||c.g, antes=ps.saldo, despues=Math.max(0,Math.round((antes-f.abono)*100)/100);
     cuerpo=p.P.length?`<table class="ledger num" style="font-size:13.5px;margin-top:6px"><tbody>
         <tr><td>Debía antes de esta semana</td><td class="r"><b>${fmt2(antes)}</b></td></tr>
-        <tr><td>Descuento por semana</td><td class="r">${fmt2(ps.sug||0)}</td></tr>
+        ${ps.L.filter(l=>l.saldo>0.004).map(l=>`<tr><td style="padding-left:10px"><small>Préstamo del ${rhCorta(l.f)} (${fmt2(l.monto)}): debe ${fmt2(l.saldo)} · descuento ${fmt2(l.sug)}</small></td><td class="r"><small>${fmt2(Math.min(l.saldo,l.sug))}</small></td></tr>`).join('')}
+        <tr><td>Descuento por semana (suma)</td><td class="r">${fmt2(ps.sug||0)}</td></tr>
         <tr><td>Se le descuenta esta semana</td><td class="r"><b>−${fmt2(f.abono)}</b></td></tr>
         <tr class="tt"><td><b>Queda debiendo</b></td><td class="r"><b>${fmt2(despues)}</b></td></tr></tbody></table>
       <b style="display:block;margin-top:12px;font-size:13px">Estado de cuenta</b>${rhEdoCuenta(e,p)}
@@ -2074,16 +2075,27 @@ function rhPrest(id){
   const AJ=RH.res_aj||{},sems=new Set([...Object.keys(RH.nominas||{}),...Object.keys(AJ)]);
   const abN=[...sems].reduce((a,s)=>{const aj=(AJ[s]||{})[id]||{};return a+('abono' in aj?+aj.abono:(((RH.nominas||{})[s]||{})[id]||{}).abono||0)},0);
   const AM=(RH.abonos||[]).filter(x=>x.emp===id), ab=abN+AM.reduce((a,x)=>a+(+x.monto||0),0);
-  return {P,AM,pres,ab,saldo:Math.max(0,Math.round((pres-ab)*100)/100),sug:P.length?P[P.length-1].abono_sugerido||0:0};
+  return {P,AM,pres,ab,saldo:Math.max(0,Math.round((pres-ab)*100)/100),sug:P.length?rhPrestSim(id).sug:0};
 }
-// lo que debía al empezar la semana `sem`: préstamos hasta el fin de esa semana, menos abonos de nómina de semanas anteriores y abonos sueltos hasta esa semana
-function rhPrestSem(id,sem){
-  const fin=rhMas(sem,6), P=(RH.prestamos||[]).filter(p=>p.emp===id&&String(p.fecha||'')<=fin).sort((a,b)=>String(a.fecha).localeCompare(String(b.fecha)));
-  const AJ=RH.res_aj||{}, sems=new Set([...Object.keys(RH.nominas||{}),...Object.keys(AJ)].filter(s=>s<sem));
-  const abN=[...sems].reduce((a,s)=>{const aj=(AJ[s]||{})[id]||{};return a+('abono' in aj?+aj.abono:+((((RH.nominas||{})[s]||{})[id]||{}).abono||0))},0);
-  const abM=(RH.abonos||[]).filter(x=>x.emp===id&&String(x.fecha||'')<=fin).reduce((a,x)=>a+(+x.monto||0),0);
-  return {saldo:Math.max(0,Math.round((P.reduce((a,p)=>a+(+p.monto||0),0)-abN-abM)*100)/100),sug:P.length?+P[P.length-1].abono_sugerido||0:0,n:P.length};
+// Préstamos uno por uno (30.7.66): cada préstamo lleva su saldo y su descuento por semana; el descuento de la semana es la SUMA.
+// Abono de nómina de una semana: primero a cada préstamo hasta su descuento por semana; si sobra, al más antiguo. Abono suelto: al más antiguo.
+// Con `sem`: cómo estaba cada préstamo al EMPEZAR esa semana (préstamos hasta el fin de esa semana, abonos de nómina de semanas anteriores).
+function rhPrestSim(id,sem){
+  const fin=sem?rhMas(sem,6):'9999-12-31', r2=x=>Math.round(x*100)/100;
+  const L=(RH.prestamos||[]).filter(p=>p.emp===id&&String(p.fecha||'')<=fin).map(p=>({id:p.id,f:String(p.fecha||''),monto:+p.monto||0,saldo:+p.monto||0,sug:+p.abono_sugerido||0,concepto:p.concepto||'',on:false}))
+    .sort((a,b)=>a.f.localeCompare(b.f));
+  const AJ=RH.res_aj||{}, ev=[];
+  L.forEach(l=>ev.push({f:l.f,o:0,l}));
+  (RH.abonos||[]).filter(x=>x.emp===id&&String(x.fecha||'')<=fin).forEach(x=>ev.push({f:String(x.fecha||''),o:1,m:+x.monto||0}));
+  new Set([...Object.keys(RH.nominas||{}),...Object.keys(AJ)]).forEach(s=>{if(sem&&s>=sem)return;const aj=(AJ[s]||{})[id]||{},v='abono' in aj?+aj.abono:+((((RH.nominas||{})[s]||{})[id]||{}).abono||0);if(v>0)ev.push({f:rhMas(s,6),o:2,m:v})});
+  ev.sort((a,b)=>a.f.localeCompare(b.f)||a.o-b.o);
+  ev.forEach(x=>{if(x.o===0){x.l.on=true;return}let m=x.m;const act=L.filter(l=>l.on&&l.saldo>0.004);
+    if(x.o===2)act.forEach(l=>{const y=Math.min(l.saldo,l.sug,m);l.saldo=r2(l.saldo-y);m=r2(m-y)});
+    act.forEach(l=>{const y=Math.min(l.saldo,m);l.saldo=r2(l.saldo-y);m=r2(m-y)})});
+  const vivos=L.filter(l=>l.saldo>0.004);
+  return {L,saldo:r2(vivos.reduce((a,l)=>a+l.saldo,0)),sug:r2(vivos.reduce((a,l)=>a+Math.min(l.saldo,l.sug),0))};
 }
+function rhPrestSem(id,sem){const r=rhPrestSim(id,sem);return {saldo:r.saldo,sug:r.sug,n:r.L.length,L:r.L}}
 let rhComAb=null;   // comida de empleado abierta en Vales de comida
 function rhComDetalle(c,q,x,op){
   const T=+c.total||0, it=(c.items||[]);
@@ -2124,7 +2136,9 @@ function rhEdoDetalle(e,p,f,sems){
   const aj=((RH.res_aj||{})[rhSem]||{})[e.id]||{}, quitado='abono' in aj&&+aj.abono===0;
   const ant=rhAntSem(e.id,sems);
   return `<div style="padding:4px 2px 12px">${p.P.length?rhEdoCuenta(e,p):''}
-    ${p.P.length?`<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:8px"><div class="field" style="margin:0;flex:1;min-width:140px"><label>Descuento por semana</label><input id="rhSemAb_${e.id}" inputmode="decimal" value="${p.sug||''}"></div><button class="btn" data-rh="semab" data-id="${e.id}">Guardar</button></div>
+    ${p.P.length?`<b style="display:block;margin-top:10px;font-size:13px">Cada préstamo y su descuento por semana</b>${rhPrestSim(e.id).L.map(l=>`<div style="border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-top:6px"><div style="display:flex;justify-content:space-between;gap:8px"><span>Préstamo del <b>${rhCorta(l.f)}</b> · ${fmt2(l.monto)}${l.concepto?' <small style="color:var(--muted)">('+esc(l.concepto)+')</small>':''}</span><b class="num" style="color:${l.saldo>0.004?'var(--bad)':'var(--good)'}">${l.saldo>0.004?'debe '+fmt2(l.saldo):'pagado'}</b></div>
+      ${l.saldo>0.004?`<div style="display:flex;gap:8px;align-items:flex-end;margin-top:6px"><div class="field" style="margin:0;flex:1"><label>Descuento por semana</label><input id="rhSemAb_${l.id}" inputmode="decimal" value="${l.sug||''}"></div><button class="btn" data-rh="semab" data-id="${l.id}" data-emp="${e.id}">Guardar</button></div>`:''}</div>`).join('')}
+      <p class="empty" style="margin:6px 0 0">Esta semana se le descuenta la suma: <b>${fmt2(rhPrestSem(e.id,rhSem).sug)}</b>.</p>
       <div class="note" style="margin-top:8px;background:var(--surface-2);color:var(--ink)">Semana del ${rhCorta(rhSem)} al ${rhCorta(rhMas(rhSem,6))}: ${quitado?'<b>no se le descuenta</b>':'se le descuentan <b>'+fmt2(f.abono)+'</b>'}
         <div class="btns" style="margin-top:6px">${quitado?`<button class="btn" data-rh="sidesc" data-id="${e.id}">Sí se descontó</button>`:`<button class="btn" data-rh="nodesc" data-id="${e.id}" style="color:var(--bad)">No se descontó</button>`}</div></div>`:''}
     <b style="display:block;margin-top:10px;font-size:13px">Anticipos (vales de la semana) · últimas 4 semanas</b>
@@ -2294,7 +2308,7 @@ document.addEventListener('click',async e=>{
     else if(a==='resguardar'||a==='resauto'){const raw=a==='resauto'?'':String(($('#rdVal')||{}).value||'').replace(/[$,\s]/g,'');
       if(raw!==''&&isNaN(+raw)){toast('Escribe solo números.');t.disabled=false;return}
       await rhApi({accion:'res_aj',semana:rhSem,emp:rhResDet.emp,k:rhResDet.k,valor:raw===''?null:+raw});toast(raw===''?'Vuelve a lo automático':'Guardado');rhResDet=null}
-    else if(a==='semab'){await rhApi({accion:'prestamo_semanal',emp:d.id,abono:($('#rhSemAb_'+d.id)||{}).value||0});toast('Descuento por semana guardado')}
+    else if(a==='semab'){await rhApi({accion:'prestamo_semanal',emp:d.emp,id:d.id,abono:($('#rhSemAb_'+d.id)||{}).value||0});toast('Descuento por semana guardado')}
     else if(a==='nodesc'||a==='sidesc'){const s_=d.sem||rhSem;if(a==='nodesc'&&!confirm('¿Marcar que la semana del '+rhCorta(s_)+' no se le descontó el préstamo?')){t.disabled=false;return}
       await rhApi({accion:'res_aj',semana:s_,emp:d.id,k:'abono',valor:a==='nodesc'?0:null});toast(a==='nodesc'?'Quitado: esa semana no se le descuenta':'Vuelve a descontarse')}
     else if(a==='abono'){await rhApi({accion:'abono_alta',emp:$('#raEmp').value,monto:$('#raMon').value,fecha:$('#raFec').value,nota:$('#raNot').value});toast('Abono registrado')}

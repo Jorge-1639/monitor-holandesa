@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 167            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.65'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 168            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.66'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -3348,10 +3348,13 @@ class Monitor:
             m = num(a.get('monto'))
             if m <= 0: raise ValueError('Escribe el monto del abono.')
             d.setdefault('abonos', []).append({'id': secrets.token_hex(4), 'emp': emp_id(a.get('emp')), 'fecha': fecha(a.get('fecha'), True), 'monto': m, 'nota': txt(a.get('nota'), 120)})
-        elif acc == 'prestamo_semanal':   # cuánto se le descuenta por semana (se guarda en su último préstamo)
-            e = emp_id(a.get('emp')); P = [x for x in d['prestamos'] if x.get('emp') == e]
-            if not P: raise ValueError('No tiene préstamos.')
-            P[-1]['abono_sugerido'] = num(a.get('abono'))
+        elif acc == 'prestamo_semanal':   # cuánto se le descuenta por semana de UN préstamo (cada préstamo lleva el suyo)
+            x = next((x for x in d['prestamos'] if x.get('id') == a.get('id')), None) if a.get('id') else None
+            if not x:
+                e = emp_id(a.get('emp')); P = [p_ for p_ in d['prestamos'] if p_.get('emp') == e]
+                if not P: raise ValueError('No tiene préstamos.')
+                x = P[-1]
+            x['abono_sugerido'] = num(a.get('abono'))
         elif acc == 'abono_borrar':
             d['abonos'] = [x for x in d.get('abonos', []) if x.get('id') != a.get('id')]
         elif acc == 'vale_alta':
