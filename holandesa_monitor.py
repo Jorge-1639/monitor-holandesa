@@ -567,7 +567,11 @@ class _Cdx:
         if s._hoja_bytes(ents, prm, t) is not None:
             s._hoja_pon(p, ents, prm, t, att, l, r); rep = (p, ents[-1]); nuevo = None
         else:
-            h = (len(ents) + 1) // 2; a, z = ents[:h], ents[h:]; q = s._pagina()
+            medio = (len(ents) + 1) // 2   # lo más parejo posible, pero que las dos mitades quepan en bytes
+            h = next((m for d in range(len(ents)) for m in (medio - d, medio + d) if 0 < m < len(ents)
+                      and s._hoja_bytes(ents[:m], prm, t) is not None and s._hoja_bytes(ents[m:], prm, t) is not None), None)
+            if h is None: raise CdxError('No se pudo dividir la hoja del índice.')
+            a, z = ents[:h], ents[h:]; q = s._pagina()
             s._hoja_pon(p, a, prm, t, att & ~1, l, q); s._hoja_pon(q, z, prm, t, 2, p, r)
             if r != -1: x = s.node(r); s._hdr(r, x[0], x[1], q, x[3])
             rep = (p, a[-1]); nuevo = (q, z[-1])
@@ -585,7 +589,7 @@ class _Cdx:
                 if r != -1: x = s.node(r); s._hdr(r, x[0], x[1], q, x[3])
                 rep = (p, a[-1][:2]); nuevo = (q, z[-1][:2])
                 if att & 1:
-                    nr = s._pagina(); s._int_pon(nr, [a[-1], z[-1]], t, 1, -1, -1); t.root = nr; return
+                    nr = s._pagina(); s._int_pon(nr, [a[-1][:2] + (p,), z[-1][:2] + (q,)], t, 1, -1, -1); t.root = nr; return
     def version_mas_1(s):
         v = struct.unpack('>I', s.b[8:12])[0]; s.b[8:12] = struct.pack('>I', (v + 1) & 0xffffffff); s.dirty.add(0)
     def revisar(s, t):
@@ -2989,32 +2993,42 @@ class Monitor:
                     ks = x.revisar(t)
                     if len(ks) != recno or (key, recno) not in ks: raise CdxError(f'No quedó bien el índice {t.name}.')
                 x.version_mas_1()
-            _pon(crec, qfl, 'FOL_CTES', folio + 1)
+            fpos = qhl + qfl['FOL_CTES'][3]; fant = bytes(_campo(crec, qfl, 'FOL_CTES'))
+            _pon(crec, qfl, 'FOL_CTES', folio + 1); fnew = bytes(_campo(crec, qfl, 'FOL_CTES'))
+            bq_tam = len(bqb); bq_hdr = bytes(bqb[:bhl]); bq_cola = bytes(bqb[bhl + bn*brl:])
             # respaldo: todo lo que se va a tocar (de CLIENTES.DBF basta el encabezado y su tamaño, porque solo se agrega al final)
             d_ = _respaldar([rutas['CLIENTES.CDX'], rutas['CTES_BQ.DBF'], rutas['CTES_BQ.CDX'], rutas['CONFIG.DBF']], 'ALTA_' + cod)
             with open(os.path.join(d_, 'CLIENTES_encabezado.bin'), 'wb') as f: f.write(bytes(hdr))
             with open(os.path.join(d_, 'CLIENTES_tamano.txt'), 'w') as f: f.write(f'{tam}\nPara deshacer: copiar este encabezado al inicio de CLIENTES.DBF y cortar el archivo a {tam} bytes (o usar Reindexar tras borrar el cliente).')
             if {k: (os.stat(r).st_size, os.stat(r).st_mtime_ns) for k, r in rutas.items()} != firma: raise CdxError('Mr. Tienda estaba guardando al mismo tiempo; intenta otra vez.')
+            with open(rutas['CONFIG.DBF'], 'rb') as f: f.seek(fpos); hoy_folio = f.read(len(fant))
+            if hoy_folio != fant: raise CdxError('Mr. Tienda acaba de usar el folio de clientes; intenta otra vez.')
             hecho = []
             try:
                 # 1) renglón nuevo al final de CLIENTES.DBF y CTES_BQ.DBF, luego el conteo del encabezado
-                for ruta, h_, r_, l_, cnt, reg in ((rutas['CLIENTES.DBF'], hl, rl, None, n, nuevo), (rutas['CTES_BQ.DBF'], bhl, brl, None, bn, bq)):
-                    _escribe_en(ruta, h_ + cnt*r_, bytes(reg) + b'\x1a'); hecho.append(ruta)
+                for ruta, h_, r_, cnt, reg in ((rutas['CLIENTES.DBF'], hl, rl, n, nuevo), (rutas['CTES_BQ.DBF'], bhl, brl, bn, bq)):
+                    hecho.append(ruta)
+                    _escribe_en(ruta, h_ + cnt*r_, bytes(reg) + b'\x1a')
                     _escribe_en(ruta, 4, struct.pack('<I', cnt + 1))
                     _escribe_en(ruta, 1, bytes([ahora.year % 100, ahora.month, ahora.day]))
                 # 2) índices
                 for ruta, x in ((rutas['CLIENTES.CDX'], cx), (rutas['CTES_BQ.CDX'], bx)):
-                    for pos, datos in x.cambios(): _escribe_en(ruta, pos, datos)
                     hecho.append(ruta)
-                # 3) folio
-                _escribe_en(rutas['CONFIG.DBF'], qhl, bytes(crec)); hecho.append(rutas['CONFIG.DBF'])
+                    for pos, datos in x.cambios(): _escribe_en(ruta, pos, datos)
+                # 3) folio: solo sus 6 bytes (CONFIG trae ~30 folios más que Mr. Tienda va moviendo)
+                hecho.append(rutas['CONFIG.DBF'])
+                _escribe_en(rutas['CONFIG.DBF'], fpos, fnew)
             except Exception:
-                log('ALTA: falló a la mitad; regreso los archivos como estaban. ' + traceback.format_exc())
-                try:
-                    for nm in ('CLIENTES.CDX', 'CTES_BQ.DBF', 'CTES_BQ.CDX', 'CONFIG.DBF'):
-                        shutil.copy2(os.path.join(d_, nm), rutas[nm])
-                    with open(rutas['CLIENTES.DBF'], 'r+b') as f: f.seek(0); f.write(bytes(hdr)); f.seek(hl + n*rl); f.write(cola); f.truncate(tam)
-                except Exception: log('ALTA: NO PUDE REGRESAR LOS ARCHIVOS. Usa Reindexar en Mr. Tienda. ' + traceback.format_exc())
+                log('ALTA: falló a la mitad; regreso lo que alcancé a escribir. ' + traceback.format_exc())
+                deshacer = {rutas['CLIENTES.DBF']: (bytes(hdr), hl + n*rl, cola, tam), rutas['CTES_BQ.DBF']: (bq_hdr, bhl + bn*brl, bq_cola, bq_tam)}
+                for ruta in reversed(hecho):
+                    try:
+                        if ruta in deshacer:
+                            h_, pos, c_, t_ = deshacer[ruta]
+                            with open(ruta, 'r+b') as f: f.seek(0); f.write(h_); f.seek(pos); f.write(c_); f.truncate(t_)
+                        elif ruta == rutas['CONFIG.DBF']: _escribe_en(ruta, fpos, fant)
+                        else: shutil.copy2(os.path.join(d_, os.path.basename(ruta)), ruta)
+                    except Exception: log('ALTA: NO PUDE REGRESAR ' + ruta + '. Usa Reindexar en Mr. Tienda. ' + traceback.format_exc())
                 raise CdxError('No se pudo guardar en Mr. Tienda; quedó como estaba.')
             with self.rows_lock:
                 self.cache = {k: v for k, v in self.cache.items() if k[0] not in rutas.values()}
