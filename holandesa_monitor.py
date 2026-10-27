@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 176            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.74'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 177            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.75'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -472,6 +472,166 @@ def _dbf_txt(x):
     """Texto leído de MrTienda (viene en cp850 leído como latin-1, por eso la Ñ salía como ¥): lo regresa a su letra real."""
     try: return str(x or '').encode('latin-1').decode('cp850')
     except (UnicodeEncodeError, UnicodeDecodeError): return str(x or '')
+
+# ---------------------------------------------------------------- alta de clientes en Mr. Tienda (30.7.75)
+# Índices CDX de FoxPro (compactos). Comprobado contra el alta real de MrTienda del 14-oct-2026 (cliente 009331):
+# mismas llaves en las 9 etiquetas de CLIENTES.CDX y las 2 de CTES_BQ.CDX, mismas 5 páginas nuevas y mismo tamaño.
+class CdxError(Exception): pass
+class _CdxTag:
+    def __init__(s, cdx, name, off):
+        s.c = cdx; s.name = name; s.off = off; b = cdx.b
+        s.kl = struct.unpack('<H', b[off+12:off+14])[0]
+        el = struct.unpack('<H', b[off+504:off+506])[0]   # largo de la expresión de la llave; la expresión empieza en +512
+        s.expr = bytes(b[off+512:off+512+el]).split(b'\0')[0].decode('latin-1')
+        s.fill = b' '
+    @property
+    def root(s): return struct.unpack('<i', s.c.b[s.off:s.off+4])[0]
+    @root.setter
+    def root(s, v): s.c.b[s.off:s.off+4] = struct.pack('<i', v); s.c.dirty.add(s.off)
+class _Cdx:
+    N = 512
+    def __init__(s, b):
+        s.b = bytearray(b); s.dirty = set(); s.nuevas = []; s.largo0 = len(s.b)
+        if len(s.b) % s.N or len(s.b) < 1536: raise CdxError('El índice no tiene el tamaño esperado.')
+        s.tags = {}
+        for k, r in s.cadena(_CdxTag(s, '', 0)):
+            nm = k.rstrip(b' \0').decode('latin-1'); s.tags[nm] = _CdxTag(s, nm, r)
+    def node(s, p):
+        if p < 0 or p + s.N > len(s.b) or p % s.N: raise CdxError('Página fuera del índice.')
+        return struct.unpack('<HHii', s.b[p:p+12])
+    def _hdr(s, p, att, nk, l, r): s.b[p:p+12] = struct.pack('<HHii', att, nk, l, r); s.dirty.add(p)
+    def hoja(s, p, t):
+        b = s.b; att, nk, l, r = s.node(p)
+        if not att & 2: raise CdxError('Se esperaba una hoja.')
+        rmask = struct.unpack('<I', b[p+14:p+18])[0]; dmask, tmask, rb, db, tb, nb = b[p+18:p+24]
+        out = []; kp = p + s.N; prev = b''
+        for i in range(nk):
+            e = int.from_bytes(b[p+24+i*nb:p+24+(i+1)*nb], 'little')
+            rec = e & rmask; dup = (e >> rb) & dmask; trl = (e >> (rb+db)) & tmask; n = t.kl - dup - trl
+            if n < 0 or kp - n < p + 24 + nk*nb: raise CdxError('Hoja dañada.')
+            kp -= n; key = prev[:dup] + bytes(b[kp:kp+n]) + t.fill*trl; out.append((key, rec)); prev = key
+        return out, (rmask, dmask, tmask, rb, db, tb, nb)
+    def _hoja_bytes(s, ents, prm, t):
+        rmask, dmask, tmask, rb, db, tb, nb = prm; info = bytearray(); keys = bytearray(); prev = None
+        for key, rec in ents:
+            if rec > rmask: raise CdxError('Hay demasiados clientes para este índice; usa Reindexar en Mr. Tienda.')
+            trl = min(len(key) - len(key.rstrip(t.fill)), tmask); dup = 0
+            if prev is not None:
+                lim = min(t.kl - trl, dmask, len(prev.rstrip(t.fill)))   # como FoxPro: solo contra lo escrito de la llave anterior
+                while dup < lim and prev[dup] == key[dup]: dup += 1
+            info += (rec | (dup << rb) | (trl << (rb+db))).to_bytes(nb, 'little'); keys[0:0] = key[dup:t.kl-trl]; prev = key
+        free = 488 - len(info) - len(keys)
+        if free < 0: return None
+        body = bytearray(500); body[0:2] = struct.pack('<H', free); body[2:6] = struct.pack('<I', rmask)
+        body[6:12] = bytes([dmask, tmask, rb, db, tb, nb]); body[12:12+len(info)] = info
+        if keys: body[500-len(keys):] = keys
+        return body
+    def _hoja_pon(s, p, ents, prm, t, att, l, r):
+        body = s._hoja_bytes(ents, prm, t)
+        if body is None: raise CdxError('La hoja no cabe.')
+        s._hdr(p, att, len(ents), l, r); s.b[p+12:p+s.N] = body
+    def interior(s, p, t):
+        att, nk, l, r = s.node(p); out = []
+        if 12 + nk*(t.kl+8) > s.N: raise CdxError('Página interior dañada.')
+        for i in range(nk):
+            o = p + 12 + i*(t.kl+8); out.append((bytes(s.b[o:o+t.kl]),) + struct.unpack('>II', s.b[o+t.kl:o+t.kl+8]))
+        return out
+    def _cap(s, t): return 500 // (t.kl + 8)
+    def _int_pon(s, p, ents, t, att, l, r):
+        if len(ents) > s._cap(t): raise CdxError('La página interior no cabe.')
+        body = bytearray(500)
+        for i, (k, rec, ch) in enumerate(ents):
+            o = i*(t.kl+8); body[o:o+t.kl] = k; body[o+t.kl:o+t.kl+8] = struct.pack('>II', rec, ch)
+        s._hdr(p, att, len(ents), l, r); s.b[p+12:p+s.N] = body
+    def cadena(s, t):
+        p = t.root; vistos = 0
+        while not s.node(p)[0] & 2:
+            p = s.interior(p, t)[0][2]; vistos += 1
+            if vistos > 20: raise CdxError('Árbol del índice dañado.')
+        out = []; vistos = set()
+        while p != -1:
+            if p in vistos: raise CdxError('Cadena de hojas en círculo.')
+            vistos.add(p); e, _ = s.hoja(p, t); out += e; p = s.node(p)[3]
+        return out
+    def _pagina(s):
+        p = len(s.b); s.b += bytes(s.N); s.nuevas.append(p); return p
+    def insertar(s, t, key, rec):
+        if len(key) != t.kl: raise CdxError('Llave de largo incorrecto.')
+        item = (key, rec); camino = []; p = t.root
+        while not s.node(p)[0] & 2:
+            ents = s.interior(p, t)
+            i = next((j for j, (k, r, ch) in enumerate(ents) if (k, r) >= item), len(ents) - 1)
+            camino.append((p, i)); p = ents[i][2]
+        ents, prm = s.hoja(p, t); att, nk, l, r = s.node(p)
+        ents.insert(next((j for j, e in enumerate(ents) if e > item), len(ents)), item)
+        if s._hoja_bytes(ents, prm, t) is not None:
+            s._hoja_pon(p, ents, prm, t, att, l, r); rep = (p, ents[-1]); nuevo = None
+        else:
+            h = (len(ents) + 1) // 2; a, z = ents[:h], ents[h:]; q = s._pagina()
+            s._hoja_pon(p, a, prm, t, att & ~1, l, q); s._hoja_pon(q, z, prm, t, 2, p, r)
+            if r != -1: x = s.node(r); s._hdr(r, x[0], x[1], q, x[3])
+            rep = (p, a[-1]); nuevo = (q, z[-1])
+            if att & 1:
+                nr = s._pagina(); s._int_pon(nr, [a[-1] + (p,), z[-1] + (q,)], t, 1, -1, -1); t.root = nr; return
+        while camino:
+            p, i = camino.pop(); ents = s.interior(p, t); att, nk, l, r = s.node(p)
+            ents[i] = rep[1] + (rep[0],)
+            if nuevo: ents.insert(i+1, nuevo[1] + (nuevo[0],))
+            if len(ents) <= s._cap(t):
+                s._int_pon(p, ents, t, att, l, r); rep = (p, ents[-1][:2]); nuevo = None
+            else:
+                h = (len(ents) + 1) // 2; a, z = ents[:h], ents[h:]; q = s._pagina()
+                s._int_pon(p, a, t, att & ~1, l, q); s._int_pon(q, z, t, 0, p, r)
+                if r != -1: x = s.node(r); s._hdr(r, x[0], x[1], q, x[3])
+                rep = (p, a[-1][:2]); nuevo = (q, z[-1][:2])
+                if att & 1:
+                    nr = s._pagina(); s._int_pon(nr, [a[-1], z[-1]], t, 1, -1, -1); t.root = nr; return
+    def version_mas_1(s):
+        v = struct.unpack('>I', s.b[8:12])[0]; s.b[8:12] = struct.pack('>I', (v + 1) & 0xffffffff); s.dirty.add(0)
+    def revisar(s, t):
+        """Revisa el árbol completo (orden, llaves de los interiores, hermanos) y regresa todas las llaves."""
+        hojas = []
+        def baja(p, nivel):
+            if nivel > 20: raise CdxError('Árbol del índice dañado.')
+            if s.node(p)[0] & 2:
+                e, _ = s.hoja(p, t); hojas.append(p); return e
+            todo = []
+            for k, r, ch in s.interior(p, t):
+                e = baja(ch, nivel + 1)
+                if not e or e[-1] != (k, r): raise CdxError(f'Índice {t.name}: llave de interior no coincide.')
+                todo += e
+            return todo
+        todo = baja(t.root, 0)
+        if any(todo[i] > todo[i+1] for i in range(len(todo) - 1)): raise CdxError(f'Índice {t.name}: fuera de orden.')
+        for i, p in enumerate(hojas):
+            att, nk, l, r = s.node(p)
+            if l != (hojas[i-1] if i else -1) or r != (hojas[i+1] if i + 1 < len(hojas) else -1): raise CdxError(f'Índice {t.name}: hojas mal ligadas.')
+        return todo
+    def cambios(s):
+        """(posición, bytes) a escribir: páginas tocadas y páginas nuevas al final."""
+        out = [(p, bytes(s.b[p:p+s.N])) for p in sorted({(d // s.N) * s.N for d in s.dirty}) if p < s.largo0]
+        if len(s.b) > s.largo0: out.append((s.largo0, bytes(s.b[s.largo0:])))
+        return out
+
+def fupper(raw):
+    """La función fUPPER de MrTienda (sacada de sus índices): a-z a mayúsculas; | } y todo lo que no es ASCII se vuelve espacio."""
+    return bytes((c - 32) if 97 <= c <= 122 else (32 if c > 122 else c) for c in raw)
+
+def _cp850(v, ln):
+    return str(v or '').upper().encode('cp850', 'replace')[:ln].ljust(ln, b' ')
+# Llaves de cada etiqueta de CLIENTES.CDX y CTES_BQ.CDX (las expresiones tal como las tiene MrTienda)
+LLAVES_CLIENTES = {
+    'CLIENTES->COD_CTE': lambda f: f('COD_CTE'),
+    'CLIENTES->COD_GIRO+fUPPER(CLIENTES->CTE_NOMBRE)': lambda f: f('COD_GIRO') + fupper(f('CTE_NOMBRE')),
+    'fUPPER(CLIENTES->CTE_NOMBRE)': lambda f: fupper(f('CTE_NOMBRE')),
+    'CLIENTES->COD_ESCALA + fUPPER(CLIENTES->CTE_NOMBRE)': lambda f: f('COD_ESCALA') + fupper(f('CTE_NOMBRE')),
+    'CLIENTES->COD_VENDED + fUPPER(CLIENTES->CTE_NOMBRE)': lambda f: f('COD_VENDED') + fupper(f('CTE_NOMBRE')),
+    'CLIENTES->COD_UNICO': lambda f: f('COD_UNICO'),
+    'CLIENTES->WEB_PASS': lambda f: f('WEB_PASS'),
+    'CLIENTES->CTE_RFC': lambda f: f('CTE_RFC'),
+    'CLIENTES->ID_CTE_WOO': None,   # numérico: el cliente nuevo lleva 0, igual que casi todos
+}
+LLAVES_CTES_BQ = {'CTES_BQ->COD_CTE': lambda f: f('COD_CTE'), 'fUPPER(CTES_BQ->CTE_NOMBRE)': lambda f: fupper(f('CTE_NOMBRE'))}
 
 # Formato de la comanda de cocina (versión 30.6.26): Jorge lo elige en el panel → COMANDERO → Comanda de cocina.
 # Tamaños de la Epson (ESC !): normal = negritas; alto = negritas y doble de alto; grande = doble de alto y de ancho.
@@ -2758,6 +2918,109 @@ class Monitor:
     def clientes_nuevos(self):
         try: return json.load(open(self.CLIENTES_NUEVOS_F, encoding='utf-8'))
         except (OSError, ValueError): return []
+    # ------------------------------------------------ alta de cliente nuevo directo en Mr. Tienda (30.7.75)
+    def _cte_registro(self, fl, rl, D, cod, ahora):
+        rec = bytearray(b' ' * rl)
+        u = lambda k: str(D.get(k) or '').strip()
+        dom = ' '.join([u('calle'), u('no_ext'), u('no_int'), u('colonia'), u('localidad'), u('municipio'), u('cp'), u('estado')]).upper()
+        vals = {'COD_CTE': cod, 'CTE_NOMBRE': u('nombre') or u('razon_social'), 'CTE_CONTAC': u('contacto'), 'CTE_DIREC1': dom[:45], 'CTE_DIREC2': dom[45:90],
+                'CTE_RFC': u('rfc'), 'CTE_TEL1': u('telefono'), 'CTE_MAIL': u('correo'), 'COD_ESCALA': '02', 'RAZON_SOC': u('razon_social'),
+                'CTE_CALLE': u('calle'), 'CTE_NOEXT': u('no_ext'), 'CTE_NOINT': u('no_int'), 'CTE_COLON': u('colonia'), 'CTE_LOCAL': u('localidad'),
+                'CTE_REFLOC': u('referencia'), 'CTE_MUNIC': u('municipio'), 'CTE_ESTDO': u('estado'), 'CTE_PAIS': 'MEXICO', 'CTE_CP': u('cp'),
+                'HORA_ALTA': ahora.strftime('%H:%M'), 'USOCFDI': u('uso').upper() or 'G03', 'CMP_FORMA': '001', 'I_RGF': u('regimen')}
+        for k, v in vals.items():
+            if k in fl and v: _pon(rec, fl, k, _cp850(v, fl[k][1]))
+        for k, v in (('CTE_CREDIT', 0), ('CTE_LIMITE', 0), ('DIAS_APAR', 0), ('F_RTIVA', 0)):
+            if k in fl: _pon(rec, fl, k, v)
+        for k in ('FACTURAR', 'ACCESO_KEY', 'INACTIVO', 'RETENCION', 'RETEN_ISR', 'DESG_IEPS', 'CTE_QIVA', 'ASUST_TASA', 'V_HUELLA', 'M_HUELLA', 'RI_CEDULAR'):
+            if k in fl: _pon(rec, fl, k, False)
+        if 'EXC_PUNTOS' in fl: _pon(rec, fl, 'EXC_PUNTOS', True)
+        if 'FECH_ALTA' in fl: _pon(rec, fl, 'FECH_ALTA', ahora.strftime('%Y%m%d').encode())
+        return rec
+    def alta_mrtienda(self, D, quien=''):
+        """Da de alta un cliente en Mr. Tienda igual que la pantalla Clientes → Nuevo: CLIENTES.DBF + CLIENTES.CDX (9 etiquetas),
+        CTES_BQ.DBF + CTES_BQ.CDX y CONFIG.FOL_CTES + 1. Revisa todo en memoria antes de escribir y guarda respaldo. Regresa (cod, nombre)."""
+        if not self.cfg.get('alta_clientes_auto', True): raise CdxError('El alta automática está apagada.')
+        db = lambda n: self._cat(n)
+        rutas = {k: db(k) for k in ('CLIENTES.DBF', 'CLIENTES.CDX', 'CTES_BQ.DBF', 'CTES_BQ.CDX', 'CONFIG.DBF')}
+        for k, r in rutas.items():
+            if not os.path.isfile(r): raise CdxError('No encontré ' + k + ' de Mr. Tienda.')
+        if os.path.basename(os.path.dirname(rutas['CLIENTES.DBF'])).upper() != 'DATABASE': raise CdxError('Solo se da de alta en la caja (carpeta DATABASE).')
+        with self.write_lock:
+            firma = {k: (os.stat(r).st_size, os.stat(r).st_mtime_ns) for k, r in rutas.items()}
+            leer = lambda k: open(rutas[k], 'rb').read()
+            cfgb = bytearray(leer('CONFIG.DBF')); qn, qhl, qrl, qfl = _layout(cfgb)
+            if qn < 1 or 'FOL_CTES' not in qfl: raise CdxError('CONFIG de Mr. Tienda sin folio de clientes.')
+            crec = bytearray(cfgb[qhl:qhl+qrl])
+            try: folio = int(_campo(crec, qfl, 'FOL_CTES').strip() or 0)
+            except ValueError: raise CdxError('Folio de clientes ilegible.')
+            if folio <= 0 or folio >= 999999: raise CdxError('Folio de clientes fuera de rango.')
+            cod = '%06d' % folio
+            # CLIENTES.DBF: solo el encabezado (el archivo pesa ~27 MB y solo se le agrega un renglón)
+            with open(rutas['CLIENTES.DBF'], 'rb') as f: h0 = f.read(32)
+            n, hl, rl = struct.unpack('<IHH', h0[4:12])
+            with open(rutas['CLIENTES.DBF'], 'rb') as f: hdr = bytearray(f.read(hl)); f.seek(hl + n*rl); cola = f.read()   # cola: la marca de fin (0x1A) si la tiene
+            _, _, _, fl = _layout(hdr + bytes(rl * 0))
+            tam = firma['CLIENTES.DBF'][0]
+            if tam not in (hl + n*rl, hl + n*rl + 1) or cola not in (b'', b'\x1a'): raise CdxError('CLIENTES.DBF no tiene el tamaño esperado; usa Reindexar en Mr. Tienda.')
+            bqb = bytearray(leer('CTES_BQ.DBF')); bn, bhl, brl, bfl = _layout(bqb)
+            if len(bqb) not in (bhl + bn*brl, bhl + bn*brl + 1): raise CdxError('CTES_BQ.DBF no tiene el tamaño esperado.')
+            cx = _Cdx(leer('CLIENTES.CDX')); bx = _Cdx(leer('CTES_BQ.CDX'))
+            for x, esperadas, total in ((cx, LLAVES_CLIENTES, n), (bx, LLAVES_CTES_BQ, bn)):
+                if sorted(t.expr for t in x.tags.values()) != sorted(esperadas): raise CdxError('Los índices de Mr. Tienda cambiaron; no los toco.')
+                for t in x.tags.values():
+                    if t.expr == 'CLIENTES->ID_CTE_WOO': t.fill = b'\0'
+                    ks = x.revisar(t)
+                    if len(ks) != total: raise CdxError(f'El índice {t.name} no cuadra con la tabla; usa Reindexar en Mr. Tienda.')
+                    if t.expr.endswith('COD_CTE') and any(k == cod.encode() for k, r in ks): raise CdxError(f'El código {cod} ya existe; revisa el folio en Mr. Tienda.')
+                    if t.expr == 'CLIENTES->CTE_RFC' and any(k.rstrip() == str(D.get('rfc') or '').upper().encode('cp850', 'replace') for k, r in ks): raise CdxError('Ese RFC ya está en Mr. Tienda.')
+            ahora = datetime.datetime.now()
+            nuevo = self._cte_registro(fl, rl, D, cod, ahora)
+            bq = bytearray(b' ' * brl)
+            for k in bfl:
+                if k in fl: _pon(bq, bfl, k, _campo(nuevo, fl, k)[:bfl[k][1]])
+            f1 = lambda k: _campo(nuevo, fl, k); f2 = lambda k: _campo(bq, bfl, k)
+            for x, esperadas, campo, recno in ((cx, LLAVES_CLIENTES, f1, n + 1), (bx, LLAVES_CTES_BQ, f2, bn + 1)):
+                for t in x.tags.values():
+                    fn_ = esperadas[t.expr]
+                    key = (b'\x80' + b'\0' * (t.kl - 1)) if fn_ is None else fn_(campo)
+                    if len(key) != t.kl: raise CdxError(f'Llave de {t.name} con largo raro.')
+                    x.insertar(t, key, recno)
+                    ks = x.revisar(t)
+                    if len(ks) != recno or (key, recno) not in ks: raise CdxError(f'No quedó bien el índice {t.name}.')
+                x.version_mas_1()
+            _pon(crec, qfl, 'FOL_CTES', folio + 1)
+            # respaldo: todo lo que se va a tocar (de CLIENTES.DBF basta el encabezado y su tamaño, porque solo se agrega al final)
+            d_ = _respaldar([rutas['CLIENTES.CDX'], rutas['CTES_BQ.DBF'], rutas['CTES_BQ.CDX'], rutas['CONFIG.DBF']], 'ALTA_' + cod)
+            with open(os.path.join(d_, 'CLIENTES_encabezado.bin'), 'wb') as f: f.write(bytes(hdr))
+            with open(os.path.join(d_, 'CLIENTES_tamano.txt'), 'w') as f: f.write(f'{tam}\nPara deshacer: copiar este encabezado al inicio de CLIENTES.DBF y cortar el archivo a {tam} bytes (o usar Reindexar tras borrar el cliente).')
+            if {k: (os.stat(r).st_size, os.stat(r).st_mtime_ns) for k, r in rutas.items()} != firma: raise CdxError('Mr. Tienda estaba guardando al mismo tiempo; intenta otra vez.')
+            hecho = []
+            try:
+                # 1) renglón nuevo al final de CLIENTES.DBF y CTES_BQ.DBF, luego el conteo del encabezado
+                for ruta, h_, r_, l_, cnt, reg in ((rutas['CLIENTES.DBF'], hl, rl, None, n, nuevo), (rutas['CTES_BQ.DBF'], bhl, brl, None, bn, bq)):
+                    _escribe_en(ruta, h_ + cnt*r_, bytes(reg) + b'\x1a'); hecho.append(ruta)
+                    _escribe_en(ruta, 4, struct.pack('<I', cnt + 1))
+                    _escribe_en(ruta, 1, bytes([ahora.year % 100, ahora.month, ahora.day]))
+                # 2) índices
+                for ruta, x in ((rutas['CLIENTES.CDX'], cx), (rutas['CTES_BQ.CDX'], bx)):
+                    for pos, datos in x.cambios(): _escribe_en(ruta, pos, datos)
+                    hecho.append(ruta)
+                # 3) folio
+                _escribe_en(rutas['CONFIG.DBF'], qhl, bytes(crec)); hecho.append(rutas['CONFIG.DBF'])
+            except Exception:
+                log('ALTA: falló a la mitad; regreso los archivos como estaban. ' + traceback.format_exc())
+                try:
+                    for nm in ('CLIENTES.CDX', 'CTES_BQ.DBF', 'CTES_BQ.CDX', 'CONFIG.DBF'):
+                        shutil.copy2(os.path.join(d_, nm), rutas[nm])
+                    with open(rutas['CLIENTES.DBF'], 'r+b') as f: f.seek(0); f.write(bytes(hdr)); f.seek(hl + n*rl); f.write(cola); f.truncate(tam)
+                except Exception: log('ALTA: NO PUDE REGRESAR LOS ARCHIVOS. Usa Reindexar en Mr. Tienda. ' + traceback.format_exc())
+                raise CdxError('No se pudo guardar en Mr. Tienda; quedó como estaba.')
+            with self.rows_lock:
+                self.cache = {k: v for k, v in self.cache.items() if k[0] not in rutas.values()}
+        nombre = _campo(nuevo, fl, 'CTE_NOMBRE').decode('latin-1').strip()
+        log(f'ALTA: {quien} dio de alta en Mr. Tienda al cliente {cod} ({_dbf_txt(nombre)}, RFC {D.get("rfc")})')
+        return cod, nombre, _campo(nuevo, fl, 'CTE_CONTAC').decode('latin-1').strip()
     def cliente_nuevo(self, mesero, d):
         D = {k: re.sub(r'\s+', ' ', str(v or '')).strip()[:150] for k, v in (d.get('datos') or {}).items()
              if k in ('rfc', 'nombre', 'razon_social', 'cp', 'regimen', 'uso', 'correo', 'telefono', 'calle', 'no_ext', 'no_int', 'colonia', 'localidad', 'municipio', 'estado', 'referencia', 'contacto')}
@@ -2776,7 +3039,31 @@ class Monitor:
             with open(tmp, 'w', encoding='utf-8') as f: json.dump(L[-300:], f, ensure_ascii=False, indent=1)
             os.replace(tmp, self.CLIENTES_NUEVOS_F)
         log(f'COMANDERO: {mesero["nombre"]} capturó datos de factura de {D["rfc"]} para dar de alta en MrTienda')
-        return {'ok': True}
+        # 30.7.75: darlo de alta en Mr. Tienda y poner la cuenta a su nombre en el mismo paso; si algo no cuadra, queda para la caja como antes
+        try:
+            cod, nombre, contacto = self.alta_mrtienda(D, mesero['nombre'])
+        except Exception as e:
+            log('ALTA: no se pudo dar de alta automática (' + str(e) + '); queda en la lista para la caja.')
+            return {'ok': True, 'alta': False, 'motivo': str(e)}
+        r['alta'] = cod; asignada = False; aviso = ''
+        if r['archivo']:
+            try:
+                with self.write_lock: self._poner_cuenta(r['archivo'], cod, nombre, contacto, mesero)
+                asignada = True
+            except Exception as e: aviso = str(e)
+        with self.write_lock:
+            L = self.clientes_nuevos()
+            for x in L:
+                if x.get('id') == r['id']:
+                    if asignada: x['asignado'] = {'cod': cod, 'nombre': _dbf_txt(nombre), 'fecha': datetime.datetime.now().isoformat(timespec='minutes'), 'solo': True}
+                    else: x['aviso'] = (aviso + ' ' if aviso else '') + f'Ya está en Mr. Tienda como {cod}; ponlo en la cuenta desde el comandero.'
+                    x['alta'] = cod
+            tmp = self.CLIENTES_NUEVOS_F + '.tmp'
+            with open(tmp, 'w', encoding='utf-8') as f: json.dump(L[-300:], f, ensure_ascii=False, indent=1)
+            os.replace(tmp, self.CLIENTES_NUEVOS_F)
+        try: self.refresh()
+        except Exception: pass
+        return {'ok': True, 'alta': cod, 'nombre': _dbf_txt(nombre), 'cuenta': asignada, 'aviso': aviso}
     def auto_asignar_nuevos(self):
         """30.7.74: si un cliente nuevo que capturó el mesero ya aparece en Mr. Tienda (mismo RFC), poner su cuenta a su nombre sola.
         Completa CP, régimen, uso de CFDI y correo si la caja los dejó vacíos (campos sin índice). Solo vuelve a leer CLIENTES.DBF cuando cambia."""

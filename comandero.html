@@ -675,9 +675,13 @@ function facRevisar(){const d=facLeeForm(),err=m=>{const e=$('#ferr');e.textCont
     <p id="ferr" class="err2" hidden></p>
     <button class="big" data-fact="enviar">✅ Están bien: enviar a Mr. Tienda</button>
     <button class="chipbtn" style="margin-top:8px" data-fact="corregir">‹ Corregir</button>
-    <p class="empty" style="margin-top:8px">La caja lo da de alta en Mr. Tienda (le aparece en el panel con todos los datos) y en cuanto lo haga, esta cuenta queda a su nombre sola.</p>`}
+    <p class="empty" style="margin-top:8px">Al tocar el botón se da de alta en Mr. Tienda y la cuenta queda a su nombre. Si algo no se puede, le llega a la caja con todos los datos.</p>`}
 async function facEnviar(btn){btn.disabled=true;btn.textContent='Enviando…';
-  try{await apiM('/api/comandero/cliente-nuevo',{k:FACT.k,datos:FACT.nuevo});$('#sheet').innerHTML='';toast('Enviado a caja. En cuanto lo den de alta, la cuenta queda a su nombre sola.')}
+  try{const j=await apiM('/api/comandero/cliente-nuevo',{k:FACT.k,datos:FACT.nuevo});$('#sheet').innerHTML='';
+    if(j.alta&&j.cuenta)toast('Listo: dado de alta en Mr. Tienda ('+j.alta+') y la cuenta quedó a nombre de '+j.nombre);
+    else if(j.alta)toast('Dado de alta en Mr. Tienda ('+j.alta+'). '+(j.aviso||'')+' Búscalo y ponlo en la cuenta.');
+    else toast('Enviado a caja para darlo de alta ('+(j.motivo||'')+'). En cuanto lo den de alta, la cuenta queda a su nombre sola.');
+    await cargar(false);render()}
   catch(e){btn.disabled=false;btn.textContent='✅ Están bien: enviar a Mr. Tienda';const x=$('#ferr');x.textContent=e.message;x.hidden=false}}
 async function facFoto(file){
   $('#fsh').innerHTML='<h2>🧾 Leyendo los datos…</h2><p class="empty">Esto tarda unos segundos.</p>';
