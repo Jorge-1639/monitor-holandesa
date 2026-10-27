@@ -1186,12 +1186,13 @@ function tarjetaClientesNuevos(){
   const L=(DATA.clientes_nuevos||[]).slice().reverse();if(COPIA||!L.length)return '';
   const f=(l,v)=>v?`<div class="ditem"><span>${l}</span><span style="text-align:right;user-select:all">${esc(v)}</span></div>`:'';
   return `<div class="card" style="border:2px solid #2f8fd8"><h2>🧾 Clientes para dar de alta en Mr. Tienda <small>${L.length}</small></h2>
-    <p class="empty">Un mesero capturó estos datos para factura. Dalos de alta en Mr. Tienda (Clientes → Nuevo) y luego toca "Ya lo di de alta". El mesero lo busca en el comandero y pone la cuenta a su nombre.</p>
-    ${L.map(x=>{const d=x.datos||{};return `<details class="drow" style="margin-top:8px"><summary><span>${esc(d.razon_social||'')}<small>${esc(d.rfc||'')} · ${esc(x.cuenta||'')} · ${esc(x.mesero||'')} · ${esc((x.fecha||'').replace('T',' '))}</small></span></summary><div class="dlist">
+    <p class="empty">Un mesero capturó estos datos para factura. Dalos de alta en Mr. Tienda (Clientes → Nuevo) con el <b>mismo RFC</b>. En menos de un minuto la cuenta de la mesa queda a su nombre sola (ya no dice público en general).</p>
+    ${L.map(x=>{const d=x.datos||{};return `<details class="drow" style="margin-top:8px"><summary><span>${x.asignado?'✅ ':x.aviso?'⚠️ ':'⏳ '}${esc(d.razon_social||'')}<small>${esc(d.rfc||'')} · ${esc(x.cuenta||'')} · ${esc(x.mesero||'')} · ${esc((x.fecha||'').replace('T',' '))}</small></span></summary><div class="dlist">
       ${f('Razón social',d.razon_social)}${f('Nombre comercial',d.nombre)}${f('Contacto',d.contacto)}${f('RFC',d.rfc)}${f('Correo',d.correo)}${f('Teléfono',d.telefono)}
       ${f('Calle',d.calle)}${f('No. exterior',d.no_ext)}${f('No. interior',d.no_int)}${f('Colonia',d.colonia)}${f('Municipio',d.municipio)}${f('Estado',d.estado)}${f('C.P.',d.cp)}${f('Localidad',d.localidad)}${f('Referencia',d.referencia)}
       ${f('Régimen fiscal',d.regimen?d.regimen+' '+(REG_TXT[d.regimen]||''):'')}${f('Uso CFDI',d.uso)}
-      <div class="btns" style="margin-top:8px"><button class="btn pri" data-cnquitar="${esc(x.id)}">Ya lo di de alta</button></div></div></details>`}).join('')}</div>`;
+      ${x.asignado?`<p class="empty" style="color:#1e7a3c;margin:8px 0 0"><b>Listo:</b> la cuenta ${esc(x.cuenta||'')} quedó a nombre de ${esc(x.asignado.nombre)} (${esc(x.asignado.cod)}). Al cobrar, factúrala.</p>`:x.aviso?`<p class="empty" style="color:#b3261e;margin:8px 0 0"><b>Atención:</b> ${esc(x.aviso)}</p>`:`<p class="empty" style="margin:8px 0 0">Esperando que lo des de alta en Mr. Tienda…</p>`}
+      <div class="btns" style="margin-top:8px"><button class="btn pri" data-cnquitar="${esc(x.id)}">${x.asignado||x.aviso?'Quitar de la lista':'Ya lo di de alta'}</button></div></div></details>`}).join('')}</div>`;
 }
 // ---- comanda de cocina: verla en pantalla y elegir el tamaño de las letras (versión 30.6.26)
 let CF=null,CF_EJ='comedor',CF_L=null,CF_G=null;

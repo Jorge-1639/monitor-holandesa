@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 175            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.73'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 176            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.74'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -2660,13 +2660,21 @@ class Monitor:
                 _escribe_en(ruta, chl + slot*crl, bytes(crec))
                 log(f'COMANDERO: {mesero["nombre"]} completó datos fiscales del cliente {cod} ({_dbf_txt(nombre)}): {", ".join(comp)}')
             # 2) asignar el cliente a la cuenta abierta (PENDIENT y .ENC), como MrTienda
+            self._poner_cuenta(archivo, cod, nombre, contacto, mesero)
+        log(f'COMANDERO: {mesero["nombre"]} puso la cuenta {archivo} a nombre del cliente {cod} ({_dbf_txt(nombre)}) para factura')
+        return {'ok': True, 'cod': cod, 'nombre': _dbf_txt(nombre)}
+    def _poner_cuenta(self, archivo, cod, nombre, contacto, mesero=None):
+        """Pone COD_CTE, DES_CTE y SOLICITA en PENDIENT.DBF y en el .ENC de la cuenta abierta (igual que MrTienda). Llamar con write_lock.
+        mesero=None: lo hace el sistema (30.7.74, cliente nuevo dado de alta por la caja), sin revisar de qué mesero es la cuenta."""
+        com = os.path.join(self.base, 'COMUNES'); pend = os.path.join(com, 'PENDIENT.DBF')
+        if True:
             with open(pend, 'rb') as f: pb = bytearray(f.read())
             pn, phl, prl, pfl = _layout(pb)
             k_ = next((k for k in range(pn) if pb[phl + k*prl:phl + k*prl + 1] != b'*' and _campo(pb[phl + k*prl:phl + (k+1)*prl], pfl, 'FILE').decode('latin-1').strip().upper() == archivo.upper()), None)
             if k_ is None: raise RuntimeError('Esa cuenta ya no está abierta (¿ya la cobraron?).')
             rec = bytearray(pb[phl + k_*prl:phl + (k_+1)*prl])
             if _campo(rec, pfl, 'PAGADO') in (b'T', b't'): raise RuntimeError('Esa cuenta ya está pagada.')
-            if _campo(rec, pfl, 'COD_VENDED').decode('latin-1').strip() != mesero['cod'] and not mesero.get('solo_huella'): raise RuntimeError('Esa cuenta es de otro mesero.')
+            if mesero is not None and _campo(rec, pfl, 'COD_VENDED').decode('latin-1').strip() != mesero['cod'] and not mesero.get('solo_huella'): raise RuntimeError('Esa cuenta es de otro mesero.')
             enc = os.path.join(com, archivo + '.ENC')
             _respaldar([pend, enc], archivo + '_CTE')
             vals = {'COD_CTE': cod, 'DES_CTE': nombre.encode('latin-1'), 'SOLICITA': contacto.encode('latin-1')}
@@ -2680,9 +2688,7 @@ class Monitor:
                     for k, v in vals.items(): _pon(er, efl, k, v)
                     _escribe_en(enc, ehl, bytes(er))
             with self.rows_lock:
-                self.cache = {k: v for k, v in self.cache.items() if not k[0].upper().startswith(com.upper()) and k[0] != ruta}
-        log(f'COMANDERO: {mesero["nombre"]} puso la cuenta {archivo} a nombre del cliente {cod} ({_dbf_txt(nombre)}) para factura')
-        return {'ok': True, 'cod': cod, 'nombre': _dbf_txt(nombre)}
+                self.cache = {k: v for k, v in self.cache.items() if not k[0].upper().startswith(com.upper()) and k[0] != self._cat('CLIENTES.DBF')}
     def probar_ia(self, llave):
         """30.7.52: prueba la llave con una pregunta mínima (cuesta menos de un centavo). Regresa (estado, mensaje)."""
         cuerpo = {'model': self.cfg.get('ia_modelo') or IA_MODELO, 'max_tokens': 1, 'messages': [{'role': 'user', 'content': 'Hola'}]}
@@ -2771,6 +2777,73 @@ class Monitor:
             os.replace(tmp, self.CLIENTES_NUEVOS_F)
         log(f'COMANDERO: {mesero["nombre"]} capturó datos de factura de {D["rfc"]} para dar de alta en MrTienda')
         return {'ok': True}
+    def auto_asignar_nuevos(self):
+        """30.7.74: si un cliente nuevo que capturó el mesero ya aparece en Mr. Tienda (mismo RFC), poner su cuenta a su nombre sola.
+        Completa CP, régimen, uso de CFDI y correo si la caja los dejó vacíos (campos sin índice). Solo vuelve a leer CLIENTES.DBF cuando cambia."""
+        pend = [x for x in self.clientes_nuevos() if x.get('archivo') and not x.get('asignado') and not x.get('aviso')]
+        if not pend: return
+        ruta = self._cat('CLIENTES.DBF')
+        if not os.path.isfile(ruta): return
+        sa = lambda v: re.sub(r'[^A-Z0-9&Ñ]', '', _sin_acento(_dbf_txt(str(v or ''))).upper())
+        por_rfc = collections.defaultdict(list)
+        for x in self.rows(ruta):
+            if x.get('INACTIVO') or not str(x.get('COD_CTE') or '').strip(): continue
+            r = sa(x.get('CTE_RFC'))
+            if r and r not in ('XAXX010101000', 'XEXX010101000'): por_rfc[r].append(x)
+        cambio = False
+        for it in pend:
+            D = it.get('datos', {}); rfc = sa(D.get('rfc'))
+            cands = por_rfc.get(rfc) or []
+            if not cands: continue
+            try: viejo = (datetime.datetime.now() - datetime.datetime.fromisoformat(it.get('fecha') or '')).total_seconds() > 12 * 3600
+            except ValueError: viejo = True
+            if viejo:   # Mr. Tienda vuelve a usar los nombres de archivo de las cuentas: no tocar cuentas de otro turno
+                it['aviso'] = 'Pasaron más de 12 horas desde que se capturó; no la puse sola en la cuenta.'; cambio = True; continue
+            rz = sa(D.get('razon_social'))
+            x = next((c for c in cands if rz and rz in (sa(c.get('RAZON_SOC')), sa(c.get('CTE_NOMBRE')))), None) or max(cands, key=lambda c: str(c.get('COD_CTE') or ''))
+            cod = str(x.get('COD_CTE') or '').strip()
+            if len(cod) != 6: continue
+            try:
+                with self.write_lock:
+                    with open(ruta, 'rb') as f: cb = bytearray(f.read())
+                    cn, chl, crl, cfl = _layout(cb)
+                    slot = next((k for k in range(cn) if cb[chl + k*crl:chl + k*crl + 1] != b'*' and _campo(cb[chl + k*crl:chl + (k+1)*crl], cfl, 'COD_CTE').decode('latin-1').strip() == cod), None)
+                    if slot is None: continue
+                    crec = bytearray(cb[chl + slot*crl:chl + (slot+1)*crl])
+                    nombre = _campo(crec, cfl, 'CTE_NOMBRE').decode('latin-1').strip(); contacto = _campo(crec, cfl, 'CTE_CONTAC').decode('latin-1').strip()
+                    # completar lo que la caja haya dejado vacío (mismo cuidado que cliente_aplicar: campos sin índice y respaldo del renglón)
+                    comp = {}
+                    for campo, v, ok in (('CTE_CP', str(D.get('cp') or ''), r'\d{5}'), ('I_RGF', str(D.get('regimen') or ''), r'\d{3}'), ('USOCFDI', str(D.get('uso') or '').upper(), r'[A-Z]{1,2}\d{2}'), ('CTE_MAIL', str(D.get('correo') or ''), r'[^@\s]+@[^@\s]+\.[^@\s]+')):
+                        if campo in cfl and re.fullmatch(ok, v) and not _campo(crec, cfl, campo).decode('latin-1').strip(): comp[campo] = v
+                    if comp:
+                        d_ = _respaldar([], 'CTE' + cod)
+                        with open(os.path.join(d_, 'CLIENTE_%s_renglon_%d.bin' % (cod, slot)), 'wb') as f: f.write(bytes(crec))
+                        for k, v in comp.items(): _pon(crec, cfl, k, v)
+                        _escribe_en(ruta, chl + slot*crl, bytes(crec))
+                        log(f'FACTURA: completé en Mr. Tienda lo que le faltaba al cliente {cod} ({_dbf_txt(nombre)}): {", ".join(comp)}')
+                    self._poner_cuenta(it['archivo'], cod, nombre, contacto)
+                it['asignado'] = {'cod': cod, 'nombre': _dbf_txt(nombre), 'fecha': datetime.datetime.now().isoformat(timespec='minutes')}
+                log(f'FACTURA: la cuenta {it.get("cuenta") or it["archivo"]} quedó sola a nombre de {cod} ({_dbf_txt(nombre)}) en cuanto la caja lo dio de alta')
+            except RuntimeError as e:
+                it['aviso'] = str(e) + ' Factura el ticket a su nombre en Mr. Tienda.'
+                log(f'FACTURA: no pude poner la cuenta {it.get("archivo")} a nombre de {cod}: {e}')
+            except Exception as e:
+                log('FACTURA: error al poner la cuenta a nombre del cliente nuevo: ' + str(e)); continue
+            cambio = True
+        if cambio:
+            with self.write_lock:
+                act = {x['id']: x for x in pend}
+                L2 = [act.get(x.get('id'), x) for x in self.clientes_nuevos()]
+                tmp = self.CLIENTES_NUEVOS_F + '.tmp'
+                with open(tmp, 'w', encoding='utf-8') as f: json.dump(L2, f, ensure_ascii=False, indent=1)
+                os.replace(tmp, self.CLIENTES_NUEVOS_F)
+            try: self.refresh()
+            except Exception: pass
+    def ciclo_clientes_nuevos(self):
+        while True:
+            time.sleep(15)
+            try: self.auto_asignar_nuevos()
+            except Exception: log('FACTURA: ' + traceback.format_exc())
     def clientes_nuevos_accion(self, d):
         with self.write_lock:
             L = [x for x in self.clientes_nuevos() if x.get('id') != d.get('id')]
@@ -4513,6 +4586,7 @@ def main():
     try: mon.borrar_fotos()
     except Exception as e: log('No pude borrar las fotos viejas: ' + str(e))
     threading.Thread(target=mon.loop, daemon=True).start()
+    threading.Thread(target=mon.ciclo_clientes_nuevos, daemon=True).start()   # 30.7.74
     if cfg.get('actualizar_solo', True): threading.Thread(target=ciclo_actualizacion, daemon=True).start()
     srv = None
     for intento in range(30):

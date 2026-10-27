@@ -675,9 +675,9 @@ function facRevisar(){const d=facLeeForm(),err=m=>{const e=$('#ferr');e.textCont
     <p id="ferr" class="err2" hidden></p>
     <button class="big" data-fact="enviar">✅ Están bien: enviar a Mr. Tienda</button>
     <button class="chipbtn" style="margin-top:8px" data-fact="corregir">‹ Corregir</button>
-    <p class="empty" style="margin-top:8px">Por ahora la caja termina de darlo de alta en Mr. Tienda (le aparece en el panel con todos los datos). Después lo buscas aquí y tocas "poner la cuenta a su nombre".</p>`}
+    <p class="empty" style="margin-top:8px">La caja lo da de alta en Mr. Tienda (le aparece en el panel con todos los datos) y en cuanto lo haga, esta cuenta queda a su nombre sola.</p>`}
 async function facEnviar(btn){btn.disabled=true;btn.textContent='Enviando…';
-  try{await apiM('/api/comandero/cliente-nuevo',{k:FACT.k,datos:FACT.nuevo});$('#sheet').innerHTML='';toast('Datos enviados a la caja para darlo de alta en Mr. Tienda')}
+  try{await apiM('/api/comandero/cliente-nuevo',{k:FACT.k,datos:FACT.nuevo});$('#sheet').innerHTML='';toast('Enviado a caja. En cuanto lo den de alta, la cuenta queda a su nombre sola.')}
   catch(e){btn.disabled=false;btn.textContent='✅ Están bien: enviar a Mr. Tienda';const x=$('#ferr');x.textContent=e.message;x.hidden=false}}
 async function facFoto(file){
   $('#fsh').innerHTML='<h2>🧾 Leyendo los datos…</h2><p class="empty">Esto tarda unos segundos.</p>';
