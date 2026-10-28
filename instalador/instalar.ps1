@@ -243,7 +243,28 @@ if (-not $Prueba) {
   & netsh advfirewall firewall add rule name="Panel de ventas (WiFi)" dir=in action=allow protocol=TCP localport=$Puerto remoteip=LocalSubnet profile=any | Out-Null
   if ($LASTEXITCODE -ne 0) { Aviso 'No pude abrir el puerto del firewall. El panel funcionará en esta computadora, pero quizá no en el celular.' }
   else { Ok 'Listo: los celulares conectados al WiFi del negocio pueden abrir el panel' }
-} else { Ok '(prueba: se omite el firewall)' }
+  # Dirección fija: si el internet o el módem se reinician, la caja conserva su dirección y los celulares no dejan de abrir el panel
+  try {
+    $cfgIp = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } | Select-Object -First 1
+    if (-not $cfgIp) { throw 'no encontré la conexión al módem' }
+    $alias = $cfgIp.InterfaceAlias; $ipAct = $cfgIp.IPv4Address[0].IPAddress; $gw = $cfgIp.IPv4DefaultGateway[0].NextHop
+    if ($cfgIp.IPv4Address[0].PrefixLength -ne 24) { throw 'la red del módem no es la común' }
+    $base = ($ipAct -split '\.')[0..2] -join '.'; $nueva = $null
+    foreach ($n in 250..240) { $c = "$base.$n"; if ($c -eq $ipAct -or -not (Test-Connection $c -Count 1 -Quiet -ErrorAction SilentlyContinue)) { $nueva = $c; break } }
+    if (-not $nueva) { throw 'no hay dirección libre' }
+    & netsh interface ipv4 set address name="$alias" static $nueva 255.255.255.0 $gw | Out-Null
+    & netsh interface ipv4 set dnsservers name="$alias" static $gw primary validate=no | Out-Null
+    & netsh interface ipv4 add dnsservers name="$alias" 8.8.8.8 index=2 validate=no | Out-Null
+    Start-Sleep 8
+    if (-not (Test-Connection 8.8.8.8 -Count 2 -Quiet -ErrorAction SilentlyContinue)) { Start-Sleep 7 }
+    if (-not (Test-Connection 8.8.8.8 -Count 2 -Quiet -ErrorAction SilentlyContinue)) {
+      & netsh interface ipv4 set address name="$alias" source=dhcp | Out-Null
+      & netsh interface ipv4 set dnsservers name="$alias" source=dhcp | Out-Null
+      Start-Sleep 8; throw 'con dirección fija no hubo internet; la dejé automática'
+    }
+    Ok "Dirección fija de esta computadora: $nueva (ya no cambia aunque se vaya el internet)"
+  } catch { Aviso ('No dejé fija la dirección (' + $_ + '). Si un día el celular deja de abrir el panel, ejecuta fijar_ip_caja.bat como administrador.') }
+} else { Ok '(prueba: se omite el firewall y la dirección fija)' }
 
 # ---- 8. arranque automático y prueba
 Paso 8 'Probando que lea las ventas y dejando que arranque solo'
