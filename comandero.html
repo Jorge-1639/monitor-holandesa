@@ -345,6 +345,23 @@ try{if('serviceWorker' in navigator&&window.isSecureContext)navigator.serviceWor
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();instalarEv=e;const b=document.getElementById('instalarBar');if(b&&!yaInstalada())b.hidden=false});
 window.addEventListener('appinstalled',()=>{instalarEv=null;const b=document.getElementById('instalarBar');if(b)b.hidden=true;toast('Listo: ya está en tu pantalla de inicio')});
 document.addEventListener('DOMContentLoaded',()=>{const b=document.getElementById('instalarBar');if(b)b.onclick=async()=>{if(!instalarEv)return;instalarEv.prompt();try{await instalarEv.userChoice}catch(e){}instalarEv=null;b.hidden=true}});
+// 28-oct-2026: guía para dejarlo como app (en el WiFi es http y el teléfono no ofrece "Instalar"); en iPhone, si no es Safari, lo manda a Safari
+const UA=navigator.userAgent, IOS=/iPhone|iPad|iPod/.test(UA)||(/Macintosh/.test(UA)&&navigator.maxTouchPoints>1);
+const IOS_OTRO=IOS&&/CriOS|FxiOS|EdgiOS|GSA\/|FBAN|FBAV|Instagram|WhatsApp/i.test(UA);
+function guiaApp(){
+  if(yaInstalada()||instalarEv||document.getElementById('guiaApp'))return;
+  try{if(localStorage.getItem('cmd_guia_no')==='1')return}catch(e){}
+  const pasos=IOS_OTRO?`<p style="margin:0 0 10px">En iPhone el comandero funciona en <b>Safari</b> (la brújula azul).</p><a href="x-safari-${location.href}" style="display:block;text-align:center;background:#111;color:#fff;border-radius:12px;padding:14px;font-weight:800;text-decoration:none">Abrir en Safari</a>`
+    :IOS?`<ol style="margin:0;padding-left:22px;line-height:1.5"><li>Toca <b>Compartir</b>: el cuadrito con flecha hacia arriba <b>⬆︎</b> (abajo, al centro). En iPhone nuevos primero toca los <b>3 puntitos •••</b> de abajo a la derecha.</li><li>Baja y toca <b>"Agregar a pantalla de inicio"</b>.</li><li>Toca <b>"Agregar"</b> arriba a la derecha.</li></ol>`
+    :`<ol style="margin:0;padding-left:22px;line-height:1.5"><li>Toca los <b>3 puntitos ⋮</b> de arriba a la derecha.</li><li>Toca <b>"Agregar a pantalla de inicio"</b> (o "Instalar app").</li><li>Toca <b>"Agregar"</b> o <b>"Instalar"</b>.</li></ol>`;
+  const d=document.createElement('div');d.id='guiaApp';
+  d.style.cssText='position:fixed;left:10px;right:10px;top:calc(10px + env(safe-area-inset-top,0px));z-index:40;background:#fff;color:#14231a;border:2px solid #2f6db3;border-radius:16px;padding:14px 14px 12px;box-shadow:0 12px 34px rgba(0,0,0,.3);font:15px system-ui,-apple-system,sans-serif';
+  d.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px"><b style="font-size:17px">📲 Déjalo como app en tu teléfono</b><button id="guiaX" aria-label="Cerrar" style="border:0;background:#eef2f7;border-radius:10px;font-size:18px;width:36px;height:36px">✕</button></div>${pasos}<button id="guiaNo" style="margin-top:10px;border:0;background:none;color:#5d6e62;font-size:13px;text-decoration:underline;padding:0">Ya lo hice, no mostrar otra vez</button>`;
+  document.body.appendChild(d);
+  document.getElementById('guiaX').onclick=()=>d.remove();
+  document.getElementById('guiaNo').onclick=()=>{try{localStorage.setItem('cmd_guia_no','1')}catch(e){}d.remove()};
+}
+document.addEventListener('DOMContentLoaded',()=>setTimeout(guiaApp,1500));
 const DEMORA_MIN=10, DEMORA_ROJA=14, DEMORA_CRITICA=20;
 function vistos(){try{return JSON.parse(localStorage.getItem('cmd_demoras')||'{}')}catch(e){return {}}}
 function guardaVistos(v){try{const k=Object.keys(v);if(k.length>300)k.slice(0,k.length-300).forEach(x=>delete v[x]);localStorage.setItem('cmd_demoras',JSON.stringify(v))}catch(e){}}

@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 181            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.79'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 182            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.80'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -943,28 +943,34 @@ def pdf_comandero(nombre, url, horario='', candado=False, logo=None):
     pila = (nombre.split() or [''])[0].strip().lower()
     saludo = 'Bienvenida' if (pila.endswith('a') or _sin_acento(pila) in NOMBRES_MUJER) and _sin_acento(pila) not in NOMBRES_HOMBRE_A else 'Bienvenido'
     texto(M, y, '¡' + saludo + ', ' + nombre.title() + '!', 22, True); y -= 26
-    y = parrafo(M, y, 'Ya tienes acceso al comandero. Desde tu teléfono puedes ver el menú, abrir cuentas y mandar los pedidos a cocina. Las cuentas salen a tu nombre en la caja. En la hoja 2 vienen las instrucciones para usarlo.', 12, rgb=GRIS) - 14
-    col(VERDE_S); c.append('%d %.1f %d 74 re f' % (M, y - 62, W - 2 * M))
-    col(VERDE, 'RG'); c.append('1.5 w %d %.1f %d 74 re S' % (M, y - 62, W - 2 * M))
-    texto(M + 16, y - 10 - 8, 'TU DIRECCIÓN (tócala para abrir)', 10, True, VERDE)
-    tam_u = 17 if _ancho(url, 17, True) < W - 2 * M - 32 else 13
-    texto(M + 16, y - 46, url, tam_u, True, TINTA)
-    ann[0].append((M, y - 62, W - M, y + 12, url)); y -= 100
-    texto(M, y, 'Cómo entrar', 16, True, VERDE); y -= 26
-    pasos = ['Conéctate al WiFi del restaurante. Sin ese WiFi el comandero no abre.',
-             'Toca la dirección de arriba. En iPhone, si se abre dentro de WhatsApp, toca "Abrir en Safari".',
-             'Escribe tu clave de 4 números. Te la da Jorge en persona; no viene en este documento.',
-             'Déjalo como app con el logotipo: en Android toca los tres puntitos y "Agregar a pantalla de inicio" (o "Instalar"); en iPhone toca Compartir (el cuadrito con flecha) y "Agregar a pantalla de inicio".']
-    for n, t in enumerate(pasos, 1): y = punto(n, y, t)
-    y -= 8
-    texto(M, y, 'Importante', 16, True, VERDE); y -= 26
+    y = parrafo(M, y, 'Ya tienes acceso al comandero: el menú, tus cuentas y los pedidos a cocina, desde tu teléfono. En la hoja 2 viene cómo usarlo.', 12, rgb=GRIS) - 12
+    # 28-oct-2026: un botón para iPhone y otro para Android (en iPhone la liga dentro de WhatsApp o Chrome no abre la caja; se abre directo en Safari)
+    texto(M, y, 'Conéctate al WiFi del restaurante y toca el botón de tu teléfono:', 13, True, VERDE); y -= 14
+    def boton(y, titulo, sub, link, rgb):
+        col(rgb); c.append('%d %.1f %d 52 re f' % (M, y - 52, W - 2 * M))
+        texto(M + 18, y - 24, titulo, 19, True, (1, 1, 1)); texto(M + 18, y - 42, sub, 11, False, (1, 1, 1))
+        ann[-1].append((M, y - 52, W - M, y, link)); return y - 70
+    def mini(n, y, t):
+        texto(M + 8, y, str(n) + '.', 11, True, NARANJA); return parrafo(M + 26, y, t, 11, W - 2 * M - 26, inter=1.3) - 5
+    y = boton(y, 'TENGO iPHONE   >  toca aquí', 'Se abre en Safari (la brújula azul)', 'x-safari-' + url, (0.10, 0.10, 0.10))
+    for n, t in enumerate(['Si sale "No es seguro", toca "Visitar sitio web". Es normal.',
+                           'Escribe tu clave de 4 números.',
+                           'Para dejarlo como app: toca Compartir (el cuadrito con flecha hacia arriba; en iPhone nuevos primero los 3 puntitos de abajo) y luego "Agregar a pantalla de inicio" y "Agregar".'], 1): y = mini(n, y, t)
+    texto(M + 26, y, 'Si no abre: abre Safari y escribe  ' + re.sub(r'^https?://', '', url), 10, True, GRIS); y -= 24
+    y = boton(y, 'TENGO ANDROID   >  toca aquí', 'Se abre en Chrome', url, VERDE)
+    for n, t in enumerate(['Escribe tu clave de 4 números.',
+                           'Para dejarlo como app: toca los 3 puntitos de arriba a la derecha y luego "Agregar a pantalla de inicio" (o "Instalar").'], 1): y = mini(n, y, t)
+    texto(M + 26, y, 'Si no abre: abre Chrome y escribe  ' + re.sub(r'^https?://', '', url), 10, True, GRIS); y -= 18
+    texto(M, y, 'La clave te la da Jorge en persona; no viene en este documento.', 11, True, TINTA); y -= 6
+    y -= 10
+    texto(M, y, 'Importante', 14, True, VERDE); y -= 20
     reglas = []
     if candado: reglas.append('Solo entras el día que te toca trabajar y en tu horario: abre 30 minutos antes de tu entrada y se cierra 1 hora después de tu salida. En tu día de descanso, falta o vacaciones no entra.')
     if horario: reglas.append('Tu horario: ' + horario.rstrip('. ') + '.')
     reglas.append('Todo lo que se mande con tu clave sale a tu nombre.')
     for r in reglas:
         col(VERDE); c.append('%.1f %.1f 5 5 re f' % (M + 2, y + 2))
-        y = parrafo(M + 18, y, r, 12, W - 2 * M - 18) - 8
+        y = parrafo(M + 18, y, r, 11, W - 2 * M - 18, inter=1.3) - 5
     nota_clave(y - 4)
     pie()
     # ---------------- hoja 2: cómo usar el comandero
