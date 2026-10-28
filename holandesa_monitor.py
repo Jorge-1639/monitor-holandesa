@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 177            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.75'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 178            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.76'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -1960,6 +1960,7 @@ class Monitor:
             items = []
             arch = (x.get('FILE') or '').strip()
             if arch:
+              try:
                 for nombre in (arch + '.DBF', arch, arch + '.001'):
                     ruta = os.path.join(com, nombre)
                     if os.path.isfile(ruta):
@@ -1974,6 +1975,10 @@ class Monitor:
                                           'llevar': v.get('COD_ESCALA') == '02',
                                           'det': self.detalle_variantes(v, var, svar) if var else ''})
                         break
+              except Exception as e_:   # 30.7.76: un detalle dañado o a medio escribir no debe impedir que entren los meseros
+                items = []; k_ = 'det:' + arch
+                if not getattr(self, '_avisados', None): self._avisados = set()
+                if k_ not in self._avisados: self._avisados.add(k_); log('Cuentas abiertas: no pude leer el detalle de ' + arch + ' (' + (x.get('REF') or '').strip() + '): ' + repr(e_))
             turno_raw = next((str(x.get(k) or '').strip() for k in ('TURNO','COD_TURNO','NUM_TURNO','CORTE') if str(x.get(k) or '').strip()), '')
             out.append({'ref': (x.get('REF') or '').strip(), 'mesa': (x.get('REF') or '').strip() or 'Sin nombre', 'fecha': f'{fa[:4]}-{fa[4:6]}-{fa[6:8]}' if len(fa) == 8 else '',
                         'abrio': (x.get('HORA_AP') or x.get('HORA') or '')[:5], 'mesero': (x.get('DES_VENDED') or '').strip().title() or self.name(x.get('COD_VENDED')),
@@ -4625,9 +4630,19 @@ def make_handler(mon, cfg):
                     body = json.dumps({'ok': False, 'sesion': False, 'error': m_['bloqueo'] if m_ else SESION_FIN}, ensure_ascii=False).encode('utf-8')
                     self.send_response(401); self.send_header('Content-Type', 'application/json'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
                 try:
-                    out = {'ok': True, 'mesero': m_, 'cuentas': mon.cuentas_comandero(), 'hora': datetime.datetime.now().strftime('%H:%M'), 'escribe': bool(mon.cfg.get('comandero_escribe')), 'plataformas': mon.plat_cfg(), 'empleados_ce': mon.empleados_ce() if mon.cfg.get('comida_emp', True) else []}
-                    if 'menu=1' in self.path: out['menu'] = mon.menu_comandero()
-                    out['plano'] = mon.plano_actual()
+                    # 30.7.76: si una parte falla, las demás siguen; el comandero muestra el aviso pero deja trabajar
+                    avisos = []
+                    def parte(nom, fn, defecto):
+                        try: return fn()
+                        except Exception as e_:
+                            log('Comandero (' + nom + '): ' + traceback.format_exc()); avisos.append(nom + ': ' + str(e_)[:160]); return defecto
+                    out = {'ok': True, 'mesero': m_, 'hora': datetime.datetime.now().strftime('%H:%M'), 'escribe': bool(mon.cfg.get('comandero_escribe'))}
+                    out['cuentas'] = parte('cuentas abiertas de MrTienda', mon.cuentas_comandero, [])
+                    out['plataformas'] = parte('Didi y Uber', mon.plat_cfg, {})
+                    out['empleados_ce'] = parte('comida de empleados', mon.empleados_ce, []) if mon.cfg.get('comida_emp', True) else []
+                    if 'menu=1' in self.path: out['menu'] = parte('menú de MrTienda', mon.menu_comandero, {'cats': []})
+                    out['plano'] = parte('mapa', mon.plano_actual, mon.PLANO_DEF)
+                    if avisos: out['aviso'] = 'Problema al leer ' + '; '.join(avisos) + '. Avísale a Jorge.'
                     body = json.dumps(out, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
                     if 'gzip' in self.headers.get('Accept-Encoding', ''): return self._send(gzip.compress(body, 6), 'application/json; charset=utf-8', True)
                     return self._send(body, 'application/json; charset=utf-8')
@@ -4687,6 +4702,13 @@ def make_handler(mon, cfg):
                 self.send_response(200); self.send_header('Content-Type', 'application/pdf'); self.send_header('Cache-Control', 'no-store')
                 self.send_header('Content-Disposition', "attachment; filename=\"Descansos.pdf\"; filename*=UTF-8''" + urllib.parse.quote(arch))
                 self.send_header('Content-Length', str(len(pdf))); self.end_headers(); self.wfile.write(pdf); return
+            if p0 == '/api/registro':   # 30.7.76: últimas líneas de monitor.log para revisar errores desde el teléfono
+                try:
+                    with open(LOG_FILE, 'rb') as f_:
+                        f_.seek(0, 2); tam = f_.tell(); f_.seek(max(0, tam - 60000)); txt = f_.read().decode('utf-8', 'replace')
+                except OSError: txt = ''
+                lineas = txt.splitlines()[-250:]
+                return self._json({'ok': True, 'lineas': lineas, 'version': VERSION_TXT})
             if p0 == '/api/acceso':
                 body = json.dumps({'ok': True, 'puerto': cfg['puerto'], 'ips': ips_locales(), 'https': HTTPS_TS.get('url', '')}, ensure_ascii=False).encode('utf-8')
                 return self._send(body, 'application/json; charset=utf-8')

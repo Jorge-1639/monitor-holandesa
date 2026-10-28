@@ -1119,7 +1119,20 @@ function bloqueAcceso(){
     <p class="empty" style="margin-top:8px">Funciona solo con el teléfono conectado al WiFi del restaurante. La clave no va en el mensaje; dásela tú en persona o aparte.${ts.length?` Tú, desde fuera, puedes probarla con Tailscale: http://${esc(ts[0])}:${ACCESO.puerto}/captura`:''}</p></div>`;
 }
 // ---- comandero: meseros con clave de 4 números (pestaña COMANDERO)
-function vComandero(){return `<h2 class="corte-h" style="text-transform:uppercase;letter-spacing:.08em;margin:6px 0 12px">Comandero</h2>`+tarjetaClientesNuevos()+tarjetaMapa()+tarjetaComandero()+tarjetaComanda()}
+function vComandero(){return `<h2 class="corte-h" style="text-transform:uppercase;letter-spacing:.08em;margin:6px 0 12px">Comandero</h2>`+tarjetaClientesNuevos()+tarjetaRegistro()+tarjetaMapa()+tarjetaComandero()+tarjetaComanda()}
+// ---- registro del sistema (30.7.76): ver los errores de la caja desde el teléfono, sin ir a la computadora
+let REG=null,REG_TODO=false;
+function tarjetaRegistro(){
+  if(COPIA)return '';
+  const imp=l=>/ERROR|Traceback|Error|error|No pude|no pude|falló|Comandero \(|dañad/.test(l);
+  const L=REG?(REG_TODO?REG.lineas:REG.lineas.filter((l,i,a)=>imp(l)||(i>0&&imp(a[i-1])&&/^\s/.test(l)))):[];
+  return `<div class="card" id="regCard"><h2>Registro del sistema <small>${REG?'versión '+esc(REG.version):'errores de la caja'}</small></h2>
+    <p class="empty">Si el comandero o el panel marcan un error, aquí se ve qué pasó en la computadora de la caja. Puedes tomarle captura y mandársela a Claude.</p>
+    <div class="btns"><button class="btn pri" data-pact="regver">${REG?'Actualizar':'Ver errores recientes'}</button>${REG?`<button class="btn" data-pact="regtodo">${REG_TODO?'Solo errores':'Ver todo'}</button>`:''}</div>
+    ${REG?(L.length?`<pre style="margin-top:10px;max-height:340px;overflow:auto;white-space:pre-wrap;font:11px/1.35 ui-monospace,Consolas,monospace;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px">${esc(L.slice(-120).join('\n'))}</pre>`:'<p class="empty" style="margin-top:8px">Sin errores recientes. 👍</p>'):''}</div>`}
+document.addEventListener('click',async e=>{const t=e.target.closest('[data-pact="regver"],[data-pact="regtodo"]');if(!t)return;e.preventDefault();e.stopImmediatePropagation();
+  if(t.dataset.pact==='regtodo'){REG_TODO=!REG_TODO}else{t.disabled=true;try{REG=await (await fetch('/api/registro?t='+Date.now(),{credentials:'same-origin'})).json()}catch(err){toast('No pude leer el registro')}}
+  const c=document.getElementById('regCard');if(c)c.outerHTML=tarjetaRegistro()},true);
 // ---- editor del mapa del comedor: se acomoda con el dedo (19-oct-2026). Lo que se guarda aquí es lo que ve el comandero.
 let PED=null,PSEL=null,PDRAG=null;
 const pClone=o=>JSON.parse(JSON.stringify(o));

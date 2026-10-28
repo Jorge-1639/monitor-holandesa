@@ -301,7 +301,7 @@ async function cargar(conMenu){
   const j=await r.json().catch(()=>({ok:false,error:'Sin respuesta de la caja'}));
   if(j.sesion===false){salir(j.error);throw new Error(j.error)}
   if(!j.ok)throw new Error(j.error||'No pude leer MrTienda');
-  S.user=j.mesero;S.huella=!!(j.mesero&&j.mesero.solo_huella);CUENTAS=j.cuentas||[];EMPS=j.empleados_ce||[];ESCRIBE=!!j.escribe;PLAT=j.plataformas||PLAT;if(j.menu)M=j.menu;usaPlano(j.plano);S.falla='';
+  S.user=j.mesero;S.huella=!!(j.mesero&&j.mesero.solo_huella);CUENTAS=j.cuentas||[];EMPS=j.empleados_ce||[];ESCRIBE=!!j.escribe;PLAT=j.plataformas||PLAT;if(j.menu)M=j.menu;usaPlano(j.plano);S.falla=j.aviso||'';
 }
 // 30.7.58: Jorge entra al comandero con su huella (la misma del panel), solo en la dirección segura
 const puedeHuellaC=!!(window.PublicKeyCredential&&window.isSecureContext&&navigator.credentials);
