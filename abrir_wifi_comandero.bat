@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 title Abrir el comandero al WiFi del restaurante
-net session >/dev/null 2>&1
+net session >nul 2>&1
 if errorlevel 1 (
   echo.
   echo  Este archivo necesita permisos de administrador.
@@ -10,7 +10,7 @@ if errorlevel 1 (
   echo.
   pause ^& exit /b 1
 )
-netsh advfirewall firewall delete rule name="Comandero La Holandesa (WiFi)" >/dev/null 2>&1
+netsh advfirewall firewall delete rule name="Comandero La Holandesa (WiFi)" >nul 2>&1
 netsh advfirewall firewall add rule name="Comandero La Holandesa (WiFi)" dir=in action=allow protocol=TCP localport=8765 remoteip=LocalSubnet profile=any >nul
 if errorlevel 1 ( echo  No se pudo abrir el puerto. Avisale a Claude. ^& pause ^& exit /b 1 )
 echo.
