@@ -16,3 +16,4 @@ icono_panel_180.png
 icono_panel_192.png
 icono_panel_512.png
 entrar.html
+fijar_ip_caja.bat
