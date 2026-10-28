@@ -15,8 +15,8 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 LOCK_TIEMPOS = threading.Lock()
-VERSION = 180            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
-VERSION_TXT = '30.7.78'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
+VERSION = 181            # número interno que compara la actualización automática (siempre entero, sube de 1 en 1)
+VERSION_TXT = '30.7.79'    # versión que se muestra: 24.1, 24.2… y 25.0 cuando hay un cambio grande
 REPO_RAW = 'https://raw.githubusercontent.com/Jorge-1639/monitor-holandesa/main/'
 REPO_API = 'https://api.github.com/repos/Jorge-1639/monitor-holandesa'
 ESTADO_ACT = {}   # 30.7.39: resultado de la última revisión de actualizaciones (se muestra en la tarjeta de la llave de GitHub)
@@ -4183,6 +4183,26 @@ class Monitor:
                 self.error = str(e); log('ERROR ' + traceback.format_exc())
             time.sleep(max(30, float(self.cfg['minutos_actualizacion']) * 60))
 
+# ---------------------------------------------------------------- dirección WiFi fija (30.7.79)
+FIJAR_IP_RES = os.path.join(AQUI, 'fijar_ip_resultado.txt')
+def fijar_ip_lanzar(opcion):
+    """Abre fijar_ip_caja.bat como administrador. Windows muestra en la pantalla de la caja
+    "¿Quieres permitir que esta aplicación haga cambios?"; alguien ahí toca Sí."""
+    bat = os.path.join(AQUI, 'fijar_ip_caja.bat')
+    if os.name != 'nt' or not os.path.isfile(bat): raise ValueError('Esto solo funciona en la computadora de la caja con la versión 30.7.78 o más nueva.')
+    try: os.remove(FIJAR_IP_RES)
+    except OSError: pass
+    import subprocess
+    ps = "Start-Process -FilePath $env:ComSpec -ArgumentList '/c','\"\"%s\" %s\"' -Verb RunAs -WindowStyle Normal" % (bat, opcion)
+    subprocess.Popen(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps], creationflags=0x08000000)
+    log('Fijar dirección WiFi: se pidió permiso en la pantalla de la caja (opción %s)' % opcion)
+    return {'ok': True}
+def fijar_ip_estado():
+    try:
+        with open(FIJAR_IP_RES, 'r', encoding='utf-8', errors='replace') as f: txt = f.read()
+    except OSError: txt = ''
+    return {'ok': True, 'texto': txt[-3000:], 'listo': 'FIN' in txt}
+
 # ---------------------------------------------------------------- servidor web
 ULTIMA_PAGINA = {}   # qué app se abrió al último (para elegir el favicon cuando el navegador no dice de dónde viene)
 def make_handler(mon, cfg):
@@ -4451,7 +4471,7 @@ def make_handler(mon, cfg):
                 except Exception as e:
                     log('Exportar nómina: ' + traceback.format_exc())
                     return self._json({'ok': False, 'error': 'No pude armar el archivo: ' + str(e)}, 409)
-            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/log-cliente', '/api/clientes-nuevos', '/api/plano', '/api/leer-recibo', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia', '/api/github', '/api/plataformas', '/api/comida-emp', '/api/clave-panel'): self.send_response(404); self.end_headers(); return
+            if self.path not in ('/api/eliminar-abierta', '/api/quitada-motivo', '/api/gastos', '/api/compra', '/api/leer-ticket', '/api/cajeros', '/api/meseros', '/api/rh', '/api/rh-archivo', '/api/comandero-envio', '/api/comanda-formato', '/api/log-cliente', '/api/clientes-nuevos', '/api/plano', '/api/leer-recibo', '/api/ia', '/api/leer-pendientes', '/api/drive', '/api/familia', '/api/github', '/api/plataformas', '/api/comida-emp', '/api/clave-panel', '/api/fijar-ip'): self.send_response(404); self.end_headers(); return
             if not self.headers.get('Content-Type','').lower().startswith('application/json') or self.headers.get('X-Holandesa-Action') != '1':
                 self.send_response(403); self.end_headers(); return
             try:
@@ -4470,6 +4490,9 @@ def make_handler(mon, cfg):
                 elif self.path == '/api/clientes-nuevos': out = mon.clientes_nuevos_accion(d)
                 elif self.path == '/api/plano': out = mon.plano_accion(d); mon.refresh()
                 elif self.path == '/api/leer-recibo': out = mon.leer_recibo_plat(str(d.get('foto') or ''))
+                elif self.path == '/api/fijar-ip':   # 30.7.79: Jorge lo pide desde su teléfono; en la pantalla de la caja alguien toca "Sí"
+                    if self.rol != 'admin': raise ValueError('Solo el administrador.')
+                    out = fijar_ip_lanzar('2' if d.get('regresar') else '1')
                 elif self.path == '/api/log-cliente': log('Teléfono (' + str(d.get('que', ''))[:40] + '): ' + str(d.get('error', ''))[:200] + ' · ' + str(d.get('ua', ''))[:160]); out = {'ok': True}
                 elif self.path == '/api/leer-pendientes': out=mon.leer_pendientes()
                 elif self.path == '/api/drive':
@@ -4709,6 +4732,8 @@ def make_handler(mon, cfg):
                 except OSError: txt = ''
                 lineas = txt.splitlines()[-250:]
                 return self._json({'ok': True, 'lineas': lineas, 'version': VERSION_TXT})
+            if p0 == '/api/fijar-ip':
+                return self._json(fijar_ip_estado())
             if p0 == '/api/acceso':
                 body = json.dumps({'ok': True, 'puerto': cfg['puerto'], 'ips': ips_locales(), 'https': HTTPS_TS.get('url', '')}, ensure_ascii=False).encode('utf-8')
                 return self._send(body, 'application/json; charset=utf-8')

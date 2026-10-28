@@ -1,5 +1,7 @@
 <# : fijar_ip_caja.bat  (parte de Windows; la parte de abajo es PowerShell)
 @echo off
+set "OPCION=%~1"
+set "CARPETA=%~dp0"
 title Fijar la direccion WiFi de la caja
 net session >nul 2>&1
 if errorlevel 1 (
@@ -13,16 +15,18 @@ if errorlevel 1 (
 )
 powershell -NoProfile -ExecutionPolicy Bypass -Command "iex ((Get-Content -LiteralPath '%~f0' -Raw))"
 echo.
-pause
+if defined OPCION ( timeout /t 20 ) else ( pause )
 exit /b
 #>
 $ErrorActionPreference = 'Continue'
-function Linea($t) { Write-Host "  $t" }
+$res = Join-Path $env:CARPETA 'fijar_ip_resultado.txt'
+function Linea($t) { Write-Host "  $t"; try { Add-Content -LiteralPath $res -Value $t } catch {} }
 function Internet { (Test-Connection 8.8.8.8 -Count 2 -Quiet -ErrorAction SilentlyContinue) }
 function Automatico($alias) {
   netsh interface ipv4 set address name="$alias" source=dhcp | Out-Null
   netsh interface ipv4 set dnsservers name="$alias" source=dhcp | Out-Null
 }
+try {
 $cfg = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } | Select-Object -First 1
 if (-not $cfg) { Linea 'No encontre la conexion al modem. Revisa que la caja tenga internet y vuelve a intentar.'; return }
 $alias = $cfg.InterfaceAlias
@@ -35,7 +39,8 @@ Linea "Direccion actual de la caja: $ip   (modem: $gw)"
 Write-Host ''
 Linea '1 = Dejar la direccion FIJA (ya no cambia aunque se vaya el internet)'
 Linea '2 = Regresar a como estaba (automatica)'
-$op = Read-Host '  Escribe 1 o 2 y da Enter'
+$op = $env:OPCION
+if (-not $op) { $op = Read-Host '  Escribe 1 o 2 y da Enter' }
 if ($op -eq '2') {
   Automatico $alias; Start-Sleep 8
   Linea 'Listo. La direccion vuelve a ser automatica.'; return
@@ -70,3 +75,4 @@ Linea "  Comandero de los meseros:  http://$nueva`:8765/comandero"
 Linea "  Descansos (Berenice):      http://$nueva`:8765/descansos"
 Linea '======================================================'
 Linea 'Manda el PDF otra vez a los meseros y a Berenice. Sera la ULTIMA vez.'
+} finally { try { Add-Content -LiteralPath $res -Value 'FIN' } catch {} }

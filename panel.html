@@ -1273,7 +1273,33 @@ function bloqueComandero(){
     :pdf?(puedeCompartir()?`<div class="btns" style="margin-top:6px"><button class="btn pri" data-mspdf="${esc(NUEVO_MS_COD)}">Enviar PDF por WhatsApp</button><button class="btn" data-cpurl="${esc(url)}">Copiar dirección</button></div>${planB}
     <p class="empty" style="margin-top:8px">Se abre el menú para compartir con el PDF "${esc(nombrePdf(quien))}" ya cargado: toca <b>WhatsApp</b> y elige a ${esc(quien||'la persona')}. `
       :`<div class="btns" style="margin-top:6px">${ACCESO.https?`<a class="btn pri" href="${esc(ACCESO.https)}/" target="_blank" rel="noopener">Abrir el panel seguro para enviar</a>`:''}<button class="btn" data-cpurl="${esc(url)}">Copiar dirección</button></div>
-    <p class="note" style="margin-top:8px">${ACCESO.https?`Para mandar el PDF directo a WhatsApp, el teléfono pide la dirección segura del panel: <b>${esc(ACCESO.https)}</b>. Ábrela (entras con tu misma clave) y agrégala a tu pantalla de inicio en lugar de la actual.`:'Para mandar el PDF directo a WhatsApp falta encender la dirección segura de Tailscale en la caja (MagicDNS y HTTPS Certificates en el panel de Tailscale). Avísale a Claude.'}</p><p class="empty" style="margin-top:8px">`):'<p class="empty" style="margin-top:8px">'}La clave no va en el PDF; dásela tú en persona.${ts.length?` Tú, desde fuera, puedes probarlo con Tailscale: http://${esc(ts[0])}:${ACCESO.puerto}/comandero`:''}</p></div>`;
+    <p class="note" style="margin-top:8px">${ACCESO.https?`Para mandar el PDF directo a WhatsApp, el teléfono pide la dirección segura del panel: <b>${esc(ACCESO.https)}</b>. Ábrela (entras con tu misma clave) y agrégala a tu pantalla de inicio en lugar de la actual.`:'Para mandar el PDF directo a WhatsApp falta encender la dirección segura de Tailscale en la caja (MagicDNS y HTTPS Certificates en el panel de Tailscale). Avísale a Claude.'}</p><p class="empty" style="margin-top:8px">`):'<p class="empty" style="margin-top:8px">'}La clave no va en el PDF; dásela tú en persona.${ts.length?` Tú, desde fuera, puedes probarlo con Tailscale: http://${esc(ts[0])}:${ACCESO.puerto}/comandero`:''}</p></div>${bloqueFijarIp(wifi[0])}`;
+}
+// 30.7.79: dejar fija la dirección WiFi de la caja desde el teléfono de Jorge (en la caja alguien toca "Sí")
+let FIJAR_IP={txt:'',corre:false};
+function bloqueFijarIp(ip){
+  const fija=/\.(24\d|250)$/.test(ip||'');
+  return `<div class="card" id="fijarIp" style="margin-top:12px;padding:14px;box-shadow:none">
+    <b>${fija?'✓ La dirección de la caja ya está fija':'¿Los meseros dejan de entrar cuando se va el internet?'}</b>
+    <p class="empty" style="margin-top:6px">${fija?'Ya no debe cambiar aunque se caiga el internet. Si un día falla, puedes regresarla a automática.':'Al regresar el internet, el módem le cambia la dirección a la caja y los PDF dejan de abrir. Este botón la deja <b>fija</b> para siempre.'}</p>
+    <p class="note" style="margin-top:6px">Al tocarlo, en la <b>pantalla de la caja</b> sale una ventana de Windows: <i>"¿Quieres permitir que esta aplicación haga cambios?"</i>. Pide a quien esté en la caja que toque <b>Sí</b>. Hazlo cuando no estén mandando comandas (se corta unos 10 segundos).</p>
+    <div class="btns" style="margin-top:8px"><button class="btn pri" data-fijarip="1" ${FIJAR_IP.corre?'disabled':''}>${fija?'Volver a fijarla':'Dejar fija la dirección'}</button>${fija?'<button class="btn" data-fijarip="2">Regresar a automática</button>':''}</div>
+    ${FIJAR_IP.txt?`<pre style="white-space:pre-wrap;font-size:13px;margin-top:10px;background:var(--surface-2);padding:10px;border-radius:10px">${esc(FIJAR_IP.txt)}</pre>`:''}</div>`;
+}
+async function fijarIp(op){
+  try{await api('/api/fijar-ip',{regresar:op==='2'})}catch(e){toast(e.message);return}
+  FIJAR_IP={txt:'Esperando a que alguien toque "Sí" en la pantalla de la caja…',corre:true};render();
+  const fin=Date.now()+180000;
+  while(Date.now()<fin){
+    await new Promise(r=>setTimeout(r,4000));
+    try{const j=await (await fetch('/api/fijar-ip',{credentials:'same-origin'})).json();
+      if(j.texto)FIJAR_IP.txt=j.texto.replace(/\s*FIN\s*$/,'');
+      if(j.listo){FIJAR_IP.corre=false;try{ACCESO=await (await fetch('/api/acceso',{credentials:'same-origin'})).json();ACCESO.cmd=true}catch(_){}
+        render();toast(/LISTO/.test(j.texto)?'Listo: dirección fija. Ahora manda el PDF a cada mesero y a Berenice (última vez).':'Terminó. Revisa el mensaje.');return}
+      render();
+    }catch(_){/* la caja cambia de dirección unos segundos; se sigue intentando */}
+  }
+  FIJAR_IP.corre=false;FIJAR_IP.txt+=(FIJAR_IP.txt?'\n':'')+'No hubo respuesta en 3 minutos. ¿Alguien tocó "Sí" en la caja? Puedes intentar otra vez.';render();
 }
 function tarjetaComandero(){
   if(COPIA) return '';
@@ -2527,7 +2553,7 @@ $('#prev').onclick=()=>{const i=days.indexOf(cur);if(i>0){cur=days[i-1];render()
 $('#next').onclick=()=>{const i=days.indexOf(cur);if(i<days.length-1){cur=days[i+1];render()}};
 document.querySelector('nav.tabs').onclick=e=>{const b=e.target.closest('button');if(b)irA(b.dataset.tab)};
 $('#view').addEventListener('click',e=>{
-  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-cnquitar],[data-cf],[data-cfej],[data-cfguardar],[data-cfprueba],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaprobar],[data-iaquitar],[data-ghsave],[data-ghprobar],[data-ghquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes],[data-hactivar],[data-hquitar],[data-hsalir],[data-mshuella],[data-clavep],[data-pcfg],[data-ppago],[data-pborrar],[data-cetope],[data-qd],[data-qdsave],[data-qdquitar]');if(!t)return;
+  const t=e.target.closest('[data-go],[data-pm],[data-pt],[data-tm],[data-tt],[data-tk],[data-cm],[data-rp],[data-pq],[data-rq],[data-quitar],[data-motivo],[data-csv],[data-mes],[data-cv],[data-ct2],[data-plat],[data-cajag],[data-gprev],[data-gimp],[data-gdel],[data-fadd],[data-fdel],[data-fsave],[data-fc],[data-fcsave],[data-acceso],[data-gneg],[data-rcsave],[data-rcdel],[data-login],[data-cpurl],[data-famalta],[data-fambaja],[data-madd],[data-mdel],[data-cjalta],[data-cjbaja],[data-cjclave],[data-msalta],[data-msenvio],[data-mscandado],[data-msremoto],[data-msenlace],[data-mspdf],[data-cnquitar],[data-cf],[data-cfej],[data-cfguardar],[data-cfprueba],[data-msver],[data-msbaja],[data-msclave],[data-msacceso],[data-iasave],[data-iaprobar],[data-iaquitar],[data-ghsave],[data-ghprobar],[data-ghquitar],[data-leerpend],[data-drver],[data-drcopiar],[data-drconectar],[data-drquitar],[data-drborrar],[data-drmes],[data-hactivar],[data-hquitar],[data-hsalir],[data-mshuella],[data-clavep],[data-pcfg],[data-ppago],[data-pborrar],[data-cetope],[data-qd],[data-qdsave],[data-qdquitar],[data-fijarip]');if(!t)return;
   const d=t.dataset;
   if(d.go) return irA(d.go);
   if(d.pm){prodModo=d.pm;return render()} if(d.pt){prodT=d.pt;return render()}
@@ -2569,6 +2595,7 @@ $('#view').addEventListener('click',e=>{
   if(d.cnquitar){e.preventDefault();t.disabled=true;api('/api/clientes-nuevos',{accion:'quitar',id:d.cnquitar}).then(()=>{DATA.clientes_nuevos=(DATA.clientes_nuevos||[]).filter(x=>x.id!==d.cnquitar);render();toast('Quitado de la lista')}).catch(err=>{t.disabled=false;toast(err.message)});return}
   if(d.mspdf){e.preventDefault();enviarPdf(d.mspdf,NUEVO_MS);return}
   if(d.msenlace){e.preventDefault();abrirEnlaceMs((DATA.meseros||[]).find(x=>x.id===d.msenlace));return}
+  if(d.fijarip){e.preventDefault();if(!FIJAR_IP.corre)fijarIp(d.fijarip);return}
   if(d.msacceso){e.preventDefault();NUEVO_MS=null;NUEVO_MS_COD=null;fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;ACCESO.cmd=true;render()}).catch(err=>toast(err.message));return}
   if(d.acceso){NUEVO_CJ=null;fetch('/api/acceso',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{ACCESO=j;render()}).catch(err=>toast(err.message));return}
   if(d.fcsave&&CAPMODE){e.preventDefault();guardarCompra(t,false).then(()=>{toast('Compra guardada ✓');window.scrollTo(0,0);return cargarCaptura()}).catch(err=>{toast(err.message);t.disabled=false;t.textContent='Guardar'});return}
